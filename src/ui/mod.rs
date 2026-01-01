@@ -131,7 +131,7 @@ fn draw_battle_ui(
     // Bottom panel - controls hint
     egui::TopBottomPanel::bottom("controls").show(contexts.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
-            ui.label("Left-click: Select unit | Right-click: Move/Attack | ESC: Deselect");
+            ui.label("Click: Select/Move | WASD/Arrows: Pan camera | Shift+WASD: Move cursor | Space: Select/Confirm | ESC: Cancel");
         });
     });
 }
