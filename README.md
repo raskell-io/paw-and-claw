@@ -12,38 +12,75 @@ Animal kingdoms from across the world clash in strategic warfare. Each faction b
 |---------|-------|---------|-----------|
 | **Eastern Empire** | East Asian wildlife | Tanuki, Red Panda, Crane, Kitsune | Swarm tactics, quantity over quality |
 | **Northern Realm** | European wildlife | Badger, Hedgehog, Stoat, Owl, Fox | Balanced forces, strong defense |
-| **Southern Frontier** | American wildlife | Raccoon, Opossum, Coyote, Hawk | Guerrilla tactics, high mobility |
+| **Western Frontier** | American wildlife | Raccoon, Opossum, Coyote, Hawk | Guerrilla tactics, high mobility |
+| **Southern Pride** | African wildlife | Lion, Elephant, Rhino, Hyena, Cheetah | Raw power, territorial control |
 | **The Wanderer** | Lone wolf | Wolf | Single powerful agent |
 
 ### Units
 
-| Unit | Class | Role | Cost |
-|------|-------|------|------|
-| Scout | Foot | Cheap infantry, captures buildings | 1000 |
-| Shocktrooper | Foot | Heavy infantry, anti-armor | 3000 |
-| Recon | Treads | Fast scout vehicle | 4000 |
-| Ironclad | Treads | Main battle armor | 7000 |
-| Siege | Treads | Long-range bombardment | 6000 |
-| Skywing | Air | Versatile air unit | 9000 |
-| Talon | Air | Heavy air striker | 12000 |
-| Carrier | Transport | Moves foot units | 5000 |
-| Supplier | Transport | Resupply and repair | 5000 |
+#### Foot Units
+| Unit | Role | Cost |
+|------|------|------|
+| Scout | Cheap infantry, captures buildings | 1000 |
+| Shocktrooper | Heavy infantry, anti-armor | 3000 |
 
-### Terrain
+#### Ground Vehicles
+| Unit | Role | Cost |
+|------|------|------|
+| Recon | Fast scout, great on roads | 4000 |
+| Ironclad | Main battle armor | 7000 |
+| Juggernaut | Heavy armor, devastating firepower | 16000 |
+| Behemoth | Super-heavy armor, ultimate ground unit | 22000 |
+| Flak | Anti-air vehicle | 8000 |
+| Siege | Medium-range artillery (2-3) | 6000 |
+| Barrage | Long-range rockets (3-5) | 15000 |
+| Stinger | Long-range anti-air missiles (3-5) | 12000 |
 
-- **Clearing** - Open ground, no bonuses
-- **Forest** - Defense bonus, slows ground units
-- **Mountain** - High defense, limited access
-- **River** - Movement penalty
-- **Road** - Fast movement
-- **Base** - Spawn units, high defense
-- **Village** - Capture for income
+#### Ground Support
+| Unit | Role | Cost |
+|------|------|------|
+| Carrier | Transports foot units | 5000 |
+| Supplier | Resupply and repair | 5000 |
+
+#### Air Units
+| Unit | Role | Cost |
+|------|------|------|
+| Ferrier | Transport helicopter | 5000 |
+| Skywing | Attack helicopter, versatile | 9000 |
+| Raptor | Air superiority fighter | 20000 |
+| Talon | Heavy bomber | 22000 |
+
+#### Naval Units
+| Unit | Role | Cost |
+|------|------|------|
+| Barge | Naval transport | 12000 |
+| Frigate | Fast warship, anti-air/sub | 18000 |
+| Lurker | Submarine, stealth attacks | 20000 |
+| Dreadnought | Battleship, long-range (2-6) | 28000 |
+
+### Terrain (Woodland Scale)
+
+| Terrain | Defense | Move Cost | Description |
+|---------|---------|-----------|-------------|
+| **Grass** | 0 | 1 | Open ground, easy movement |
+| **Tall Grass** | 1 | 1 | Some concealment |
+| **Thicket** | 2 | 2 | Dense bushes, good cover |
+| **Brambles** | 3 | 3 | Thorny, excellent defense |
+| **Log** | 0 | 1 | Fallen tree, fast travel |
+| **Boulder** | 4 | 3 | Large rocks, high defense |
+| **Hollow** | 3 | 1 | Stump shelter, good cover |
+| **Creek** | 0 | 2 | Shallow water crossing |
+| **Pond** | 0 | - | Deep water, impassable |
+| **Shore** | 0 | 2 | Muddy bank |
+| **Base** | 4 | 1 | Fortified HQ, spawn point |
+| **Outpost** | 2 | 1 | Capturable position |
+| **Storehouse** | 1 | 1 | Supply cache, capturable |
 
 ## Art Direction
 
 **Style**: High-resolution pixel art (32x32 or 48x48 tiles)
 - Hand-crafted pixel sprites with limited color palettes
-- Faction-specific color schemes (Red/Gold for Eastern, Blue/Silver for Northern, Green/Brown for Southern)
+- Faction-specific color schemes (Red for Eastern, Blue for Northern, Green for Western, Gold for Southern)
 - Expressive animal characters with distinct silhouettes
 - Terrain tiles with rich detail and seasonal variations
 
@@ -84,8 +121,15 @@ Then open http://localhost:8080
 
 ## Controls
 
-- **Left-click**: Select unit
-- **Right-click**: Move selected unit / Attack enemy
+### Mouse
+- **Left-click unit**: Select unit (shows movement range)
+- **Left-click tile**: Move selected unit
+- **Left-click selected**: Deselect
+
+### Keyboard
+- **WASD / Arrows**: Pan camera
+- **Shift + WASD/Arrows**: Move grid cursor
+- **Space / Enter**: Select unit at cursor / Confirm move
 - **ESC**: Deselect / Cancel
 
 ## Tech Stack

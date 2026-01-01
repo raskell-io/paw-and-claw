@@ -7,7 +7,8 @@ pub struct UnitPlugin;
 
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_test_units.after(super::spawn_test_map));
+        app.add_systems(Startup, spawn_test_units.after(super::spawn_test_map))
+            .add_systems(Update, update_hp_displays);
     }
 }
 
@@ -15,9 +16,13 @@ impl Plugin for UnitPlugin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UnitClass {
     Foot,       // Infantry-type, can capture
+    Wheels,     // Fast on roads, slow off-road (Recon, Missiles)
     Treads,     // Armored ground vehicles
-    Air,        // Flying units
-    Transport,  // Non-combat carriers
+    Air,        // Flying units (copters and planes)
+    Naval,      // Ships
+    Transport,  // Non-combat carriers (ground)
+    AirTransport, // Non-combat air carriers
+    NavalTransport, // Non-combat naval carriers
 }
 
 /// Unit types - original names, classic tactics game balance
@@ -31,30 +36,55 @@ pub enum UnitType {
     Shocktrooper,
 
     // === GROUND VEHICLES ===
-    /// Ironclad - Main battle armor, strong all-around
-    Ironclad,
     /// Recon - Fast wheeled vehicle, good vision
     Recon,
-    /// Siege - Indirect fire, long range bombardment
+    /// Ironclad - Main battle armor, strong all-around
+    Ironclad,
+    /// Juggernaut - Heavy battle armor, powerful but slow
+    Juggernaut,
+    /// Behemoth - Super-heavy armor, devastating firepower
+    Behemoth,
+    /// Flak - Anti-air vehicle, shreds aircraft
+    Flak,
+    /// Siege - Indirect fire, medium range bombardment
     Siege,
+    /// Barrage - Long-range rocket artillery
+    Barrage,
+    /// Stinger - Long-range anti-air missiles
+    Stinger,
 
-    // === AIR UNITS ===
-    /// Skywing - Light air unit, versatile attacker
-    Skywing,
-    /// Talon - Heavy air unit, anti-ground specialist
-    Talon,
-
-    // === SUPPORT ===
+    // === GROUND SUPPORT ===
     /// Carrier - Transports foot units
     Carrier,
     /// Supplier - Resupplies and repairs adjacent units
     Supplier,
+
+    // === AIR UNITS ===
+    /// Ferrier - Transport helicopter, carries foot units
+    Ferrier,
+    /// Skywing - Light attack helicopter, versatile
+    Skywing,
+    /// Raptor - Air superiority fighter, dominates skies
+    Raptor,
+    /// Talon - Heavy bomber, devastating ground attacks
+    Talon,
+
+    // === NAVAL UNITS ===
+    /// Barge - Naval transport, carries ground units
+    Barge,
+    /// Frigate - Fast naval unit, anti-air and anti-sub
+    Frigate,
+    /// Lurker - Submarine, stealth attacks
+    Lurker,
+    /// Dreadnought - Battleship, massive indirect fire
+    Dreadnought,
 }
 
 impl UnitType {
-    /// Get unit statistics - balanced for tactical depth
+    /// Get unit statistics - balanced for tactical depth (based on Advance Wars 2)
     pub fn stats(&self) -> UnitStats {
         match self {
+            // ========== FOOT UNITS ==========
             // Scout: Cheap, mobile infantry. Can capture. (Infantry equivalent)
             UnitType::Scout => UnitStats {
                 max_hp: 100,
@@ -62,6 +92,7 @@ impl UnitType {
                 defense: 100,
                 movement: 3,
                 attack_range: (1, 1),
+                vision: 2,
                 can_capture: true,
                 cost: 1000,
                 class: UnitClass::Foot,
@@ -73,9 +104,24 @@ impl UnitType {
                 defense: 110,
                 movement: 2,
                 attack_range: (1, 1),
+                vision: 2,
                 can_capture: true,
                 cost: 3000,
                 class: UnitClass::Foot,
+            },
+
+            // ========== GROUND VEHICLES ==========
+            // Recon: Fast, cheap, good for scouting. (Recon equivalent)
+            UnitType::Recon => UnitStats {
+                max_hp: 100,
+                attack: 70,
+                defense: 130,
+                movement: 8,
+                attack_range: (1, 1),
+                vision: 5,  // High vision - scout unit
+                can_capture: false,
+                cost: 4000,
+                class: UnitClass::Wheels,
             },
             // Ironclad: Main battle unit, good attack and defense. (Tank equivalent)
             UnitType::Ironclad => UnitStats {
@@ -84,54 +130,85 @@ impl UnitType {
                 defense: 160,
                 movement: 6,
                 attack_range: (1, 1),
+                vision: 3,
                 can_capture: false,
                 cost: 7000,
                 class: UnitClass::Treads,
             },
-            // Recon: Fast, cheap, good for scouting. (Recon equivalent)
-            UnitType::Recon => UnitStats {
+            // Juggernaut: Heavy tank, powerful but expensive. (Md. Tank equivalent)
+            UnitType::Juggernaut => UnitStats {
                 max_hp: 100,
-                attack: 70,
-                defense: 130,
-                movement: 8,
+                attack: 105,
+                defense: 190,
+                movement: 5,
                 attack_range: (1, 1),
+                vision: 2,
                 can_capture: false,
-                cost: 4000,
+                cost: 16000,
                 class: UnitClass::Treads,
             },
-            // Siege: Indirect fire, cannot move and attack same turn. (Artillery equivalent)
+            // Behemoth: Super-heavy tank, devastating. (Neotank equivalent)
+            UnitType::Behemoth => UnitStats {
+                max_hp: 100,
+                attack: 125,
+                defense: 220,
+                movement: 6,
+                attack_range: (1, 1),
+                vision: 2,
+                can_capture: false,
+                cost: 22000,
+                class: UnitClass::Treads,
+            },
+            // Flak: Anti-air vehicle, strong vs aircraft. (Anti-Air equivalent)
+            UnitType::Flak => UnitStats {
+                max_hp: 100,
+                attack: 105, // vs air, lower vs ground
+                defense: 140,
+                movement: 6,
+                attack_range: (1, 1),
+                vision: 3,
+                can_capture: false,
+                cost: 8000,
+                class: UnitClass::Treads,
+            },
+            // Siege: Indirect fire, medium range. (Artillery equivalent)
             UnitType::Siege => UnitStats {
                 max_hp: 100,
                 attack: 90,
                 defense: 50,
                 movement: 5,
                 attack_range: (2, 3),
+                vision: 1,  // Low vision - artillery
                 can_capture: false,
                 cost: 6000,
                 class: UnitClass::Treads,
             },
-            // Skywing: Versatile air unit. (B-Copter equivalent)
-            UnitType::Skywing => UnitStats {
+            // Barrage: Long-range rockets. (Rockets equivalent)
+            UnitType::Barrage => UnitStats {
                 max_hp: 100,
-                attack: 55,
-                defense: 70,
-                movement: 6,
-                attack_range: (1, 1),
+                attack: 115,
+                defense: 50,
+                movement: 5,
+                attack_range: (3, 5),
+                vision: 1,  // Low vision - artillery
                 can_capture: false,
-                cost: 9000,
-                class: UnitClass::Air,
+                cost: 15000,
+                class: UnitClass::Treads,
             },
-            // Talon: Heavy air, strong vs ground. (Bomber-lite)
-            UnitType::Talon => UnitStats {
+            // Stinger: Long-range anti-air missiles. (Missiles equivalent)
+            UnitType::Stinger => UnitStats {
                 max_hp: 100,
-                attack: 75,
-                defense: 80,
-                movement: 7,
-                attack_range: (1, 1),
+                attack: 120, // vs air only
+                defense: 50,
+                movement: 4,
+                attack_range: (3, 5),
+                vision: 5,  // Radar - high vision
                 can_capture: false,
                 cost: 12000,
-                class: UnitClass::Air,
+                class: UnitClass::Wheels,
             },
+
+            // ========== GROUND SUPPORT ==========
             // Carrier: Transports foot units. (APC equivalent)
             UnitType::Carrier => UnitStats {
                 max_hp: 100,
@@ -139,6 +216,7 @@ impl UnitType {
                 defense: 70,
                 movement: 6,
                 attack_range: (0, 0),
+                vision: 2,
                 can_capture: false,
                 cost: 5000,
                 class: UnitClass::Transport,
@@ -148,57 +226,207 @@ impl UnitType {
                 max_hp: 100,
                 attack: 0,
                 defense: 70,
-                movement: 5,
+                movement: 6,
                 attack_range: (0, 0),
+                vision: 2,
                 can_capture: false,
                 cost: 5000,
                 class: UnitClass::Transport,
+            },
+
+            // ========== AIR UNITS ==========
+            // Ferrier: Transport helicopter. (T-Copter equivalent)
+            UnitType::Ferrier => UnitStats {
+                max_hp: 100,
+                attack: 0,
+                defense: 50,
+                movement: 6,
+                attack_range: (0, 0),
+                vision: 4,  // Good air vision
+                can_capture: false,
+                cost: 5000,
+                class: UnitClass::AirTransport,
+            },
+            // Skywing: Versatile attack helicopter. (B-Copter equivalent)
+            UnitType::Skywing => UnitStats {
+                max_hp: 100,
+                attack: 65,
+                defense: 70,
+                movement: 6,
+                attack_range: (1, 1),
+                vision: 4,  // Good air vision
+                can_capture: false,
+                cost: 9000,
+                class: UnitClass::Air,
+            },
+            // Raptor: Air superiority fighter. (Fighter equivalent)
+            UnitType::Raptor => UnitStats {
+                max_hp: 100,
+                attack: 100, // vs air, weak vs ground
+                defense: 80,
+                movement: 9,
+                attack_range: (1, 1),
+                vision: 5,  // High air vision
+                can_capture: false,
+                cost: 20000,
+                class: UnitClass::Air,
+            },
+            // Talon: Heavy bomber. (Bomber equivalent)
+            UnitType::Talon => UnitStats {
+                max_hp: 100,
+                attack: 115, // vs ground only
+                defense: 90,
+                movement: 7,
+                attack_range: (1, 1),
+                vision: 3,
+                can_capture: false,
+                cost: 22000,
+                class: UnitClass::Air,
+            },
+
+            // ========== NAVAL UNITS ==========
+            // Barge: Naval transport. (Lander equivalent)
+            UnitType::Barge => UnitStats {
+                max_hp: 100,
+                attack: 0,
+                defense: 60,
+                movement: 6,
+                attack_range: (0, 0),
+                vision: 2,
+                can_capture: false,
+                cost: 12000,
+                class: UnitClass::NavalTransport,
+            },
+            // Frigate: Fast naval, anti-air/sub. (Cruiser equivalent)
+            UnitType::Frigate => UnitStats {
+                max_hp: 100,
+                attack: 85,
+                defense: 80,
+                movement: 6,
+                attack_range: (1, 1),
+                vision: 5,  // Radar
+                can_capture: false,
+                cost: 18000,
+                class: UnitClass::Naval,
+            },
+            // Lurker: Submarine, stealth. (Sub equivalent)
+            UnitType::Lurker => UnitStats {
+                max_hp: 100,
+                attack: 95,
+                defense: 60,
+                movement: 5,
+                attack_range: (1, 1),
+                vision: 3,
+                can_capture: false,
+                cost: 20000,
+                class: UnitClass::Naval,
+            },
+            // Dreadnought: Battleship, indirect fire. (Battleship equivalent)
+            UnitType::Dreadnought => UnitStats {
+                max_hp: 100,
+                attack: 130,
+                defense: 100,
+                movement: 5,
+                attack_range: (2, 6),
+                vision: 4,
+                can_capture: false,
+                cost: 28000,
+                class: UnitClass::Naval,
             },
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
+            // Foot
             UnitType::Scout => "Scout",
             UnitType::Shocktrooper => "Shocktrooper",
-            UnitType::Ironclad => "Ironclad",
+            // Ground vehicles
             UnitType::Recon => "Recon",
+            UnitType::Ironclad => "Ironclad",
+            UnitType::Juggernaut => "Juggernaut",
+            UnitType::Behemoth => "Behemoth",
+            UnitType::Flak => "Flak",
             UnitType::Siege => "Siege",
-            UnitType::Skywing => "Skywing",
-            UnitType::Talon => "Talon",
+            UnitType::Barrage => "Barrage",
+            UnitType::Stinger => "Stinger",
+            // Ground support
             UnitType::Carrier => "Carrier",
             UnitType::Supplier => "Supplier",
+            // Air
+            UnitType::Ferrier => "Ferrier",
+            UnitType::Skywing => "Skywing",
+            UnitType::Raptor => "Raptor",
+            UnitType::Talon => "Talon",
+            // Naval
+            UnitType::Barge => "Barge",
+            UnitType::Frigate => "Frigate",
+            UnitType::Lurker => "Lurker",
+            UnitType::Dreadnought => "Dreadnought",
         }
     }
 
     pub fn description(&self) -> &'static str {
         match self {
+            // Foot
             UnitType::Scout => "Light foot soldier. Cheap and can capture buildings.",
             UnitType::Shocktrooper => "Heavy foot soldier. Strong against armor.",
+            // Ground vehicles
+            UnitType::Recon => "Fast scout vehicle. Great mobility on roads.",
             UnitType::Ironclad => "Main battle armor. Powerful and well-protected.",
-            UnitType::Recon => "Fast scout vehicle. Great mobility.",
-            UnitType::Siege => "Long-range bombardment. Cannot counter-attack.",
-            UnitType::Skywing => "Versatile air unit. Attacks ground and air.",
-            UnitType::Talon => "Heavy air striker. Devastating against ground forces.",
+            UnitType::Juggernaut => "Heavy battle armor. Devastating firepower.",
+            UnitType::Behemoth => "Super-heavy armor. The ultimate ground unit.",
+            UnitType::Flak => "Anti-air vehicle. Shreds aircraft.",
+            UnitType::Siege => "Medium-range artillery. Indirect fire.",
+            UnitType::Barrage => "Long-range rockets. Massive area damage.",
+            UnitType::Stinger => "Long-range anti-air missiles. Locks down airspace.",
+            // Ground support
             UnitType::Carrier => "Transports foot units across the battlefield.",
             UnitType::Supplier => "Resupplies ammunition and repairs nearby units.",
+            // Air
+            UnitType::Ferrier => "Transport helicopter. Carries foot units.",
+            UnitType::Skywing => "Attack helicopter. Versatile against ground and air.",
+            UnitType::Raptor => "Air superiority fighter. Dominates the skies.",
+            UnitType::Talon => "Heavy bomber. Devastating ground attacks.",
+            // Naval
+            UnitType::Barge => "Naval transport. Carries ground units across water.",
+            UnitType::Frigate => "Fast warship. Anti-air and anti-submarine.",
+            UnitType::Lurker => "Submarine. Stealth attacks on ships.",
+            UnitType::Dreadnought => "Battleship. Massive long-range bombardment.",
         }
     }
 
     pub fn symbol(&self) -> &'static str {
         match self {
+            // Foot
             UnitType::Scout => "Sc",
             UnitType::Shocktrooper => "Sh",
-            UnitType::Ironclad => "Ir",
+            // Ground vehicles
             UnitType::Recon => "Rc",
+            UnitType::Ironclad => "Ir",
+            UnitType::Juggernaut => "Jg",
+            UnitType::Behemoth => "Bh",
+            UnitType::Flak => "Fk",
             UnitType::Siege => "Si",
-            UnitType::Skywing => "Sw",
-            UnitType::Talon => "Ta",
+            UnitType::Barrage => "Br",
+            UnitType::Stinger => "St",
+            // Ground support
             UnitType::Carrier => "Ca",
             UnitType::Supplier => "Su",
+            // Air
+            UnitType::Ferrier => "Fe",
+            UnitType::Skywing => "Sw",
+            UnitType::Raptor => "Rp",
+            UnitType::Talon => "Ta",
+            // Naval
+            UnitType::Barge => "Ba",
+            UnitType::Frigate => "Fr",
+            UnitType::Lurker => "Lu",
+            UnitType::Dreadnought => "Dr",
         }
     }
 
+    #[allow(dead_code)]
     pub fn class(&self) -> UnitClass {
         self.stats().class
     }
@@ -211,6 +439,7 @@ pub struct UnitStats {
     pub defense: i32,
     pub movement: u32,
     pub attack_range: (u32, u32),  // (min, max) range
+    pub vision: u32,              // Vision range for fog of war
     pub can_capture: bool,
     pub cost: u32,
     pub class: UnitClass,
@@ -240,6 +469,7 @@ impl Unit {
         self.hp as f32 / self.unit_type.stats().max_hp as f32
     }
 
+    #[allow(dead_code)]
     pub fn reset_turn(&mut self) {
         self.moved = false;
         self.attacked = false;
@@ -275,7 +505,16 @@ impl GridPosition {
 
 /// Marker for selected unit
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct Selected;
+
+/// Marker for HP display text (child of unit)
+#[derive(Component)]
+pub struct HpDisplay;
+
+/// Marker for unit type symbol text (child of unit)
+#[derive(Component)]
+pub struct UnitSymbol;
 
 fn spawn_test_units(mut commands: Commands, game_map: Res<GameMap>) {
     // Spawn Eastern Empire units (red)
@@ -289,7 +528,7 @@ fn spawn_test_units(mut commands: Commands, game_map: Res<GameMap>) {
     spawn_unit(&mut commands, &game_map, Faction::Northern, UnitType::Siege, 10, 5);
 }
 
-fn spawn_unit(
+pub fn spawn_unit(
     commands: &mut Commands,
     map: &GameMap,
     faction: Faction,
@@ -310,5 +549,52 @@ fn spawn_unit(
         Unit::new(unit_type),
         GridPosition::new(x, y),
         FactionMember { faction },
-    ));
+    )).with_children(|parent| {
+        // Unit type symbol in center
+        parent.spawn((
+            Text2d::new(unit_type.symbol()),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            TextLayout::new_with_justify(JustifyText::Center),
+            Transform::from_xyz(0.0, 0.0, 1.0),
+            UnitSymbol,
+        ));
+
+        // HP display in bottom-right corner
+        parent.spawn((
+            Text2d::new(""),
+            TextFont {
+                font_size: 12.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            Transform::from_xyz(TILE_SIZE * 0.22, -TILE_SIZE * 0.22, 2.0),
+            HpDisplay,
+        ));
+    });
+}
+
+/// Update HP display text for all units
+fn update_hp_displays(
+    units: Query<(&Unit, &Children)>,
+    mut hp_displays: Query<&mut Text2d, With<HpDisplay>>,
+) {
+    for (unit, children) in units.iter() {
+        for child in children.iter() {
+            if let Ok(mut text) = hp_displays.get_mut(*child) {
+                // HP 1-10 display (ceiling of HP/10)
+                let hp_display = ((unit.hp as f32) / 10.0).ceil() as i32;
+                let hp_display = hp_display.clamp(1, 10);
+                // Don't show "10", show nothing or could show a different indicator
+                if hp_display == 10 {
+                    **text = String::new();
+                } else {
+                    **text = hp_display.to_string();
+                }
+            }
+        }
+    }
 }

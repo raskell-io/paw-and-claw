@@ -1,13 +1,79 @@
 use bevy::prelude::*;
+use std::collections::HashMap;
 
-use super::{Faction, FactionMember, Unit};
+use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders};
 
 pub struct TurnPlugin;
 
 impl Plugin for TurnPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TurnState>()
-            .add_systems(Update, check_victory_condition);
+            .init_resource::<FactionFunds>()
+            .init_resource::<GameResult>()
+            .add_event::<TurnStartEvent>()
+            .add_systems(Update, (check_victory_condition, generate_income));
+    }
+}
+
+/// Result of the game - tracks win/lose state
+#[derive(Resource, Default)]
+pub struct GameResult {
+    pub game_over: bool,
+    pub winner: Option<Faction>,
+    pub victory_type: VictoryType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VictoryType {
+    #[default]
+    None,
+    Elimination,   // All enemy units destroyed
+    HQCapture,     // Enemy HQ (base) captured
+}
+
+/// Event fired when a faction's turn starts
+#[derive(Event)]
+pub struct TurnStartEvent {
+    pub faction: Faction,
+    #[allow(dead_code)]
+    pub income: u32,
+}
+
+/// Tracks funds for each faction
+#[derive(Resource)]
+pub struct FactionFunds {
+    funds: HashMap<Faction, u32>,
+}
+
+impl Default for FactionFunds {
+    fn default() -> Self {
+        let mut funds = HashMap::new();
+        funds.insert(Faction::Eastern, 100);
+        funds.insert(Faction::Northern, 100);
+        funds.insert(Faction::Western, 0);
+        funds.insert(Faction::Southern, 0);
+        funds.insert(Faction::Wanderer, 0);
+        Self { funds }
+    }
+}
+
+impl FactionFunds {
+    pub fn get(&self, faction: Faction) -> u32 {
+        *self.funds.get(&faction).unwrap_or(&0)
+    }
+
+    pub fn add(&mut self, faction: Faction, amount: u32) {
+        *self.funds.entry(faction).or_insert(0) += amount;
+    }
+
+    pub fn spend(&mut self, faction: Faction, amount: u32) -> bool {
+        let current = self.funds.entry(faction).or_insert(0);
+        if *current >= amount {
+            *current -= amount;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -30,6 +96,7 @@ impl Default for TurnState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum TurnPhase {
     Select,     // Selecting a unit
     Move,       // Unit selected, choosing where to move
@@ -38,6 +105,7 @@ pub enum TurnPhase {
 }
 
 impl TurnState {
+    #[allow(dead_code)]
     pub fn end_turn<'a>(&mut self, units: impl Iterator<Item = &'a mut Unit>) {
         // Reset all units of current faction
         for unit in units {
@@ -60,8 +128,15 @@ impl TurnState {
 
 fn check_victory_condition(
     units: Query<(&Unit, &FactionMember)>,
-    _turn_state: Res<TurnState>,
+    tiles: Query<&Tile>,
+    mut game_result: ResMut<GameResult>,
 ) {
+    // Skip if game is already over
+    if game_result.game_over {
+        return;
+    }
+
+    // Count units per faction
     let mut eastern_units = 0;
     let mut northern_units = 0;
 
@@ -73,9 +148,74 @@ fn check_victory_condition(
         }
     }
 
-    if eastern_units == 0 {
-        info!("Northern Realm wins!");
-    } else if northern_units == 0 {
-        info!("Eastern Empire wins!");
+    // Check elimination victory
+    if eastern_units == 0 && northern_units > 0 {
+        game_result.game_over = true;
+        game_result.winner = Some(Faction::Northern);
+        game_result.victory_type = VictoryType::Elimination;
+        info!("Northern Realm wins by elimination!");
+        return;
+    } else if northern_units == 0 && eastern_units > 0 {
+        game_result.game_over = true;
+        game_result.winner = Some(Faction::Eastern);
+        game_result.victory_type = VictoryType::Elimination;
+        info!("Eastern Empire wins by elimination!");
+        return;
+    }
+
+    // Check HQ capture victory - count bases owned by each faction
+    let eastern_bases = tiles.iter()
+        .filter(|t| t.terrain == Terrain::Base && t.owner == Some(Faction::Eastern))
+        .count();
+    let northern_bases = tiles.iter()
+        .filter(|t| t.terrain == Terrain::Base && t.owner == Some(Faction::Northern))
+        .count();
+
+    // If one faction owns all bases (2+), they win by HQ capture
+    let total_bases = tiles.iter().filter(|t| t.terrain == Terrain::Base).count();
+
+    if total_bases >= 2 {
+        if eastern_bases == total_bases {
+            game_result.game_over = true;
+            game_result.winner = Some(Faction::Eastern);
+            game_result.victory_type = VictoryType::HQCapture;
+            info!("Eastern Empire wins by capturing all HQs!");
+        } else if northern_bases == total_bases {
+            game_result.game_over = true;
+            game_result.winner = Some(Faction::Northern);
+            game_result.victory_type = VictoryType::HQCapture;
+            info!("Northern Realm wins by capturing all HQs!");
+        }
+    }
+}
+
+/// Generate income from owned properties when turn start event fires
+fn generate_income(
+    mut events: EventReader<TurnStartEvent>,
+    tiles: Query<&Tile>,
+    mut funds: ResMut<FactionFunds>,
+    commanders: Res<Commanders>,
+) {
+    for event in events.read() {
+        // Calculate base income from owned properties
+        let base_income: u32 = tiles.iter()
+            .filter(|t| t.owner == Some(event.faction))
+            .map(|t| t.terrain.income_value())
+            .sum();
+
+        // Apply CO income bonus
+        let co_bonuses = commanders.get_bonuses(event.faction);
+        let income = (base_income as f32 * co_bonuses.income).round() as u32;
+
+        if income > 0 {
+            funds.add(event.faction, income);
+            if co_bonuses.income > 1.0 {
+                info!("{:?} receives {} income (+{:.0}% CO bonus, total: {})",
+                    event.faction, income, (co_bonuses.income - 1.0) * 100.0, funds.get(event.faction));
+            } else {
+                info!("{:?} receives {} income (total: {})",
+                    event.faction, income, funds.get(event.faction));
+            }
+        }
     }
 }

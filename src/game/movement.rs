@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TILE_SIZE};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders};
 use crate::states::GameState;
 
 pub struct MovementPlugin;
@@ -10,20 +10,41 @@ impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MovementHighlights>()
             .init_resource::<GridCursor>()
+            .init_resource::<PendingAction>()
+            .init_resource::<ProductionState>()
             .add_systems(Update, (
                 handle_keyboard_input,
                 handle_camera_movement,
                 handle_click_input,
                 update_movement_highlights,
                 draw_grid_cursor,
+                draw_action_targets,
             ).run_if(in_state(GameState::Battle)));
     }
 }
 
-/// Resource to track movement range highlights
+/// Tracks a unit that has moved and is waiting for action selection
+#[derive(Resource, Default)]
+pub struct PendingAction {
+    pub unit: Option<Entity>,
+    pub targets: HashSet<Entity>,  // Enemies that can be attacked from new position
+    pub can_capture: bool,         // Whether the unit can capture the tile it's on
+    pub capture_tile: Option<Entity>, // The tile entity that can be captured
+}
+
+/// Tracks when production menu should be shown
+#[derive(Resource, Default)]
+pub struct ProductionState {
+    pub active: bool,
+    pub base_entity: Option<Entity>,
+    pub base_position: (i32, i32),
+}
+
+/// Resource to track movement range and attack target highlights
 #[derive(Resource, Default)]
 pub struct MovementHighlights {
     pub tiles: HashSet<(i32, i32)>,
+    pub attack_targets: HashSet<Entity>,  // Enemy units that can be attacked
     pub selected_unit: Option<Entity>,
 }
 
@@ -43,6 +64,38 @@ impl Default for GridCursor {
             visible: false,
         }
     }
+}
+
+/// Calculate which enemies can be attacked from current position
+pub fn calculate_attack_targets(
+    attacker: &Unit,
+    attacker_pos: &GridPosition,
+    attacker_faction: &FactionMember,
+    units: &[(Entity, GridPosition, FactionMember)],
+) -> HashSet<Entity> {
+    let mut targets = HashSet::new();
+    let stats = attacker.unit_type.stats();
+
+    // Skip if unit can't attack
+    if stats.attack == 0 {
+        return targets;
+    }
+
+    let (min_range, max_range) = stats.attack_range;
+
+    for (entity, pos, faction) in units {
+        // Can't attack own faction
+        if faction.faction == attacker_faction.faction {
+            continue;
+        }
+
+        let distance = attacker_pos.distance_to(pos);
+        if distance >= min_range && distance <= max_range {
+            targets.insert(*entity);
+        }
+    }
+
+    targets
 }
 
 /// Calculate reachable tiles using BFS
@@ -104,10 +157,36 @@ fn handle_keyboard_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut cursor: ResMut<GridCursor>,
     mut highlights: ResMut<MovementHighlights>,
+    mut pending_action: ResMut<PendingAction>,
+    mut turn_state: ResMut<TurnState>,
     mut units: Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
-    turn_state: Res<TurnState>,
+    tiles: Query<(Entity, &Tile)>,
     map: Res<GameMap>,
+    mut attack_events: EventWriter<AttackEvent>,
+    game_result: Res<GameResult>,
+    commanders: Res<Commanders>,
 ) {
+    // Don't process input if game is over
+    if game_result.game_over {
+        return;
+    }
+
+    // If in Action phase, keyboard is handled by UI
+    if turn_state.phase == TurnPhase::Action {
+        // ESC cancels action and deselects (unit already moved, so mark as done)
+        if keyboard.just_pressed(KeyCode::Escape) {
+            if let Some(entity) = pending_action.unit {
+                if let Ok((_, _, _, _, mut unit)) = units.get_mut(entity) {
+                    unit.attacked = false; // Wait action
+                }
+            }
+            pending_action.unit = None;
+            pending_action.targets.clear();
+            turn_state.phase = TurnPhase::Select;
+        }
+        return;
+    }
+
     // Show cursor when using keyboard
     let mut moved_cursor = false;
 
@@ -141,15 +220,39 @@ fn handle_keyboard_input(
     if keyboard.just_pressed(KeyCode::Escape) {
         highlights.selected_unit = None;
         highlights.tiles.clear();
+        highlights.attack_targets.clear();
         cursor.visible = false;
         return;
     }
 
-    // Space or Enter to select/move
+    // Space or Enter to select/move/attack
     if keyboard.just_pressed(KeyCode::Space) || keyboard.just_pressed(KeyCode::Enter) {
         cursor.visible = true;
 
         if let Some(selected_entity) = highlights.selected_unit {
+            // Check if cursor is on an attack target (before moving)
+            let target_entity = units.iter()
+                .find(|(e, p, _, _, _)| p.x == cursor.x && p.y == cursor.y && highlights.attack_targets.contains(e))
+                .map(|(e, _, _, _, _)| e);
+
+            if let Some(target) = target_entity {
+                // Attack!
+                attack_events.send(AttackEvent {
+                    attacker: selected_entity,
+                    defender: target,
+                });
+
+                // Mark as attacked and clear selection
+                if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
+                    unit.attacked = true;
+                    unit.moved = true;
+                }
+                highlights.selected_unit = None;
+                highlights.tiles.clear();
+                highlights.attack_targets.clear();
+                return;
+            }
+
             // Try to move to cursor position
             if highlights.tiles.contains(&(cursor.x, cursor.y)) {
                 // Check we're not moving onto another unit
@@ -157,15 +260,55 @@ fn handle_keyboard_input(
                     .any(|(e, p, _, _, _)| e != selected_entity && p.x == cursor.x && p.y == cursor.y);
 
                 if !target_occupied {
-                    if let Ok((_, mut grid_pos, mut transform, _, mut unit)) = units.get_mut(selected_entity) {
+                    let new_pos = GridPosition::new(cursor.x, cursor.y);
+
+                    // Move the unit
+                    let faction_copy;
+                    let unit_copy;
+                    if let Ok((_, mut grid_pos, mut transform, faction, mut unit)) = units.get_mut(selected_entity) {
                         grid_pos.x = cursor.x;
                         grid_pos.y = cursor.y;
                         transform.translation = grid_pos.to_world(&map);
                         unit.moved = true;
+                        faction_copy = faction.clone();
+                        unit_copy = unit.clone();
                         info!("Moved unit to ({}, {})", cursor.x, cursor.y);
+                    } else {
+                        return;
                     }
+
+                    // Calculate attack targets from new position
+                    let all_units: Vec<_> = units.iter()
+                        .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                        .collect();
+                    let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units);
+
+                    // Check if unit can capture the tile it moved to
+                    let (can_capture, capture_tile) = if unit_copy.unit_type.stats().can_capture {
+                        tiles.iter()
+                            .find(|(_, t)| t.position.x == cursor.x && t.position.y == cursor.y)
+                            .map(|(e, tile)| {
+                                let capturable = tile.terrain.is_capturable() && tile.owner != Some(faction_copy.faction);
+                                (capturable, if capturable { Some(e) } else { None })
+                            })
+                            .unwrap_or((false, None))
+                    } else {
+                        (false, None)
+                    };
+
                     highlights.selected_unit = None;
                     highlights.tiles.clear();
+                    highlights.attack_targets.clear();
+
+                    // Enter Action phase if there are targets or can capture
+                    if (!targets.is_empty() && !unit_copy.attacked) || can_capture {
+                        pending_action.unit = Some(selected_entity);
+                        pending_action.targets = targets;
+                        pending_action.can_capture = can_capture;
+                        pending_action.capture_tile = capture_tile;
+                        turn_state.phase = TurnPhase::Action;
+                        info!("Entering action phase: {} targets, can_capture: {}", pending_action.targets.len(), can_capture);
+                    }
                 }
             }
         } else {
@@ -181,14 +324,24 @@ fn handle_keyboard_input(
                         .map(|(e, p, _, _, _)| ((p.x, p.y), e))
                         .collect();
                     let stats = unit.unit_type.stats();
-                    let tiles = calculate_movement_range(&pos, stats.movement, &map, &unit_positions);
-                    found_unit = Some((entity, tiles));
+                    let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+                    let total_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                    let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
+
+                    // Calculate attack targets
+                    let all_units: Vec<_> = units.iter()
+                        .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                        .collect();
+                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+
+                    found_unit = Some((entity, tiles, attack_targets));
                     break;
                 }
             }
-            if let Some((entity, tiles)) = found_unit {
+            if let Some((entity, tiles, attack_targets)) = found_unit {
                 highlights.selected_unit = Some(entity);
                 highlights.tiles = tiles;
+                highlights.attack_targets = attack_targets;
                 info!("Selected unit at ({}, {})", cursor.x, cursor.y);
             }
         }
@@ -232,11 +385,71 @@ fn handle_click_input(
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut units: Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    tiles: Query<(Entity, &Tile)>,
     mut highlights: ResMut<MovementHighlights>,
+    mut pending_action: ResMut<PendingAction>,
+    mut production_state: ResMut<ProductionState>,
     mut cursor: ResMut<GridCursor>,
-    turn_state: Res<TurnState>,
+    mut turn_state: ResMut<TurnState>,
     map: Res<GameMap>,
+    mut attack_events: EventWriter<AttackEvent>,
+    game_result: Res<GameResult>,
+    commanders: Res<Commanders>,
 ) {
+    // Don't process input if game is over
+    if game_result.game_over {
+        return;
+    }
+
+    // In Action phase, clicks on targets are handled here
+    if turn_state.phase == TurnPhase::Action {
+        if !mouse_button.just_pressed(MouseButton::Left) {
+            return;
+        }
+
+        let window = windows.single();
+        let (camera, camera_transform) = cameras.single();
+
+        let Some(cursor_position) = window.cursor_position() else {
+            return;
+        };
+
+        let Ok(world_position) = camera.viewport_to_world_2d(camera_transform, cursor_position) else {
+            return;
+        };
+
+        let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0;
+        let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0;
+
+        let grid_x = ((world_position.x - offset_x) / TILE_SIZE).floor() as i32;
+        let grid_y = ((world_position.y - offset_y) / TILE_SIZE).floor() as i32;
+
+        // Check if clicking on an attack target
+        if let Some(acting_entity) = pending_action.unit {
+            let target_entity = units.iter()
+                .find(|(e, p, _, _, _)| p.x == grid_x && p.y == grid_y && pending_action.targets.contains(e))
+                .map(|(e, _, _, _, _)| e);
+
+            if let Some(target) = target_entity {
+                // Attack!
+                attack_events.send(AttackEvent {
+                    attacker: acting_entity,
+                    defender: target,
+                });
+
+                if let Ok((_, _, _, _, mut unit)) = units.get_mut(acting_entity) {
+                    unit.attacked = true;
+                }
+
+                pending_action.unit = None;
+                pending_action.targets.clear();
+                turn_state.phase = TurnPhase::Select;
+                info!("Attacked from action menu");
+            }
+        }
+        return;
+    }
+
     if !mouse_button.just_pressed(MouseButton::Left) {
         return;
     }
@@ -264,8 +477,31 @@ fn handle_click_input(
     cursor.y = grid_y;
     cursor.visible = false; // Hide keyboard cursor when using mouse
 
-    // If we have a selected unit, try to move it
+    // If we have a selected unit, try to attack or move
     if let Some(selected_entity) = highlights.selected_unit {
+        // Check if clicking on an attack target (before moving)
+        let target_entity = units.iter()
+            .find(|(e, p, _, _, _)| p.x == grid_x && p.y == grid_y && highlights.attack_targets.contains(e))
+            .map(|(e, _, _, _, _)| e);
+
+        if let Some(target) = target_entity {
+            // Attack!
+            attack_events.send(AttackEvent {
+                attacker: selected_entity,
+                defender: target,
+            });
+
+            // Mark as attacked and clear selection
+            if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
+                unit.attacked = true;
+                unit.moved = true;
+            }
+            highlights.selected_unit = None;
+            highlights.tiles.clear();
+            highlights.attack_targets.clear();
+            return;
+        }
+
         if highlights.tiles.contains(&(grid_x, grid_y)) {
             // Check if clicking on the same unit (deselect) or empty tile (move)
             let clicking_on_selected = units.iter()
@@ -275,6 +511,7 @@ fn handle_click_input(
                 // Clicking on selected unit - deselect
                 highlights.selected_unit = None;
                 highlights.tiles.clear();
+                highlights.attack_targets.clear();
                 return;
             }
 
@@ -291,30 +528,77 @@ fn handle_click_input(
                         .map(|(e, p, _, _, _)| ((p.x, p.y), e))
                         .collect();
                     let stats = unit.unit_type.stats();
-                    let tiles = calculate_movement_range(&pos, stats.movement, &map, &unit_positions);
-                    switch_to = Some((entity, tiles));
+                    let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+                    let total_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                    let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
+
+                    // Calculate attack targets
+                    let all_units: Vec<_> = units.iter()
+                        .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                        .collect();
+                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+
+                    switch_to = Some((entity, tiles, attack_targets));
                     break;
                 }
             }
 
-            if let Some((entity, tiles)) = switch_to {
+            if let Some((entity, tiles, attack_targets)) = switch_to {
                 highlights.selected_unit = Some(entity);
                 highlights.tiles = tiles;
+                highlights.attack_targets = attack_targets;
                 info!("Switched selection to unit at ({}, {})", grid_x, grid_y);
                 return;
             }
 
             // Move the unit
-            if let Ok((_, mut grid_pos, mut transform, _, mut unit)) = units.get_mut(selected_entity) {
+            let new_pos = GridPosition::new(grid_x, grid_y);
+            let faction_copy;
+            let unit_copy;
+            if let Ok((_, mut grid_pos, mut transform, faction, mut unit)) = units.get_mut(selected_entity) {
                 grid_pos.x = grid_x;
                 grid_pos.y = grid_y;
                 transform.translation = grid_pos.to_world(&map);
                 unit.moved = true;
+                faction_copy = faction.clone();
+                unit_copy = unit.clone();
                 info!("Moved unit to ({}, {})", grid_x, grid_y);
+            } else {
+                return;
             }
+
+            // Calculate attack targets from new position
+            let all_units: Vec<_> = units.iter()
+                .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                .collect();
+            let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units);
+
+            // Check if unit can capture the tile it moved to
+            let (can_capture, capture_tile) = if unit_copy.unit_type.stats().can_capture {
+                tiles.iter()
+                    .find(|(_, t)| t.position.x == grid_x && t.position.y == grid_y)
+                    .map(|(e, tile)| {
+                        let capturable = tile.terrain.is_capturable() && tile.owner != Some(faction_copy.faction);
+                        (capturable, if capturable { Some(e) } else { None })
+                    })
+                    .unwrap_or((false, None))
+            } else {
+                (false, None)
+            };
 
             highlights.selected_unit = None;
             highlights.tiles.clear();
+            highlights.attack_targets.clear();
+
+            // Enter Action phase if there are targets or can capture
+            if (!targets.is_empty() && !unit_copy.attacked) || can_capture {
+                pending_action.unit = Some(selected_entity);
+                pending_action.targets = targets;
+                pending_action.can_capture = can_capture;
+                pending_action.capture_tile = capture_tile;
+                turn_state.phase = TurnPhase::Action;
+                info!("Entering action phase: {} targets, can_capture: {}", pending_action.targets.len(), can_capture);
+            }
             return;
         }
     }
@@ -331,45 +615,109 @@ fn handle_click_input(
                 .map(|(e, p, _, _, _)| ((p.x, p.y), e))
                 .collect();
             let stats = unit.unit_type.stats();
-            let tiles = calculate_movement_range(&pos, stats.movement, &map, &unit_positions);
-            select_unit = Some((entity, tiles, pos.x, pos.y));
+            let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+            let total_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+            let move_tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
+
+            // Calculate attack targets
+            let all_units: Vec<_> = units.iter()
+                .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                .collect();
+            let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+
+            select_unit = Some((entity, move_tiles, attack_targets, pos.x, pos.y));
             break;
         }
     }
 
-    if let Some((entity, tiles, x, y)) = select_unit {
+    if let Some((entity, tiles, attack_targets, x, y)) = select_unit {
         highlights.selected_unit = Some(entity);
         highlights.tiles = tiles;
+        highlights.attack_targets = attack_targets;
         info!("Selected unit at ({}, {}), can reach {} tiles", x, y, highlights.tiles.len());
         return;
+    }
+
+    // Check if clicking on an owned base with no unit - open production menu
+    let unit_positions: HashSet<(i32, i32)> = units
+        .iter()
+        .map(|(_, p, _, _, _)| (p.x, p.y))
+        .collect();
+
+    for (tile_entity, tile) in tiles.iter() {
+        if tile.position.x == grid_x && tile.position.y == grid_y
+            && tile.terrain == Terrain::Base
+            && tile.owner == Some(turn_state.current_faction)
+            && !unit_positions.contains(&(grid_x, grid_y))
+        {
+            production_state.active = true;
+            production_state.base_entity = Some(tile_entity);
+            production_state.base_position = (grid_x, grid_y);
+            info!("Opened production menu at base ({}, {})", grid_x, grid_y);
+            return;
+        }
     }
 
     // Clicked on empty space or enemy unit - deselect
     highlights.selected_unit = None;
     highlights.tiles.clear();
+    highlights.attack_targets.clear();
+    production_state.active = false;
 }
 
 fn update_movement_highlights(
     highlights: Res<MovementHighlights>,
     mut gizmos: Gizmos,
     map: Res<GameMap>,
+    units: Query<(&GridPosition, &FactionMember)>,
 ) {
-    if highlights.tiles.is_empty() {
-        return;
-    }
-
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
     let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
 
+    // Draw movement range (blue) - multiple layers for visibility
     for &(x, y) in &highlights.tiles {
         let world_x = x as f32 * TILE_SIZE + offset_x;
         let world_y = y as f32 * TILE_SIZE + offset_y;
 
+        // Outer border (bright)
         gizmos.rect_2d(
             Isometry2d::from_translation(Vec2::new(world_x, world_y)),
-            Vec2::splat(TILE_SIZE - 4.0),
-            Color::srgba(0.2, 0.6, 1.0, 0.4),
+            Vec2::splat(TILE_SIZE - 2.0),
+            Color::srgba(0.3, 0.7, 1.0, 0.9),
         );
+        // Middle fill
+        gizmos.rect_2d(
+            Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            Vec2::splat(TILE_SIZE - 6.0),
+            Color::srgba(0.2, 0.5, 0.9, 0.7),
+        );
+        // Inner highlight
+        gizmos.rect_2d(
+            Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            Vec2::splat(TILE_SIZE - 10.0),
+            Color::srgba(0.4, 0.8, 1.0, 0.5),
+        );
+    }
+
+    // Draw attack targets (red)
+    for target_entity in &highlights.attack_targets {
+        if let Ok((pos, _)) = units.get(*target_entity) {
+            let world_x = pos.x as f32 * TILE_SIZE + offset_x;
+            let world_y = pos.y as f32 * TILE_SIZE + offset_y;
+
+            // Red border for attack target
+            gizmos.rect_2d(
+                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+                Vec2::splat(TILE_SIZE - 2.0),
+                Color::srgba(1.0, 0.2, 0.2, 0.8),
+            );
+            // Inner red highlight
+            gizmos.rect_2d(
+                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+                Vec2::splat(TILE_SIZE - 6.0),
+                Color::srgba(1.0, 0.3, 0.3, 0.4),
+            );
+        }
     }
 }
 
@@ -402,4 +750,48 @@ fn draw_grid_cursor(
         Vec2::splat(TILE_SIZE - 6.0),
         Color::srgba(1.0, 1.0, 0.0, 0.3),
     );
+}
+
+/// Draw highlights for attack targets during Action phase
+fn draw_action_targets(
+    pending_action: Res<PendingAction>,
+    turn_state: Res<TurnState>,
+    mut gizmos: Gizmos,
+    map: Res<GameMap>,
+    units: Query<&GridPosition>,
+) {
+    // Only draw during Action phase
+    if turn_state.phase != TurnPhase::Action {
+        return;
+    }
+
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Draw attack targets with pulsing red highlight
+    for target_entity in &pending_action.targets {
+        if let Ok(pos) = units.get(*target_entity) {
+            let world_x = pos.x as f32 * TILE_SIZE + offset_x;
+            let world_y = pos.y as f32 * TILE_SIZE + offset_y;
+
+            // Bright red outer border
+            gizmos.rect_2d(
+                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+                Vec2::splat(TILE_SIZE - 2.0),
+                Color::srgba(1.0, 0.1, 0.1, 0.95),
+            );
+            // Middle red
+            gizmos.rect_2d(
+                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+                Vec2::splat(TILE_SIZE - 6.0),
+                Color::srgba(1.0, 0.2, 0.2, 0.7),
+            );
+            // Inner highlight
+            gizmos.rect_2d(
+                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+                Vec2::splat(TILE_SIZE - 10.0),
+                Color::srgba(1.0, 0.4, 0.4, 0.5),
+            );
+        }
+    }
 }

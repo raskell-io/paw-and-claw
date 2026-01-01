@@ -6,6 +6,9 @@ mod faction;
 mod combat;
 mod movement;
 mod turn;
+mod ai;
+mod fog;
+mod commander;
 
 pub use map::*;
 pub use unit::*;
@@ -13,6 +16,9 @@ pub use faction::*;
 pub use combat::*;
 pub use movement::*;
 pub use turn::*;
+pub use ai::*;
+pub use fog::*;
+pub use commander::*;
 
 // Future: use crate::states::GameState;
 
@@ -24,6 +30,9 @@ impl Plugin for GamePlugin {
             .add_plugins(UnitPlugin)
             .add_plugins(TurnPlugin)
             .add_plugins(MovementPlugin)
-            .add_plugins(CombatPlugin);
+            .add_plugins(CombatPlugin)
+            .add_plugins(AiPlugin)
+            .add_plugins(FogPlugin)
+            .add_plugins(CommanderPlugin);
     }
 }
