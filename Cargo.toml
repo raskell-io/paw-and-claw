@@ -1,0 +1,31 @@
+[package]
+name = "paw-and-claw"
+version = "0.1.0"
+edition = "2021"
+description = "A turn-based tactics game featuring animal factions battling for territory"
+license = "MIT"
+repository = "https://github.com/raskell-io/paw-and-claw"
+
+[dependencies]
+bevy = { version = "0.15", features = ["wayland"] }
+bevy_ecs_tilemap = "0.15"
+bevy_egui = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Window", "Document"] }
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+[profile.release]
+lto = true
+opt-level = "z"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

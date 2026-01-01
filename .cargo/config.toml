@@ -1,0 +1,9 @@
+[target.wasm32-unknown-unknown]
+runner = "wasm-server-runner"
+
+[build]
+# Uncomment to build for WASM by default
+# target = "wasm32-unknown-unknown"
+
+[target.'cfg(target_arch = "wasm32")']
+rustflags = ["--cfg=web_sys_unstable_apis"]
