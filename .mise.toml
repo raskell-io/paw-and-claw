@@ -1,0 +1,81 @@
+[tools]
+rust = "nightly"
+
+[env]
+RUST_BACKTRACE = "1"
+
+[tasks.build]
+description = "Build the project in debug mode"
+run = "cargo build"
+
+[tasks.release]
+description = "Build the project in release mode"
+run = "cargo build --release"
+
+[tasks.run]
+description = "Run the game"
+run = "cargo run"
+
+[tasks.run-release]
+description = "Run the game in release mode"
+run = "cargo run --release"
+
+[tasks.check]
+description = "Check the project for errors"
+run = "cargo check"
+
+[tasks.clippy]
+description = "Run clippy lints"
+run = "cargo clippy -- -W clippy::all"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test"
+
+[tasks.fmt]
+description = "Format all code"
+run = "cargo fmt"
+
+[tasks.fmt-check]
+description = "Check code formatting"
+run = "cargo fmt -- --check"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "cargo clean"
+
+[tasks.doc]
+description = "Generate documentation"
+run = "cargo doc --no-deps --open"
+
+[tasks.watch]
+description = "Watch for changes and rebuild"
+run = "cargo watch -x check"
+
+[tasks.dev]
+description = "Run in development mode with hot reload"
+run = "cargo watch -x run"
+
+[tasks.wasm-build]
+description = "Build for WebAssembly"
+run = """
+cargo build --release --target wasm32-unknown-unknown
+wasm-bindgen --out-dir web/pkg --target web target/wasm32-unknown-unknown/release/paw-and-claw.wasm
+"""
+
+[tasks.wasm-serve]
+description = "Serve the WASM build locally"
+run = "python3 -m http.server 8080 -d web"
+depends = ["wasm-build"]
+
+[tasks.ci]
+description = "Run CI checks (format, clippy, test)"
+run = """
+cargo fmt -- --check
+cargo clippy -- -D warnings
+cargo test
+"""
+
+[tasks.all]
+description = "Build, check, and test everything"
+depends = ["fmt-check", "clippy", "test", "build"]
