@@ -220,11 +220,12 @@ fn generate_income(
     }
 }
 
-/// Resupply units on friendly bases and storehouses at turn start
+/// Resupply and heal units on friendly bases and storehouses at turn start
 fn resupply_units(
     mut events: EventReader<TurnStartEvent>,
     mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
     tiles: Query<&Tile>,
+    mut funds: ResMut<FactionFunds>,
 ) {
     for event in events.read() {
         // Build a map of supply buildings owned by this faction
@@ -234,7 +235,7 @@ fn resupply_units(
             .map(|t| ((t.position.x, t.position.y), t.terrain))
             .collect();
 
-        // Resupply units on these buildings
+        // Resupply and heal units on these buildings
         for (mut unit, pos, faction) in units.iter_mut() {
             // Only resupply units of the active faction
             if faction.faction != event.faction {
@@ -244,14 +245,59 @@ fn resupply_units(
             // Check if unit is on a supply building
             if let Some(terrain) = supply_buildings.get(&(pos.x, pos.y)) {
                 let stats = unit.unit_type.stats();
+                let old_hp = unit.hp;
                 let old_stamina = unit.stamina;
                 let old_ammo = unit.ammo;
 
-                // Restore stamina and ammo to max
+                // Restore stamina and ammo to max (free)
                 unit.stamina = stats.max_stamina;
                 unit.ammo = stats.max_ammo;
 
-                // Log if anything was resupplied
+                // Heal HP (20% per turn, costs funds based on unit cost)
+                // Healing rate: 20 HP per turn (like Advance Wars' 2 HP out of 10)
+                let heal_amount = 20;
+                let hp_needed = stats.max_hp - unit.hp;
+
+                if hp_needed > 0 {
+                    // Calculate healing cost: (heal_amount / max_hp) * unit_cost
+                    let actual_heal = heal_amount.min(hp_needed);
+                    let unit_cost = unit.unit_type.cost();
+                    let heal_cost = (actual_heal as u32 * unit_cost) / stats.max_hp as u32;
+
+                    // Only heal if we can afford it (or heal as much as we can afford)
+                    let available_funds = funds.get(event.faction);
+                    if available_funds >= heal_cost {
+                        unit.hp += actual_heal;
+                        funds.spend(event.faction, heal_cost);
+                        info!(
+                            "{} healed at {:?}: HP {}->{} (cost: {})",
+                            unit.unit_type.name(),
+                            terrain,
+                            old_hp,
+                            unit.hp,
+                            heal_cost
+                        );
+                    } else if available_funds > 0 {
+                        // Partial healing based on available funds
+                        let affordable_heal = (available_funds * stats.max_hp as u32) / unit_cost;
+                        if affordable_heal > 0 {
+                            let partial_heal = (affordable_heal as i32).min(hp_needed);
+                            unit.hp += partial_heal;
+                            let partial_cost = (partial_heal as u32 * unit_cost) / stats.max_hp as u32;
+                            funds.spend(event.faction, partial_cost.max(1));
+                            info!(
+                                "{} partially healed at {:?}: HP {}->{} (cost: {})",
+                                unit.unit_type.name(),
+                                terrain,
+                                old_hp,
+                                unit.hp,
+                                partial_cost
+                            );
+                        }
+                    }
+                }
+
+                // Log resupply if anything was resupplied
                 if old_stamina < stats.max_stamina || old_ammo < stats.max_ammo {
                     info!(
                         "{} resupplied at {:?}: stamina {}->{}, ammo {}->{}",

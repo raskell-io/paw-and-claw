@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType};
+use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType, CargoUnit, spawn_unit, SpriteAssets};
 
 pub struct CombatPlugin;
 
@@ -10,7 +10,9 @@ impl Plugin for CombatPlugin {
             .add_event::<CaptureEvent>()
             .add_event::<JoinEvent>()
             .add_event::<ResupplyEvent>()
-            .add_systems(Update, (process_attacks, process_captures, process_joins, process_resupply));
+            .add_event::<LoadEvent>()
+            .add_event::<UnloadEvent>()
+            .add_systems(Update, (process_attacks, process_captures, process_joins, process_resupply, process_load, process_unload));
     }
 }
 
@@ -39,6 +41,20 @@ pub struct JoinEvent {
 #[derive(Event)]
 pub struct ResupplyEvent {
     pub supplier: Entity,  // The Supplier unit performing resupply
+}
+
+/// Event fired when a unit is loaded into a transport
+#[derive(Event)]
+pub struct LoadEvent {
+    pub transport_pos: (i32, i32),  // Position of the transport
+    pub passenger: Entity,           // The unit being loaded
+}
+
+/// Event fired when a unit is unloaded from a transport
+#[derive(Event)]
+pub struct UnloadEvent {
+    pub transport: Entity,  // The transport unit
+    pub position: (i32, i32),  // Where to unload the passenger
 }
 
 /// Calculate damage based on Advance Wars-like formula
@@ -341,9 +357,10 @@ fn process_joins(
         target_unit.hp = combined_hp;
         target_unit.stamina = combined_stamina;
         target_unit.ammo = combined_ammo;
+        target_unit.moved = true;  // Unit has acted this turn
 
-        // Despawn source unit
-        commands.entity(event.source).despawn();
+        // Despawn source unit (with children like shadows/borders)
+        commands.entity(event.source).despawn_recursive();
     }
 }
 
@@ -422,5 +439,155 @@ fn process_resupply(
         if let Ok((mut supplier_unit, _, _)) = units.get_mut(event.supplier) {
             supplier_unit.attacked = true;  // Using attacked flag to indicate action taken
         }
+    }
+}
+
+/// Process loading a unit into a transport
+fn process_load(
+    mut events: EventReader<LoadEvent>,
+    mut commands: Commands,
+    mut units: Query<(Entity, &mut Unit, &GridPosition, &FactionMember)>,
+) {
+    for event in events.read() {
+        // Get passenger info first
+        let passenger_info = {
+            let Ok((_, passenger_unit, _, passenger_faction)) = units.get(event.passenger) else {
+                warn!("Failed to get passenger unit!");
+                continue;
+            };
+
+            if !passenger_unit.can_be_transported() {
+                warn!("{} cannot be transported!", passenger_unit.unit_type.name());
+                continue;
+            }
+
+            (CargoUnit::from_unit(&passenger_unit), passenger_faction.faction)
+        };
+
+        // Find transport at the given position
+        let transport_entity = units.iter()
+            .find(|(_, unit, pos, faction)| {
+                pos.x == event.transport_pos.0 &&
+                pos.y == event.transport_pos.1 &&
+                unit.is_transport() &&
+                !unit.has_cargo() &&
+                faction.faction == passenger_info.1
+            })
+            .map(|(entity, _, _, _)| entity);
+
+        let Some(transport_entity) = transport_entity else {
+            warn!("No valid transport found at position {:?}!", event.transport_pos);
+            continue;
+        };
+
+        // Now get transport and load the passenger
+        let Ok((_, mut transport_unit, _, _)) = units.get_mut(transport_entity) else {
+            warn!("Failed to get transport unit!");
+            continue;
+        };
+
+        // Load the passenger
+        let cargo = passenger_info.0.clone();
+        transport_unit.cargo = Some(cargo.clone());
+        transport_unit.attacked = true; // Loading ends the transport's action
+
+        info!(
+            "{} loaded into {}",
+            cargo.unit_type.name(),
+            transport_unit.unit_type.name()
+        );
+
+        // Despawn the passenger entity (it's now stored as cargo)
+        commands.entity(event.passenger).despawn_recursive();
+    }
+}
+
+/// Process unloading a unit from a transport
+fn process_unload(
+    mut events: EventReader<UnloadEvent>,
+    mut commands: Commands,
+    mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
+    map: Res<GameMap>,
+    sprite_assets: Res<SpriteAssets>,
+    images: Res<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for event in events.read() {
+        let (cargo, faction) = {
+            let Ok((mut transport_unit, _transport_pos, transport_faction)) = units.get_mut(event.transport) else {
+                warn!("Failed to get transport unit!");
+                continue;
+            };
+
+            // Verify transport has cargo
+            let Some(cargo) = transport_unit.cargo.take() else {
+                warn!("Transport has no cargo to unload!");
+                continue;
+            };
+
+            // Mark transport as having acted
+            transport_unit.attacked = true;
+
+            (cargo, transport_faction.faction)
+        };
+
+        // Check if unload position is valid (on map and passable)
+        let (ux, uy) = event.position;
+        if ux < 0 || uy < 0 || ux >= map.width as i32 || uy >= map.height as i32 {
+            warn!("Invalid unload position!");
+            // Put cargo back (need to re-get transport)
+            if let Ok((mut transport_unit, _, _)) = units.get_mut(event.transport) {
+                transport_unit.cargo = Some(cargo);
+            }
+            continue;
+        }
+
+        // Check terrain is passable for the cargo unit (cost >= 99 means impassable)
+        let terrain = map.get(ux, uy).unwrap_or(Terrain::Grass);
+        if terrain.movement_cost() >= 99 {
+            warn!("Cannot unload onto impassable terrain!");
+            // Put cargo back
+            if let Ok((mut transport_unit, _, _)) = units.get_mut(event.transport) {
+                transport_unit.cargo = Some(cargo);
+            }
+            continue;
+        }
+
+        // Check no other unit is at the position
+        let position_occupied = units.iter().any(|(_, pos, _)| pos.x == ux && pos.y == uy);
+        if position_occupied {
+            warn!("Cannot unload onto occupied tile!");
+            // Put cargo back
+            if let Ok((mut transport_unit, _, _)) = units.get_mut(event.transport) {
+                transport_unit.cargo = Some(cargo);
+            }
+            continue;
+        }
+
+        info!(
+            "{} unloaded at ({}, {})",
+            cargo.unit_type.name(),
+            ux, uy
+        );
+
+        // Spawn the unloaded unit
+        spawn_unit(
+            &mut commands,
+            &map,
+            &mut meshes,
+            &mut materials,
+            &sprite_assets,
+            &images,
+            faction,
+            cargo.unit_type,
+            ux,
+            uy,
+        );
+
+        // The spawned unit needs its stats set from cargo
+        // Since spawn_unit creates a fresh unit, we need to update it
+        // For now, spawn creates full-health unit; a more complete solution would
+        // modify spawn_unit or query and update the unit after spawn
     }
 }

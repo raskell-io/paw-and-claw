@@ -4,7 +4,7 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
-    MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent, ResupplyEvent,
+    MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent, ResupplyEvent, LoadEvent, UnloadEvent,
     TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit,
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
@@ -699,6 +699,8 @@ fn draw_action_menu(
     mut capture_events: EventWriter<CaptureEvent>,
     mut join_events: EventWriter<JoinEvent>,
     mut resupply_events: EventWriter<ResupplyEvent>,
+    mut load_events: EventWriter<LoadEvent>,
+    mut unload_events: EventWriter<UnloadEvent>,
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
@@ -781,10 +783,89 @@ fn draw_action_menu(
     let mut capture_clicked = false;
     let mut join_clicked = false;
     let mut resupply_clicked = false;
+    let mut load_target: Option<(i32, i32)> = None;  // Position of transport to load into
+    let mut unload_position: Option<(i32, i32)> = None;
     let mut wait_clicked = false;
 
     // Check if this is a Supplier unit that can resupply
     let is_supplier = attacker_unit.unit_type == UnitType::Supplier;
+
+    // Check if this unit can be loaded into a transport
+    let can_be_transported = attacker_unit.can_be_transported();
+
+    // Check if this is a transport with cargo
+    let is_transport_with_cargo = attacker_unit.is_transport() && attacker_unit.has_cargo();
+    let cargo_name = attacker_unit.cargo.as_ref().map(|c| c.unit_type.name().to_string());
+
+    // Find adjacent transports that can load this unit
+    // We need to find them differently since we can't get Entity from iter()
+    // For now, store position and transport name, and we'll find the entity when loading
+    let adjacent_transport_info: Vec<((i32, i32), String)> = if can_be_transported {
+        let adjacent = [
+            (attacker_pos.0 - 1, attacker_pos.1),
+            (attacker_pos.0 + 1, attacker_pos.1),
+            (attacker_pos.0, attacker_pos.1 - 1),
+            (attacker_pos.0, attacker_pos.1 + 1),
+        ];
+
+        let mut result = vec![];
+        for (unit, faction, pos) in units.iter() {
+            let Some(pos) = pos else { continue };
+            let Some(faction) = faction else { continue };
+
+            // Check same faction
+            if faction.faction != turn_state.current_faction {
+                continue;
+            }
+
+            // Check is empty transport
+            if !unit.is_transport() || unit.has_cargo() {
+                continue;
+            }
+
+            // Check if at one of the adjacent positions
+            if adjacent.contains(&(pos.x, pos.y)) {
+                result.push(((pos.x, pos.y), unit.unit_type.name().to_string()));
+            }
+        }
+        result
+    } else {
+        vec![]
+    };
+
+    // Find valid unload positions for transports
+    let unload_positions: Vec<(i32, i32)> = if is_transport_with_cargo {
+        let adjacent = [
+            (attacker_pos.0 - 1, attacker_pos.1),
+            (attacker_pos.0 + 1, attacker_pos.1),
+            (attacker_pos.0, attacker_pos.1 - 1),
+            (attacker_pos.0, attacker_pos.1 + 1),
+        ];
+
+        // Get all unit positions
+        let occupied: std::collections::HashSet<(i32, i32)> = units.iter()
+            .filter_map(|(_, _, pos)| pos.map(|p| (p.x, p.y)))
+            .collect();
+
+        adjacent.iter()
+            .filter(|(x, y)| {
+                // Check on map
+                if *x < 0 || *y < 0 || *x >= map.width as i32 || *y >= map.height as i32 {
+                    return false;
+                }
+                // Check passable terrain
+                let terrain = map.get(*x, *y).unwrap_or(Terrain::Grass);
+                if terrain.movement_cost() >= 99 {
+                    return false;
+                }
+                // Check not occupied
+                !occupied.contains(&(*x, *y))
+            })
+            .copied()
+            .collect()
+    } else {
+        vec![]
+    };
 
     // Get capture info if applicable
     let capture_info = if pending_action.can_capture {
@@ -903,6 +984,44 @@ fn draw_action_menu(
                 ui.separator();
             }
 
+            // Show load option for foot units near transports
+            if !adjacent_transport_info.is_empty() {
+                ui.heading("Load");
+                ui.separator();
+
+                for (transport_pos, transport_name) in &adjacent_transport_info {
+                    ui.label(format!("Board {}", transport_name));
+                    if ui.add(egui::Button::new(egui::RichText::new(format!("Load into {}", transport_name)).size(14.0))
+                        .min_size(egui::vec2(180.0, 28.0))).clicked()
+                    {
+                        load_target = Some(*transport_pos);
+                    }
+                }
+
+                ui.separator();
+            }
+
+            // Show unload option for transports with cargo
+            if is_transport_with_cargo && !unload_positions.is_empty() {
+                ui.heading("Unload");
+                ui.separator();
+
+                if let Some(cargo_name) = &cargo_name {
+                    ui.label(format!("Carrying: {}", cargo_name));
+                }
+
+                for (ux, uy) in &unload_positions {
+                    let terrain = map.get(*ux, *uy).unwrap_or(Terrain::Grass);
+                    if ui.add(egui::Button::new(egui::RichText::new(format!("Unload to ({}, {}) - {}", ux, uy, terrain.name())).size(12.0))
+                        .min_size(egui::vec2(180.0, 24.0))).clicked()
+                    {
+                        unload_position = Some((*ux, *uy));
+                    }
+                }
+
+                ui.separator();
+            }
+
             // Wait button
             if ui.add(egui::Button::new(egui::RichText::new("Wait").size(16.0))
                 .min_size(egui::vec2(180.0, 35.0))).clicked()
@@ -970,6 +1089,34 @@ fn draw_action_menu(
         // Send resupply event - the system will handle finding and resupplying adjacent units
         resupply_events.send(ResupplyEvent {
             supplier: acting_entity,
+        });
+
+        pending_action.unit = None;
+        pending_action.targets.clear();
+        pending_action.can_capture = false;
+        pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
+        turn_state.phase = TurnPhase::Select;
+    } else if let Some(transport_pos) = load_target {
+        // Send load event with transport position - the handler will find the transport
+        load_events.send(LoadEvent {
+            transport_pos,
+            passenger: acting_entity,
+        });
+
+        pending_action.unit = None;
+        pending_action.targets.clear();
+        pending_action.can_capture = false;
+        pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
+        turn_state.phase = TurnPhase::Select;
+    } else if let Some(pos) = unload_position {
+        // Send unload event
+        unload_events.send(UnloadEvent {
+            transport: acting_entity,
+            position: pos,
         });
 
         pending_action.unit = None;

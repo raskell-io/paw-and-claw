@@ -582,6 +582,38 @@ impl UnitType {
             UnitType::Dreadnought,
         ]
     }
+
+    /// Get unit production cost (base cost before CO modifiers)
+    pub fn cost(&self) -> u32 {
+        match self {
+            // Foot units
+            UnitType::Scout => 10,
+            UnitType::Shocktrooper => 30,
+            // Wheeled
+            UnitType::Recon => 40,
+            UnitType::Supplier => 50,
+            // Treads
+            UnitType::Ironclad => 70,
+            UnitType::Juggernaut => 120,
+            UnitType::Behemoth => 160,
+            UnitType::Flak => 80,
+            UnitType::Carrier => 50,
+            // Artillery
+            UnitType::Siege => 60,
+            UnitType::Barrage => 90,
+            UnitType::Stinger => 120,
+            // Air
+            UnitType::Ferrier => 50,
+            UnitType::Skywing => 90,
+            UnitType::Raptor => 120,
+            UnitType::Talon => 200,
+            // Naval
+            UnitType::Barge => 60,
+            UnitType::Frigate => 80,
+            UnitType::Lurker => 100,
+            UnitType::Dreadnought => 280,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -608,6 +640,41 @@ pub struct Unit {
     pub ammo: u32,
     pub moved: bool,
     pub attacked: bool,
+    /// Cargo - for transport units, stores the type and HP of the loaded unit
+    /// We store unit info rather than Entity to avoid complex entity relationships
+    pub cargo: Option<CargoUnit>,
+}
+
+/// Represents a unit being carried by a transport
+#[derive(Debug, Clone)]
+pub struct CargoUnit {
+    pub unit_type: UnitType,
+    pub hp: i32,
+    pub stamina: u32,
+    pub ammo: u32,
+}
+
+impl CargoUnit {
+    pub fn from_unit(unit: &Unit) -> Self {
+        Self {
+            unit_type: unit.unit_type,
+            hp: unit.hp,
+            stamina: unit.stamina,
+            ammo: unit.ammo,
+        }
+    }
+
+    pub fn to_unit(&self) -> Unit {
+        Unit {
+            unit_type: self.unit_type,
+            hp: self.hp,
+            stamina: self.stamina,
+            ammo: self.ammo,
+            moved: true, // Unloaded units can't move again this turn
+            attacked: false,
+            cargo: None,
+        }
+    }
 }
 
 impl Unit {
@@ -620,7 +687,23 @@ impl Unit {
             ammo: stats.max_ammo,
             moved: false,
             attacked: false,
+            cargo: None,
         }
+    }
+
+    /// Check if this unit can carry other units
+    pub fn is_transport(&self) -> bool {
+        matches!(self.unit_type, UnitType::Carrier | UnitType::Ferrier | UnitType::Barge)
+    }
+
+    /// Check if this unit can be loaded into a transport
+    pub fn can_be_transported(&self) -> bool {
+        matches!(self.unit_type, UnitType::Scout | UnitType::Shocktrooper)
+    }
+
+    /// Check if this transport has cargo
+    pub fn has_cargo(&self) -> bool {
+        self.cargo.is_some()
     }
 
     pub fn hp_percentage(&self) -> f32 {
@@ -756,6 +839,87 @@ pub fn spawn_unit(
         ));
 
         // Shadow on the ground (flat oval)
+        let shadow_mesh = meshes.add(Ellipse::new(TILE_SIZE * 0.25, TILE_SIZE * 0.08));
+        parent.spawn((
+            Mesh3d(shadow_mesh),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.0, 0.0, 0.0, 0.3),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            })),
+            Transform::from_xyz(0.0, -unit_height + 0.05, 0.0)
+                .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+            UnitShadow,
+        ));
+    });
+}
+
+/// Spawn a unit with existing state (for loading saves)
+pub fn spawn_unit_with_state(
+    commands: &mut Commands,
+    map: &GameMap,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
+    faction: Faction,
+    unit: Unit,
+    x: i32,
+    y: i32,
+) {
+    let grid_pos = GridPosition::new(x, y);
+    let world_pos = grid_pos.to_world(map);
+
+    let unit_type = unit.unit_type;
+    let unit_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.6);
+
+    let stats = unit_type.stats();
+    let ground_offset = unit_size.y / 2.0 + 1.0;
+    let unit_height = match stats.class {
+        UnitClass::Air | UnitClass::AirTransport => ground_offset + 20.0,
+        _ => ground_offset,
+    };
+
+    let unit_color = match sprite_assets.get_unit_sprite(images, faction, unit_type) {
+        super::SpriteSource::Image(_handle) => faction.color(),
+        super::SpriteSource::Procedural { color, .. } => color,
+    };
+
+    let unit_mesh = meshes.add(Rectangle::new(unit_size.x, unit_size.y));
+
+    commands.spawn((
+        Mesh3d(unit_mesh.clone()),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: unit_color,
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        })),
+        Transform::from_xyz(world_pos.x, unit_height, world_pos.z),
+        unit,  // Use provided unit with existing state
+        GridPosition::new(x, y),
+        FactionMember { faction },
+        Billboard,
+    )).with_children(|parent| {
+        let border_mesh = meshes.add(Rectangle::new(unit_size.x + 6.0, unit_size.y + 6.0));
+        parent.spawn((
+            Mesh3d(border_mesh),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.1, 0.1, 0.1, 0.9),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            })),
+            Transform::from_xyz(0.0, 0.0, -1.0),
+        ));
+
         let shadow_mesh = meshes.add(Ellipse::new(TILE_SIZE * 0.25, TILE_SIZE * 0.08));
         parent.spawn((
             Mesh3d(shadow_mesh),

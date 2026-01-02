@@ -13,6 +13,7 @@ mod commander;
 mod weather;
 mod sprites;
 mod assets;
+mod save;
 
 pub use map::*;
 pub use maps::*;
@@ -27,6 +28,7 @@ pub use commander::*;
 pub use weather::*;
 pub use sprites::*;
 pub use assets::*;
+pub use save::*;
 
 // Future: use crate::states::GameState;
 
@@ -44,6 +46,7 @@ impl Plugin for GamePlugin {
             .add_plugins(FogPlugin)
             .add_plugins(CommanderPlugin)
             .add_plugins(WeatherPlugin)
-            .add_plugins(SpritePlugin);
+            .add_plugins(SpritePlugin)
+            .add_plugins(SavePlugin);
     }
 }

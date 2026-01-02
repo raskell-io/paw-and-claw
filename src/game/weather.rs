@@ -16,7 +16,7 @@ impl Plugin for WeatherPlugin {
 // ============================================================================
 
 /// Weather conditions that affect gameplay
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum WeatherType {
     #[default]
     Clear,      // No effects - baseline weather

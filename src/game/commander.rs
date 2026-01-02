@@ -24,7 +24,7 @@ impl Plugin for CommanderPlugin {
 // ============================================================================
 
 /// Unique identifier for each CO
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CommanderId {
     // Eastern Empire
     Kira,

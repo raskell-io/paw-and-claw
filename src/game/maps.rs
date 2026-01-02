@@ -107,6 +107,10 @@ pub enum MapId {
     RiverCrossing,
     TwinBases,
     Fortress,
+    IslandChain,
+    MountainPass,
+    MarshLands,
+    AncientRuins,
     Custom(usize),
 }
 
@@ -117,6 +121,10 @@ impl MapId {
             MapId::RiverCrossing => "River Crossing",
             MapId::TwinBases => "Twin Bases",
             MapId::Fortress => "The Fortress",
+            MapId::IslandChain => "Island Chain",
+            MapId::MountainPass => "Mountain Pass",
+            MapId::MarshLands => "Marsh Lands",
+            MapId::AncientRuins => "Ancient Ruins",
             MapId::Custom(_) => "Custom Map",
         }
     }
@@ -127,6 +135,10 @@ impl MapId {
             MapId::RiverCrossing,
             MapId::TwinBases,
             MapId::Fortress,
+            MapId::IslandChain,
+            MapId::MountainPass,
+            MapId::MarshLands,
+            MapId::AncientRuins,
         ]
     }
 }
@@ -142,6 +154,10 @@ pub fn get_builtin_map(id: MapId) -> MapData {
         MapId::RiverCrossing => create_river_crossing_map(),
         MapId::TwinBases => create_twin_bases_map(),
         MapId::Fortress => create_fortress_map(),
+        MapId::IslandChain => create_island_chain_map(),
+        MapId::MountainPass => create_mountain_pass_map(),
+        MapId::MarshLands => create_marsh_lands_map(),
+        MapId::AncientRuins => create_ancient_ruins_map(),
         MapId::Custom(_) => create_woodland_map(), // Fallback
     }
 }
@@ -411,6 +427,441 @@ fn create_fortress_map() -> MapData {
     map.add_unit(UnitType::Shocktrooper, Faction::Northern, 11, 9);
     map.add_unit(UnitType::Siege, Faction::Northern, 12, 9);
     map.add_unit(UnitType::Ironclad, Faction::Northern, 10, 10);
+
+    map
+}
+
+/// Island Chain - Naval-focused map with multiple islands separated by water
+fn create_island_chain_map() -> MapData {
+    let mut map = MapData::new("Island Chain", 16, 12);
+    map.description = "Multiple islands connected by shallow water. Perfect for naval units!".to_string();
+
+    // Fill with water first
+    for y in 0..12 {
+        for x in 0..16 {
+            map.set_terrain(x, y, Terrain::Pond);
+        }
+    }
+
+    // Western island (large) - Eastern faction base
+    for y in 2..6 {
+        for x in 1..5 {
+            map.set_terrain(x, y, Terrain::Grass);
+        }
+    }
+    // Shore around western island
+    map.set_terrain(0, 3, Terrain::Shore);
+    map.set_terrain(0, 4, Terrain::Shore);
+    map.set_terrain(5, 2, Terrain::Shore);
+    map.set_terrain(5, 3, Terrain::Shore);
+    map.set_terrain(5, 4, Terrain::Shore);
+    map.set_terrain(5, 5, Terrain::Shore);
+    map.set_terrain(1, 6, Terrain::Shore);
+    map.set_terrain(2, 6, Terrain::Shore);
+    map.set_terrain(3, 6, Terrain::Shore);
+    map.set_terrain(4, 6, Terrain::Shore);
+    map.set_terrain(1, 1, Terrain::Shore);
+    map.set_terrain(2, 1, Terrain::Shore);
+    map.set_terrain(3, 1, Terrain::Shore);
+    map.set_terrain(4, 1, Terrain::Shore);
+
+    // Eastern island (large) - Northern faction base
+    for y in 6..10 {
+        for x in 11..15 {
+            map.set_terrain(x, y, Terrain::Grass);
+        }
+    }
+    // Shore around eastern island
+    map.set_terrain(15, 7, Terrain::Shore);
+    map.set_terrain(15, 8, Terrain::Shore);
+    map.set_terrain(10, 6, Terrain::Shore);
+    map.set_terrain(10, 7, Terrain::Shore);
+    map.set_terrain(10, 8, Terrain::Shore);
+    map.set_terrain(10, 9, Terrain::Shore);
+    map.set_terrain(11, 5, Terrain::Shore);
+    map.set_terrain(12, 5, Terrain::Shore);
+    map.set_terrain(13, 5, Terrain::Shore);
+    map.set_terrain(14, 5, Terrain::Shore);
+    map.set_terrain(11, 10, Terrain::Shore);
+    map.set_terrain(12, 10, Terrain::Shore);
+    map.set_terrain(13, 10, Terrain::Shore);
+    map.set_terrain(14, 10, Terrain::Shore);
+
+    // Central island (small) - contested point
+    for y in 4..8 {
+        for x in 7..10 {
+            map.set_terrain(x, y, Terrain::Grass);
+        }
+    }
+    map.set_terrain(6, 5, Terrain::Shore);
+    map.set_terrain(6, 6, Terrain::Shore);
+    map.set_terrain(10, 5, Terrain::Shore);
+    map.set_terrain(10, 6, Terrain::Shore);
+    map.set_terrain(7, 3, Terrain::Shore);
+    map.set_terrain(8, 3, Terrain::Shore);
+    map.set_terrain(9, 3, Terrain::Shore);
+    map.set_terrain(7, 8, Terrain::Shore);
+    map.set_terrain(8, 8, Terrain::Shore);
+    map.set_terrain(9, 8, Terrain::Shore);
+
+    // Terrain features on islands
+    map.set_terrain(2, 3, Terrain::Thicket);
+    map.set_terrain(3, 4, Terrain::TallGrass);
+    map.set_terrain(12, 7, Terrain::Thicket);
+    map.set_terrain(13, 8, Terrain::TallGrass);
+    map.set_terrain(8, 5, Terrain::Boulder);
+    map.set_terrain(8, 6, Terrain::Hollow);
+
+    // Shallow water crossing paths (creek)
+    map.set_terrain(5, 4, Terrain::Creek);
+    map.set_terrain(6, 4, Terrain::Creek);
+    map.set_terrain(10, 7, Terrain::Creek);
+    map.set_terrain(11, 7, Terrain::Creek);
+
+    // Bases
+    map.set_terrain(2, 2, Terrain::Base);
+    map.add_property(2, 2, Faction::Eastern);
+    map.set_terrain(13, 9, Terrain::Base);
+    map.add_property(13, 9, Faction::Northern);
+
+    // Central island outpost (contested)
+    map.set_terrain(8, 5, Terrain::Outpost);
+    map.set_terrain(7, 7, Terrain::Storehouse);
+
+    // Starting units
+    map.add_unit(UnitType::Scout, Faction::Eastern, 2, 2);
+    map.add_unit(UnitType::Scout, Faction::Eastern, 3, 3);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 2, 4);
+    map.add_unit(UnitType::Barge, Faction::Eastern, 5, 3);
+
+    map.add_unit(UnitType::Scout, Faction::Northern, 13, 9);
+    map.add_unit(UnitType::Scout, Faction::Northern, 12, 8);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 13, 7);
+    map.add_unit(UnitType::Barge, Faction::Northern, 10, 8);
+
+    map
+}
+
+/// Mountain Pass - Narrow corridors through rocky terrain with chokepoints
+fn create_mountain_pass_map() -> MapData {
+    let mut map = MapData::new("Mountain Pass", 14, 10);
+    map.description = "Rocky mountain terrain with narrow passes. Control the chokepoints!".to_string();
+
+    // Fill edges with impassable boulders (mountains)
+    for x in 0..14 {
+        map.set_terrain(x, 0, Terrain::Boulder);
+        map.set_terrain(x, 9, Terrain::Boulder);
+    }
+
+    // Central mountain range running through middle
+    for y in 2..8 {
+        map.set_terrain(6, y, Terrain::Boulder);
+        map.set_terrain(7, y, Terrain::Boulder);
+    }
+
+    // Northern pass opening
+    map.set_terrain(6, 2, Terrain::Grass);
+    map.set_terrain(7, 2, Terrain::Grass);
+    map.set_terrain(6, 3, Terrain::TallGrass);
+    map.set_terrain(7, 3, Terrain::TallGrass);
+
+    // Southern pass opening
+    map.set_terrain(6, 6, Terrain::Grass);
+    map.set_terrain(7, 6, Terrain::Grass);
+    map.set_terrain(6, 7, Terrain::Grass);
+    map.set_terrain(7, 7, Terrain::Grass);
+
+    // Rocky outcroppings on western side
+    map.set_terrain(2, 3, Terrain::Boulder);
+    map.set_terrain(3, 4, Terrain::Boulder);
+    map.set_terrain(2, 6, Terrain::Boulder);
+    map.set_terrain(4, 2, Terrain::Boulder);
+
+    // Rocky outcroppings on eastern side
+    map.set_terrain(11, 3, Terrain::Boulder);
+    map.set_terrain(10, 4, Terrain::Boulder);
+    map.set_terrain(11, 6, Terrain::Boulder);
+    map.set_terrain(9, 7, Terrain::Boulder);
+
+    // Defensive positions (brambles in passes)
+    map.set_terrain(5, 3, Terrain::Brambles);
+    map.set_terrain(8, 3, Terrain::Brambles);
+    map.set_terrain(5, 7, Terrain::Brambles);
+    map.set_terrain(8, 7, Terrain::Brambles);
+
+    // Cover terrain scattered around
+    map.set_terrain(3, 2, Terrain::Thicket);
+    map.set_terrain(4, 5, Terrain::Hollow);
+    map.set_terrain(10, 2, Terrain::Thicket);
+    map.set_terrain(9, 5, Terrain::Hollow);
+    map.set_terrain(3, 7, Terrain::TallGrass);
+    map.set_terrain(10, 7, Terrain::TallGrass);
+
+    // Small creek through southern area
+    map.set_terrain(4, 8, Terrain::Creek);
+    map.set_terrain(5, 8, Terrain::Creek);
+    map.set_terrain(8, 8, Terrain::Creek);
+    map.set_terrain(9, 8, Terrain::Creek);
+    map.set_terrain(3, 8, Terrain::Shore);
+    map.set_terrain(10, 8, Terrain::Shore);
+
+    // Bases - opposite ends
+    map.set_terrain(1, 4, Terrain::Base);
+    map.set_terrain(1, 5, Terrain::Base);
+    map.add_property(1, 4, Faction::Eastern);
+    map.add_property(1, 5, Faction::Eastern);
+
+    map.set_terrain(12, 4, Terrain::Base);
+    map.set_terrain(12, 5, Terrain::Base);
+    map.add_property(12, 4, Faction::Northern);
+    map.add_property(12, 5, Faction::Northern);
+
+    // Outposts at the passes
+    map.set_terrain(6, 4, Terrain::Outpost);
+    map.set_terrain(7, 5, Terrain::Outpost);
+
+    // Storehouses behind front lines
+    map.set_terrain(3, 1, Terrain::Storehouse);
+    map.set_terrain(10, 1, Terrain::Storehouse);
+
+    // Starting units
+    map.add_unit(UnitType::Scout, Faction::Eastern, 1, 4);
+    map.add_unit(UnitType::Scout, Faction::Eastern, 1, 5);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 2, 4);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 2, 5);
+    map.add_unit(UnitType::Siege, Faction::Eastern, 2, 3);
+    map.add_unit(UnitType::Ironclad, Faction::Eastern, 3, 5);
+
+    map.add_unit(UnitType::Scout, Faction::Northern, 12, 4);
+    map.add_unit(UnitType::Scout, Faction::Northern, 12, 5);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 11, 4);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 11, 5);
+    map.add_unit(UnitType::Siege, Faction::Northern, 11, 6);
+    map.add_unit(UnitType::Ironclad, Faction::Northern, 10, 5);
+
+    map
+}
+
+/// Marsh Lands - Swampy terrain that slows movement but provides cover
+fn create_marsh_lands_map() -> MapData {
+    let mut map = MapData::new("Marsh Lands", 14, 10);
+    map.description = "Treacherous marshland slows vehicles. Infantry has the advantage here!".to_string();
+
+    // Scattered ponds throughout
+    map.set_terrain(3, 2, Terrain::Pond);
+    map.set_terrain(4, 3, Terrain::Pond);
+    map.set_terrain(6, 5, Terrain::Pond);
+    map.set_terrain(7, 4, Terrain::Pond);
+    map.set_terrain(9, 6, Terrain::Pond);
+    map.set_terrain(10, 7, Terrain::Pond);
+    map.set_terrain(5, 8, Terrain::Pond);
+
+    // Shore around ponds
+    map.set_terrain(2, 2, Terrain::Shore);
+    map.set_terrain(3, 1, Terrain::Shore);
+    map.set_terrain(4, 2, Terrain::Shore);
+    map.set_terrain(3, 3, Terrain::Shore);
+    map.set_terrain(5, 3, Terrain::Shore);
+    map.set_terrain(4, 4, Terrain::Shore);
+    map.set_terrain(5, 5, Terrain::Shore);
+    map.set_terrain(7, 5, Terrain::Shore);
+    map.set_terrain(6, 4, Terrain::Shore);
+    map.set_terrain(8, 4, Terrain::Shore);
+    map.set_terrain(7, 3, Terrain::Shore);
+    map.set_terrain(8, 6, Terrain::Shore);
+    map.set_terrain(10, 6, Terrain::Shore);
+    map.set_terrain(9, 7, Terrain::Shore);
+    map.set_terrain(11, 7, Terrain::Shore);
+    map.set_terrain(10, 8, Terrain::Shore);
+    map.set_terrain(4, 8, Terrain::Shore);
+    map.set_terrain(6, 8, Terrain::Shore);
+    map.set_terrain(5, 7, Terrain::Shore);
+    map.set_terrain(5, 9, Terrain::Shore);
+
+    // Creeks connecting ponds (slow but passable)
+    map.set_terrain(5, 4, Terrain::Creek);
+    map.set_terrain(8, 5, Terrain::Creek);
+    map.set_terrain(7, 6, Terrain::Creek);
+    map.set_terrain(6, 7, Terrain::Creek);
+    map.set_terrain(3, 4, Terrain::Creek);
+    map.set_terrain(2, 5, Terrain::Creek);
+
+    // Tall grass (marsh reeds) - lots of cover
+    for y in 1..9 {
+        map.set_terrain(1, y, Terrain::TallGrass);
+        map.set_terrain(12, y, Terrain::TallGrass);
+    }
+    map.set_terrain(6, 1, Terrain::TallGrass);
+    map.set_terrain(7, 1, Terrain::TallGrass);
+    map.set_terrain(6, 9, Terrain::TallGrass);
+    map.set_terrain(7, 9, Terrain::TallGrass);
+    map.set_terrain(9, 2, Terrain::TallGrass);
+    map.set_terrain(4, 6, Terrain::TallGrass);
+    map.set_terrain(9, 4, Terrain::TallGrass);
+
+    // Thickets on dry land
+    map.set_terrain(2, 7, Terrain::Thicket);
+    map.set_terrain(11, 3, Terrain::Thicket);
+    map.set_terrain(8, 8, Terrain::Thicket);
+    map.set_terrain(5, 1, Terrain::Thicket);
+
+    // Log bridges over some water
+    map.set_terrain(7, 7, Terrain::Log);
+    map.set_terrain(4, 5, Terrain::Log);
+
+    // Dry raised areas (hollows for cover)
+    map.set_terrain(2, 4, Terrain::Hollow);
+    map.set_terrain(11, 5, Terrain::Hollow);
+    map.set_terrain(6, 3, Terrain::Hollow);
+
+    // Bases on dry land at edges
+    map.set_terrain(0, 4, Terrain::Base);
+    map.set_terrain(0, 5, Terrain::Base);
+    map.add_property(0, 4, Faction::Eastern);
+    map.add_property(0, 5, Faction::Eastern);
+
+    map.set_terrain(13, 4, Terrain::Base);
+    map.set_terrain(13, 5, Terrain::Base);
+    map.add_property(13, 4, Faction::Northern);
+    map.add_property(13, 5, Faction::Northern);
+
+    // Outposts on small dry patches
+    map.set_terrain(4, 1, Terrain::Outpost);
+    map.set_terrain(9, 8, Terrain::Outpost);
+
+    // Storehouses at edges
+    map.set_terrain(0, 1, Terrain::Storehouse);
+    map.set_terrain(13, 8, Terrain::Storehouse);
+
+    // Starting units (infantry-focused due to terrain)
+    map.add_unit(UnitType::Scout, Faction::Eastern, 0, 4);
+    map.add_unit(UnitType::Scout, Faction::Eastern, 0, 5);
+    map.add_unit(UnitType::Scout, Faction::Eastern, 1, 3);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 1, 4);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 1, 5);
+    map.add_unit(UnitType::Recon, Faction::Eastern, 2, 6);
+
+    map.add_unit(UnitType::Scout, Faction::Northern, 13, 4);
+    map.add_unit(UnitType::Scout, Faction::Northern, 13, 5);
+    map.add_unit(UnitType::Scout, Faction::Northern, 12, 6);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 12, 4);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 12, 5);
+    map.add_unit(UnitType::Recon, Faction::Northern, 11, 4);
+
+    map
+}
+
+/// Ancient Ruins - Crumbling structures provide defensive positions
+fn create_ancient_ruins_map() -> MapData {
+    let mut map = MapData::new("Ancient Ruins", 16, 12);
+    map.description = "Crumbling ancient structures offer cover. Urban-style combat with lots of defensive positions!".to_string();
+
+    // Central temple ruins - large defensive structure
+    // Outer walls (brambles representing crumbling walls)
+    for x in 6..11 {
+        map.set_terrain(x, 4, Terrain::Brambles);
+        map.set_terrain(x, 8, Terrain::Brambles);
+    }
+    for y in 4..9 {
+        map.set_terrain(6, y, Terrain::Brambles);
+        map.set_terrain(10, y, Terrain::Brambles);
+    }
+    // Openings in walls
+    map.set_terrain(8, 4, Terrain::Grass);
+    map.set_terrain(8, 8, Terrain::Grass);
+    map.set_terrain(6, 6, Terrain::Grass);
+    map.set_terrain(10, 6, Terrain::Grass);
+
+    // Interior of temple - defensive positions
+    map.set_terrain(7, 5, Terrain::Hollow);
+    map.set_terrain(9, 5, Terrain::Hollow);
+    map.set_terrain(7, 7, Terrain::Hollow);
+    map.set_terrain(9, 7, Terrain::Hollow);
+    map.set_terrain(8, 6, Terrain::Boulder);  // Central altar/pillar
+
+    // Western ruins (smaller structure)
+    map.set_terrain(2, 3, Terrain::Brambles);
+    map.set_terrain(3, 3, Terrain::Brambles);
+    map.set_terrain(2, 4, Terrain::Brambles);
+    map.set_terrain(3, 4, Terrain::Hollow);
+    map.set_terrain(2, 5, Terrain::Brambles);
+    map.set_terrain(3, 5, Terrain::Brambles);
+
+    // Eastern ruins (smaller structure)
+    map.set_terrain(12, 6, Terrain::Brambles);
+    map.set_terrain(13, 6, Terrain::Brambles);
+    map.set_terrain(12, 7, Terrain::Hollow);
+    map.set_terrain(13, 7, Terrain::Brambles);
+    map.set_terrain(12, 8, Terrain::Brambles);
+    map.set_terrain(13, 8, Terrain::Brambles);
+
+    // Northern watchtower ruins
+    map.set_terrain(4, 1, Terrain::Boulder);
+    map.set_terrain(5, 1, Terrain::Hollow);
+    map.set_terrain(4, 2, Terrain::Brambles);
+    map.set_terrain(5, 2, Terrain::Brambles);
+
+    // Southern watchtower ruins
+    map.set_terrain(10, 10, Terrain::Boulder);
+    map.set_terrain(11, 10, Terrain::Hollow);
+    map.set_terrain(10, 9, Terrain::Brambles);
+    map.set_terrain(11, 9, Terrain::Brambles);
+
+    // Overgrown areas (thickets reclaiming the ruins)
+    map.set_terrain(1, 7, Terrain::Thicket);
+    map.set_terrain(1, 8, Terrain::Thicket);
+    map.set_terrain(14, 3, Terrain::Thicket);
+    map.set_terrain(14, 4, Terrain::Thicket);
+    map.set_terrain(7, 1, Terrain::TallGrass);
+    map.set_terrain(8, 10, Terrain::TallGrass);
+    map.set_terrain(4, 9, Terrain::TallGrass);
+    map.set_terrain(11, 2, Terrain::TallGrass);
+
+    // Ancient reflecting pools (water features)
+    map.set_terrain(5, 6, Terrain::Pond);
+    map.set_terrain(4, 6, Terrain::Shore);
+    map.set_terrain(11, 5, Terrain::Pond);
+    map.set_terrain(12, 5, Terrain::Shore);
+
+    // Crumbling stone paths (logs representing walkways)
+    map.set_terrain(3, 6, Terrain::Log);
+    map.set_terrain(8, 3, Terrain::Log);
+    map.set_terrain(8, 9, Terrain::Log);
+    map.set_terrain(12, 4, Terrain::Log);
+
+    // Bases in ruined outbuildings
+    map.set_terrain(1, 2, Terrain::Base);
+    map.set_terrain(0, 3, Terrain::Base);
+    map.add_property(1, 2, Faction::Eastern);
+    map.add_property(0, 3, Faction::Eastern);
+
+    map.set_terrain(14, 9, Terrain::Base);
+    map.set_terrain(15, 8, Terrain::Base);
+    map.add_property(14, 9, Faction::Northern);
+    map.add_property(15, 8, Faction::Northern);
+
+    // Temple outposts (valuable positions)
+    map.set_terrain(7, 6, Terrain::Outpost);
+    map.set_terrain(9, 6, Terrain::Outpost);
+
+    // Storehouses in side ruins
+    map.set_terrain(3, 4, Terrain::Storehouse);
+    map.set_terrain(12, 7, Terrain::Storehouse);
+
+    // Starting units
+    map.add_unit(UnitType::Scout, Faction::Eastern, 1, 2);
+    map.add_unit(UnitType::Scout, Faction::Eastern, 0, 3);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 2, 2);
+    map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 1, 4);
+    map.add_unit(UnitType::Recon, Faction::Eastern, 2, 1);
+    map.add_unit(UnitType::Siege, Faction::Eastern, 0, 5);
+
+    map.add_unit(UnitType::Scout, Faction::Northern, 14, 9);
+    map.add_unit(UnitType::Scout, Faction::Northern, 15, 8);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 13, 9);
+    map.add_unit(UnitType::Shocktrooper, Faction::Northern, 14, 7);
+    map.add_unit(UnitType::Recon, Faction::Northern, 13, 10);
+    map.add_unit(UnitType::Siege, Faction::Northern, 15, 6);
 
     map
 }
