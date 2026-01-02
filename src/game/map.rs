@@ -92,7 +92,7 @@ pub fn spawn_map_from_data(
 
             // Spawn terrain feature sprite for terrains with vertical elements
             if terrain.has_feature() {
-                spawn_terrain_feature(commands, sprite_assets, images, x, y, terrain, owner, offset_x, offset_z);
+                spawn_terrain_feature(commands, meshes, materials, sprite_assets, images, x, y, terrain, owner, offset_x, offset_z);
             }
         }
     }
@@ -102,6 +102,8 @@ pub fn spawn_map_from_data(
 pub fn spawn_units_from_data(
     commands: &mut Commands,
     game_map: &GameMap,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
     sprite_assets: &super::SpriteAssets,
     images: &Assets<Image>,
     map_data: &MapData,
@@ -110,6 +112,8 @@ pub fn spawn_units_from_data(
         spawn_unit(
             commands,
             game_map,
+            meshes,
+            materials,
             sprite_assets,
             images,
             placement.faction,

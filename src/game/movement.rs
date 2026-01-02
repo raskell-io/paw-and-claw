@@ -51,10 +51,13 @@ impl Plugin for MovementPlugin {
             .init_resource::<PendingAction>()
             .init_resource::<ProductionState>()
             .init_resource::<CameraZoom>()
+            .init_resource::<CameraAngle>()
             .add_systems(Update, (
                 handle_keyboard_input,
                 handle_camera_movement,
                 handle_camera_zoom,
+                handle_camera_angle_toggle,
+                update_camera_angle,
                 handle_click_input,
                 update_movement_highlights,
                 draw_grid_cursor,
@@ -79,6 +82,43 @@ impl Default for CameraZoom {
             min: 0.3,   // Zoomed in close
             max: 2.5,   // Zoomed out far
             speed: 0.15,
+        }
+    }
+}
+
+/// Camera angle mode - 3D perspective or 2D top-down
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CameraMode {
+    #[default]
+    Perspective,  // Angled 3D view (Advance Wars style)
+    TopDown,      // Directly overhead 2D view
+}
+
+/// Resource to control camera angle with smooth transitions
+#[derive(Resource)]
+pub struct CameraAngle {
+    pub mode: CameraMode,
+    pub transition_progress: f32,  // 0.0 = perspective, 1.0 = top-down
+    pub transition_speed: f32,
+    /// Base height for perspective mode
+    pub perspective_height: f32,
+    pub perspective_pitch: f32,  // Angle in radians
+    /// Base height for top-down mode
+    pub top_down_height: f32,
+    /// The point on the ground (XZ plane) that the camera is looking at
+    pub look_at: Vec2,
+}
+
+impl Default for CameraAngle {
+    fn default() -> Self {
+        Self {
+            mode: CameraMode::Perspective,
+            transition_progress: 0.0,
+            transition_speed: 3.0,  // Transition takes ~0.33 seconds
+            perspective_height: 400.0,
+            perspective_pitch: std::f32::consts::FRAC_PI_6,  // 30 degrees from horizontal
+            top_down_height: 600.0,
+            look_at: Vec2::ZERO,  // Start looking at center
         }
     }
 }
@@ -416,7 +456,7 @@ fn handle_camera_movement(
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     cursor: Res<GridCursor>,
-    mut camera_query: Query<&mut Transform, With<Camera3d>>,
+    mut angle: ResMut<CameraAngle>,
 ) {
     let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
@@ -425,42 +465,38 @@ fn handle_camera_movement(
         return;
     }
 
-    let Ok(mut camera_transform) = camera_query.get_single_mut() else { return };
     let speed = 300.0 * time.delta_secs();
 
-    // Get camera's forward/right vectors projected onto XZ plane
-    let forward = camera_transform.forward();
-    let forward_xz = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-    let right_xz = Vec3::new(forward.z, 0.0, -forward.x);
+    let mut movement = Vec2::ZERO;
 
-    let mut movement = Vec3::ZERO;
-
+    // In top-down mode, up/down map to -Z/+Z directly
+    // In perspective mode, "up" moves the look-at point away (negative Z)
     if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
-        movement -= forward_xz;  // Move camera "up" on screen (away from where it's looking)
+        movement.y -= 1.0;  // Move look-at point "up" (negative Z in world)
     }
     if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
-        movement += forward_xz;  // Move camera "down" on screen (toward where it's looking)
+        movement.y += 1.0;  // Move look-at point "down" (positive Z in world)
     }
     if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
-        movement -= right_xz;
+        movement.x -= 1.0;
     }
     if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
-        movement += right_xz;
+        movement.x += 1.0;
     }
 
-    camera_transform.translation += movement * speed;
+    if movement != Vec2::ZERO {
+        angle.look_at += movement.normalize() * speed;
+    }
 }
 
 /// Handle camera zoom with scroll wheel, touchpad pinch, and keyboard (Q/E or +/-)
+/// Only updates zoom.current - actual camera positioning is done by update_camera_angle
 fn handle_camera_zoom(
     mut scroll_events: EventReader<bevy::input::mouse::MouseWheel>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut zoom: ResMut<CameraZoom>,
-    mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
-    let Ok(mut camera_transform) = camera_query.get_single_mut() else { return };
-
     let mut zoom_delta = 0.0;
 
     // Mouse wheel / touchpad scroll (handles both line and pixel scrolling)
@@ -484,15 +520,87 @@ fn handle_camera_zoom(
     }
 
     if zoom_delta.abs() > 0.0001 {
-        // Update zoom level with clamping
-        let new_zoom = (zoom.current + zoom_delta).clamp(zoom.min, zoom.max);
-        let actual_delta = new_zoom - zoom.current;
-        zoom.current = new_zoom;
-
-        // Move camera along its forward vector (toward/away from the board)
-        let forward = camera_transform.forward();
-        camera_transform.translation += forward * actual_delta * 200.0;
+        // Update zoom level with clamping - camera position updated by update_camera_angle
+        zoom.current = (zoom.current + zoom_delta).clamp(zoom.min, zoom.max);
     }
+}
+
+/// Handle keyboard toggle for camera angle (T key or Tab)
+fn handle_camera_angle_toggle(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut angle: ResMut<CameraAngle>,
+) {
+    // Toggle with T or Tab key
+    if keyboard.just_pressed(KeyCode::KeyT) || keyboard.just_pressed(KeyCode::Tab) {
+        angle.mode = match angle.mode {
+            CameraMode::Perspective => CameraMode::TopDown,
+            CameraMode::TopDown => CameraMode::Perspective,
+        };
+        angle.look_at = Vec2::ZERO;  // Re-center on toggle
+        info!("Camera mode: {:?}", angle.mode);
+    }
+}
+
+/// Smoothly transition camera between perspective and top-down views
+/// Also handles zoom by adjusting camera height
+fn update_camera_angle(
+    time: Res<Time>,
+    mut angle: ResMut<CameraAngle>,
+    zoom: Res<CameraZoom>,
+    mut camera_query: Query<&mut Transform, With<Camera3d>>,
+) {
+    let Ok(mut camera_transform) = camera_query.get_single_mut() else { return };
+
+    // Update transition progress based on mode
+    let target = match angle.mode {
+        CameraMode::Perspective => 0.0,
+        CameraMode::TopDown => 1.0,
+    };
+
+    let delta = time.delta_secs() * angle.transition_speed;
+    if (angle.transition_progress - target).abs() > 0.001 {
+        if angle.transition_progress < target {
+            angle.transition_progress = (angle.transition_progress + delta).min(target);
+        } else {
+            angle.transition_progress = (angle.transition_progress - delta).max(target);
+        }
+    } else {
+        angle.transition_progress = target;
+    }
+
+    // Smooth easing function (smoothstep)
+    let t = angle.transition_progress;
+    let t_smooth = t * t * (3.0 - 2.0 * t);
+
+    // Interpolate between perspective and top-down
+    // Calculate target pitch (0 = horizontal, PI/2 = looking straight down)
+    let perspective_pitch = angle.perspective_pitch;
+    let top_down_pitch = std::f32::consts::FRAC_PI_2 - 0.001;  // Nearly straight down
+
+    let current_pitch = perspective_pitch + (top_down_pitch - perspective_pitch) * t_smooth;
+
+    // Calculate height based on mode transition and zoom
+    let base_height = angle.perspective_height + (angle.top_down_height - angle.perspective_height) * t_smooth;
+    let height = base_height * zoom.current;
+
+    // Calculate Z offset for perspective mode (camera behind the look-at point)
+    // In top-down (t=1), Z offset is 0; in perspective (t=0), camera is behind
+    let z_offset = (height / perspective_pitch.tan()) * (1.0 - t_smooth);
+
+    // Position camera based on look_at point
+    camera_transform.translation = Vec3::new(
+        angle.look_at.x,
+        height,
+        angle.look_at.y + z_offset,
+    );
+
+    // Update rotation: pitch around X axis
+    camera_transform.rotation = Quat::from_euler(
+        EulerRot::XYZ,
+        -current_pitch,  // Pitch (tilt down)
+        0.0,             // Yaw (no horizontal rotation)
+        0.0,             // Roll
+    );
 }
 
 /// Handle mouse click for selection and movement

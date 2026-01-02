@@ -717,6 +717,8 @@ fn apply_power_effects(
     tiles: Query<&Tile>,
     sprite_assets: Res<SpriteAssets>,
     images: Res<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for event in events.read() {
         info!("Applying power effect for {:?}", event.faction);
@@ -778,6 +780,8 @@ fn apply_power_effects(
                         spawn_unit(
                             &mut commands,
                             &map,
+                            &mut meshes,
+                            &mut materials,
                             &sprite_assets,
                             &images,
                             event.faction,

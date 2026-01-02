@@ -571,6 +571,8 @@ pub struct UnitSymbol;
 pub fn spawn_unit(
     commands: &mut Commands,
     map: &GameMap,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
     sprite_assets: &super::SpriteAssets,
     images: &Assets<Image>,
     faction: Faction,
@@ -585,69 +587,51 @@ pub fn spawn_unit(
     let stats = unit_type.stats();
     let unit_height = match stats.class {
         UnitClass::Air | UnitClass::AirTransport => 24.0,  // Float above ground
-        _ => 0.1,  // Just above ground to avoid z-fighting
+        _ => 12.0,  // Ground units sit at eye level
     };
 
-    // Get sprite from assets or use procedural fallback
-    let sprite = match sprite_assets.get_unit_sprite(images, faction, unit_type) {
-        super::SpriteSource::Image(handle) => Sprite {
-            image: handle,
-            custom_size: Some(Vec2::new(24.0, 24.0)),
-            anchor: bevy::sprite::Anchor::BottomCenter,
-            ..default()
-        },
-        super::SpriteSource::Procedural { color, size } => Sprite {
-            color,
-            custom_size: Some(size),
-            anchor: bevy::sprite::Anchor::BottomCenter,
-            ..default()
-        },
+    // Get color from sprite assets or use faction color as fallback
+    let unit_color = match sprite_assets.get_unit_sprite(images, faction, unit_type) {
+        super::SpriteSource::Image(_handle) => faction.color(), // TODO: Use texture when available
+        super::SpriteSource::Procedural { color, .. } => color,
     };
 
-    // Unit sprite positioned in 3D space with Billboard for camera-facing
+    // Create a vertical quad mesh for the unit (billboard will rotate it to face camera)
+    let unit_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.6);
+    let unit_mesh = meshes.add(Rectangle::new(unit_size.x, unit_size.y));
+
+    // Unit as 3D mesh with billboard behavior
     commands.spawn((
-        sprite,
+        Mesh3d(unit_mesh),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: unit_color,
+            unlit: true,  // No lighting effects, flat color
+            alpha_mode: AlphaMode::Blend,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        })),
         Transform::from_xyz(world_pos.x, unit_height, world_pos.z),
         Unit::new(unit_type),
         GridPosition::new(x, y),
         FactionMember { faction },
         Billboard,  // Face the camera
     )).with_children(|parent| {
-        // Shadow sprite on the ground (positioned relative to unit)
+        // Shadow on the ground (flat oval)
+        let shadow_mesh = meshes.add(Ellipse::new(TILE_SIZE * 0.25, TILE_SIZE * 0.08));
         parent.spawn((
-            Sprite {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.3),
-                custom_size: Some(Vec2::new(TILE_SIZE * 0.5, TILE_SIZE * 0.15)),
+            Mesh3d(shadow_mesh),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.0, 0.0, 0.0, 0.3),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                double_sided: true,
+                cull_mode: None,
                 ..default()
-            },
+            })),
             Transform::from_xyz(0.0, -unit_height + 0.05, 0.0)
                 .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
             UnitShadow,
-        ));
-
-        // Unit type symbol (centered on unit body)
-        parent.spawn((
-            Text2d::new(unit_type.symbol()),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-            TextLayout::new_with_justify(JustifyText::Center),
-            Transform::from_xyz(0.0, TILE_SIZE * 0.2, 0.1),
-            UnitSymbol,
-        ));
-
-        // HP display in bottom-right corner (relative to bottom-center anchor)
-        parent.spawn((
-            Text2d::new(""),
-            TextFont {
-                font_size: 12.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-            Transform::from_xyz(TILE_SIZE * 0.22, TILE_SIZE * 0.05, 0.2),
-            HpDisplay,
         ));
     });
 }

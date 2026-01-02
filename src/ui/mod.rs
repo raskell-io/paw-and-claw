@@ -388,7 +388,7 @@ fn draw_battle_setup(
                             // Load and spawn the selected map
                             let map_data = get_builtin_map(setup_state.selected_map);
                             spawn_map_from_data(&mut commands, &mut game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data);
-                            spawn_units_from_data(&mut commands, &game_map, &sprite_assets, &images, &map_data);
+                            spawn_units_from_data(&mut commands, &game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data);
 
                             setup_state.needs_setup = false;
                         }
@@ -910,6 +910,8 @@ fn draw_production_menu(
     commanders: Res<Commanders>,
     sprite_assets: Res<SpriteAssets>,
     images: Res<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -1003,6 +1005,8 @@ fn draw_production_menu(
             spawn_unit(
                 &mut commands,
                 &map,
+                &mut meshes,
+                &mut materials,
                 &sprite_assets,
                 &images,
                 turn_state.current_faction,

@@ -1489,8 +1489,7 @@ fn smart_production(
     tiles: &[(Entity, Tile)],
     commands: &mut Commands,
     map: &GameMap,
-    sprite_assets: &SpriteAssets,
-    images: &Assets<Image>,
+    sprite_param: &mut SpriteAssetsParam,
     goals: &[StrategicGoal],
     cost_modifier: f32,
 ) {
@@ -1632,7 +1631,7 @@ fn smart_production(
             // Apply CO cost modifier
             let adjusted_cost = (*base_cost as f32 * cost_modifier).round() as u32;
             if funds.spend(faction, adjusted_cost) {
-                spawn_unit(commands, map, sprite_assets, images, faction, *unit_type, x, y);
+                spawn_unit(commands, map, &mut sprite_param.meshes, &mut sprite_param.materials, &sprite_param.assets, &sprite_param.images, faction, *unit_type, x, y);
                 info!("AI ({:?}/{:?}) built {:?} at ({}, {})",
                     config.strategy, config.personality, unit_type, x, y);
                 break;
@@ -1764,7 +1763,7 @@ fn ai_turn_system(
     game_result: Res<GameResult>,
     mut commanders: ResMut<Commanders>,
     mut power_events: EventWriter<PowerActivatedEvent>,
-    sprite_param: SpriteAssetsParam,
+    mut sprite_param: SpriteAssetsParam,
 ) {
     if game_result.game_over {
         return;
@@ -1893,8 +1892,7 @@ fn ai_turn_system(
                 &all_tiles,
                 &mut commands,
                 &map,
-                &sprite_param.assets,
-                &sprite_param.images,
+                &mut sprite_param,
                 &goals,
                 co_bonuses.cost,
             );
