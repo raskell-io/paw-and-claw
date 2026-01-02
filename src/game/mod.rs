@@ -12,6 +12,7 @@ mod fog;
 mod commander;
 mod weather;
 mod sprites;
+mod assets;
 
 pub use map::*;
 pub use maps::*;
@@ -25,6 +26,7 @@ pub use fog::*;
 pub use commander::*;
 pub use weather::*;
 pub use sprites::*;
+pub use assets::*;
 
 // Future: use crate::states::GameState;
 
@@ -32,7 +34,8 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MapPlugin)
+        app.add_plugins(AssetPlugin)
+            .add_plugins(MapPlugin)
             .add_plugins(UnitPlugin)
             .add_plugins(TurnPlugin)
             .add_plugins(MovementPlugin)

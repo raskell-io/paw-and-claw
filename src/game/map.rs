@@ -17,10 +17,12 @@ impl Plugin for MapPlugin {
 pub fn spawn_map_from_selection(
     commands: &mut Commands,
     game_map: &mut ResMut<GameMap>,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
     selected: &SelectedMap,
 ) -> MapData {
     let map_data = get_builtin_map(selected.map_id);
-    spawn_map_from_data(commands, game_map, &map_data);
+    spawn_map_from_data(commands, game_map, sprite_assets, images, &map_data);
     map_data
 }
 
@@ -28,6 +30,8 @@ pub fn spawn_map_from_selection(
 pub fn spawn_map_from_data(
     commands: &mut Commands,
     game_map: &mut ResMut<GameMap>,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
     map_data: &MapData,
 ) {
     // Update GameMap resource
@@ -78,7 +82,7 @@ pub fn spawn_map_from_data(
 
             // Spawn terrain feature sprite for terrains with vertical elements
             if terrain.has_feature() {
-                spawn_terrain_feature(commands, x, y, terrain, owner, offset_x, offset_y);
+                spawn_terrain_feature(commands, sprite_assets, images, x, y, terrain, owner, offset_x, offset_y);
             }
         }
     }
@@ -88,12 +92,16 @@ pub fn spawn_map_from_data(
 pub fn spawn_units_from_data(
     commands: &mut Commands,
     game_map: &GameMap,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
     map_data: &MapData,
 ) {
     for placement in &map_data.units {
         spawn_unit(
             commands,
             game_map,
+            sprite_assets,
+            images,
             placement.faction,
             placement.unit_type,
             placement.x,
@@ -283,6 +291,44 @@ impl Terrain {
             Terrain::Outpost => "P",
             Terrain::Storehouse => "S",
         }
+    }
+
+    /// Get the asset file name for this terrain type
+    pub fn asset_file_name(&self) -> &'static str {
+        match self {
+            Terrain::Grass => "grass",
+            Terrain::TallGrass => "tall_grass",
+            Terrain::Thicket => "thicket",
+            Terrain::Brambles => "brambles",
+            Terrain::Log => "log",
+            Terrain::Boulder => "boulder",
+            Terrain::Hollow => "hollow",
+            Terrain::Creek => "creek",
+            Terrain::Pond => "pond",
+            Terrain::Shore => "shore",
+            Terrain::Base => "base",
+            Terrain::Outpost => "outpost",
+            Terrain::Storehouse => "storehouse",
+        }
+    }
+
+    /// Get all terrain variants
+    pub fn all() -> &'static [Terrain] {
+        &[
+            Terrain::Grass,
+            Terrain::TallGrass,
+            Terrain::Thicket,
+            Terrain::Brambles,
+            Terrain::Log,
+            Terrain::Boulder,
+            Terrain::Hollow,
+            Terrain::Creek,
+            Terrain::Pond,
+            Terrain::Shore,
+            Terrain::Base,
+            Terrain::Outpost,
+            Terrain::Storehouse,
+        ]
     }
 }
 

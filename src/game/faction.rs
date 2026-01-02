@@ -84,6 +84,30 @@ impl Faction {
             Faction::Wanderer => &["Wolf"],
         }
     }
+
+    /// Get the asset folder name for this faction
+    pub fn asset_folder_name(&self) -> &'static str {
+        match self {
+            Faction::Eastern => "eastern",
+            Faction::Northern => "northern",
+            Faction::Western => "western",
+            Faction::Southern => "southern",
+            Faction::Nether => "nether",
+            Faction::Wanderer => "wanderer",
+        }
+    }
+
+    /// Get all faction variants
+    pub fn all() -> &'static [Faction] {
+        &[
+            Faction::Eastern,
+            Faction::Northern,
+            Faction::Western,
+            Faction::Southern,
+            Faction::Nether,
+            Faction::Wanderer,
+        ]
+    }
 }
 
 /// Component marking an entity as belonging to a faction

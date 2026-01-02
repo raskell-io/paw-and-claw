@@ -8,7 +8,7 @@ use crate::game::{
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
-    TILE_SIZE, Weather, WeatherType,
+    TILE_SIZE, Weather, WeatherType, SpriteAssets,
 };
 use crate::states::GameState;
 
@@ -196,6 +196,8 @@ fn draw_battle_setup(
     mut commanders: ResMut<Commanders>,
     mut commands: Commands,
     mut game_map: ResMut<GameMap>,
+    sprite_assets: Res<SpriteAssets>,
+    images: Res<Assets<Image>>,
 ) {
     if !setup_state.needs_setup {
         return;
@@ -383,8 +385,8 @@ fn draw_battle_setup(
 
                             // Load and spawn the selected map
                             let map_data = get_builtin_map(setup_state.selected_map);
-                            spawn_map_from_data(&mut commands, &mut game_map, &map_data);
-                            spawn_units_from_data(&mut commands, &game_map, &map_data);
+                            spawn_map_from_data(&mut commands, &mut game_map, &sprite_assets, &images, &map_data);
+                            spawn_units_from_data(&mut commands, &game_map, &sprite_assets, &images, &map_data);
 
                             setup_state.needs_setup = false;
                         }
@@ -904,6 +906,8 @@ fn draw_production_menu(
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
+    sprite_assets: Res<SpriteAssets>,
+    images: Res<Assets<Image>>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -997,6 +1001,8 @@ fn draw_production_menu(
             spawn_unit(
                 &mut commands,
                 &map,
+                &sprite_assets,
+                &images,
                 turn_state.current_faction,
                 unit_type,
                 x,

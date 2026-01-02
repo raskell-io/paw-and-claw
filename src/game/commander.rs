@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use super::{
     Faction, UnitType, AiPersonality, Unit, FactionMember, GridPosition,
-    FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, Terrain,
+    FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, Terrain, SpriteAssets,
 };
 
 pub struct CommanderPlugin;
@@ -715,6 +715,8 @@ fn apply_power_effects(
     mut commands: Commands,
     map: Res<GameMap>,
     tiles: Query<&Tile>,
+    sprite_assets: Res<SpriteAssets>,
+    images: Res<Assets<Image>>,
 ) {
     for event in events.read() {
         info!("Applying power effect for {:?}", event.faction);
@@ -776,6 +778,8 @@ fn apply_power_effects(
                         spawn_unit(
                             &mut commands,
                             &map,
+                            &sprite_assets,
+                            &images,
                             event.faction,
                             *unit_type,
                             tile.position.x,

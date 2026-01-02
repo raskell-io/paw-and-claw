@@ -429,6 +429,58 @@ impl UnitType {
     pub fn class(&self) -> UnitClass {
         self.stats().class
     }
+
+    /// Get the asset file name for this unit type
+    pub fn asset_file_name(&self) -> &'static str {
+        match self {
+            UnitType::Scout => "scout",
+            UnitType::Shocktrooper => "shocktrooper",
+            UnitType::Recon => "recon",
+            UnitType::Ironclad => "ironclad",
+            UnitType::Juggernaut => "juggernaut",
+            UnitType::Behemoth => "behemoth",
+            UnitType::Flak => "flak",
+            UnitType::Siege => "siege",
+            UnitType::Barrage => "barrage",
+            UnitType::Stinger => "stinger",
+            UnitType::Carrier => "carrier",
+            UnitType::Supplier => "supplier",
+            UnitType::Ferrier => "ferrier",
+            UnitType::Skywing => "skywing",
+            UnitType::Raptor => "raptor",
+            UnitType::Talon => "talon",
+            UnitType::Barge => "barge",
+            UnitType::Frigate => "frigate",
+            UnitType::Lurker => "lurker",
+            UnitType::Dreadnought => "dreadnought",
+        }
+    }
+
+    /// Get all unit type variants
+    pub fn all() -> &'static [UnitType] {
+        &[
+            UnitType::Scout,
+            UnitType::Shocktrooper,
+            UnitType::Recon,
+            UnitType::Ironclad,
+            UnitType::Juggernaut,
+            UnitType::Behemoth,
+            UnitType::Flak,
+            UnitType::Siege,
+            UnitType::Barrage,
+            UnitType::Stinger,
+            UnitType::Carrier,
+            UnitType::Supplier,
+            UnitType::Ferrier,
+            UnitType::Skywing,
+            UnitType::Raptor,
+            UnitType::Talon,
+            UnitType::Barge,
+            UnitType::Frigate,
+            UnitType::Lurker,
+            UnitType::Dreadnought,
+        ]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -518,6 +570,8 @@ pub struct UnitSymbol;
 pub fn spawn_unit(
     commands: &mut Commands,
     map: &GameMap,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
     faction: Faction,
     unit_type: UnitType,
     x: i32,
@@ -533,14 +587,25 @@ pub fn spawn_unit(
         _ => SpriteLayer::GroundUnit,
     };
 
-    // Unit sprite with bottom-center anchor for proper Y-sorting
-    commands.spawn((
-        Sprite {
-            color: faction.color(),
-            custom_size: Some(Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.5)),
+    // Get sprite from assets or use procedural fallback
+    let sprite = match sprite_assets.get_unit_sprite(images, faction, unit_type) {
+        super::SpriteSource::Image(handle) => Sprite {
+            image: handle,
+            custom_size: Some(Vec2::new(24.0, 24.0)),
             anchor: bevy::sprite::Anchor::BottomCenter,
             ..default()
         },
+        super::SpriteSource::Procedural { color, size } => Sprite {
+            color,
+            custom_size: Some(size),
+            anchor: bevy::sprite::Anchor::BottomCenter,
+            ..default()
+        },
+    };
+
+    // Unit sprite with bottom-center anchor for proper Y-sorting
+    commands.spawn((
+        sprite,
         Transform::from_xyz(world_pos.x, world_pos.y - TILE_SIZE * 0.35, world_pos.z),
         Unit::new(unit_type),
         GridPosition::new(x, y),

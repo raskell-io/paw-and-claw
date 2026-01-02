@@ -70,6 +70,8 @@ fn update_y_depth_sorting(
 /// Spawn a terrain feature sprite for terrain types that have vertical elements
 pub fn spawn_terrain_feature(
     commands: &mut Commands,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
     x: u32,
     y: u32,
     terrain: Terrain,
@@ -80,15 +82,24 @@ pub fn spawn_terrain_feature(
     let world_x = x as f32 * TILE_SIZE + offset_x;
     let world_y = y as f32 * TILE_SIZE + offset_y;
 
-    let (sprite_color, sprite_size) = get_feature_sprite_params(terrain);
-
-    let mut entity_commands = commands.spawn((
-        Sprite {
-            color: sprite_color,
-            custom_size: Some(sprite_size),
+    // Get sprite from assets or use procedural fallback
+    let sprite = match sprite_assets.get_terrain_feature_sprite(images, terrain) {
+        super::SpriteSource::Image(handle) => Sprite {
+            image: handle,
+            custom_size: Some(Vec2::new(32.0, 32.0)),
             anchor: bevy::sprite::Anchor::BottomCenter,
             ..default()
         },
+        super::SpriteSource::Procedural { color, size } => Sprite {
+            color,
+            custom_size: Some(size),
+            anchor: bevy::sprite::Anchor::BottomCenter,
+            ..default()
+        },
+    };
+
+    let mut entity_commands = commands.spawn((
+        sprite,
         Transform::from_xyz(world_x, world_y - TILE_SIZE * 0.4, 1.0), // Z will be set by Y-sort
         TerrainFeature {
             terrain_type: terrain,
