@@ -50,14 +50,36 @@ impl Plugin for MovementPlugin {
             .init_resource::<GridCursor>()
             .init_resource::<PendingAction>()
             .init_resource::<ProductionState>()
+            .init_resource::<CameraZoom>()
             .add_systems(Update, (
                 handle_keyboard_input,
                 handle_camera_movement,
+                handle_camera_zoom,
                 handle_click_input,
                 update_movement_highlights,
                 draw_grid_cursor,
                 draw_action_targets,
             ).run_if(in_state(GameState::Battle)));
+    }
+}
+
+/// Camera zoom settings
+#[derive(Resource)]
+pub struct CameraZoom {
+    pub current: f32,
+    pub min: f32,
+    pub max: f32,
+    pub speed: f32,
+}
+
+impl Default for CameraZoom {
+    fn default() -> Self {
+        Self {
+            current: 1.0,
+            min: 0.3,   // Zoomed in close
+            max: 2.5,   // Zoomed out far
+            speed: 0.15,
+        }
     }
 }
 
@@ -427,6 +449,50 @@ fn handle_camera_movement(
     }
 
     camera_transform.translation += movement * speed;
+}
+
+/// Handle camera zoom with scroll wheel, touchpad pinch, and keyboard (Q/E or +/-)
+fn handle_camera_zoom(
+    mut scroll_events: EventReader<bevy::input::mouse::MouseWheel>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut zoom: ResMut<CameraZoom>,
+    mut camera_query: Query<&mut Transform, With<Camera3d>>,
+) {
+    let Ok(mut camera_transform) = camera_query.get_single_mut() else { return };
+
+    let mut zoom_delta = 0.0;
+
+    // Mouse wheel / touchpad scroll (handles both line and pixel scrolling)
+    for event in scroll_events.read() {
+        // Touchpad pinch gestures come through as MouseScrollUnit::Pixel
+        // Mouse wheel comes through as MouseScrollUnit::Line
+        let scroll_amount = match event.unit {
+            bevy::input::mouse::MouseScrollUnit::Line => event.y * 3.0,
+            bevy::input::mouse::MouseScrollUnit::Pixel => event.y * 0.05,
+        };
+        zoom_delta -= scroll_amount * zoom.speed;
+    }
+
+    // Keyboard zoom (Q to zoom in, E to zoom out)
+    let keyboard_speed = 2.0 * time.delta_secs();
+    if keyboard.pressed(KeyCode::KeyQ) || keyboard.pressed(KeyCode::Equal) || keyboard.pressed(KeyCode::NumpadAdd) {
+        zoom_delta -= keyboard_speed;
+    }
+    if keyboard.pressed(KeyCode::KeyE) || keyboard.pressed(KeyCode::Minus) || keyboard.pressed(KeyCode::NumpadSubtract) {
+        zoom_delta += keyboard_speed;
+    }
+
+    if zoom_delta.abs() > 0.0001 {
+        // Update zoom level with clamping
+        let new_zoom = (zoom.current + zoom_delta).clamp(zoom.min, zoom.max);
+        let actual_delta = new_zoom - zoom.current;
+        zoom.current = new_zoom;
+
+        // Move camera along its forward vector (toward/away from the board)
+        let forward = camera_transform.forward();
+        camera_transform.translation += forward * actual_delta * 200.0;
+    }
 }
 
 /// Handle mouse click for selection and movement
