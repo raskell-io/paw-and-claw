@@ -101,6 +101,9 @@ pub fn spawn_terrain_feature(
     let world_z = y as f32 * TILE_SIZE + offset_z;
     let feature_height = terrain.feature_height();
 
+    // Offset terrain features slightly backward (positive Z) so units render in front
+    let z_offset = 8.0;
+
     // Get color from sprite assets or use procedural fallback
     let feature_color = match sprite_assets.get_terrain_feature_sprite(images, terrain) {
         super::SpriteSource::Image(_handle) => get_procedural_feature_color(terrain),
@@ -123,7 +126,7 @@ pub fn spawn_terrain_feature(
             cull_mode: None,
             ..default()
         })),
-        Transform::from_xyz(world_x, feature_height * 0.5, world_z),
+        Transform::from_xyz(world_x, feature_height * 0.5, world_z + z_offset),
         TerrainFeature {
             terrain_type: terrain,
             grid_position: IVec2::new(x as i32, y as i32),
