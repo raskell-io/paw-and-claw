@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Faction, FactionMember, GameMap, TILE_SIZE, YSortable, SpriteLayer, UnitShadow};
+use super::{Faction, FactionMember, GameMap, TILE_SIZE, UnitShadow, Billboard};
 
 pub struct UnitPlugin;
 
@@ -539,13 +539,14 @@ impl GridPosition {
         Self { x, y }
     }
 
+    /// Convert grid position to world coordinates (3D: grid Y -> world Z)
     pub fn to_world(&self, map: &GameMap) -> Vec3 {
         let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-        let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+        let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
         Vec3::new(
             self.x as f32 * TILE_SIZE + offset_x,
-            self.y as f32 * TILE_SIZE + offset_y,
-            1.0,
+            0.0,  // Ground level (Y is up in 3D)
+            self.y as f32 * TILE_SIZE + offset_z,  // Grid Y -> World Z
         )
     }
 
@@ -580,11 +581,11 @@ pub fn spawn_unit(
     let grid_pos = GridPosition::new(x, y);
     let world_pos = grid_pos.to_world(map);
 
-    // Determine sprite layer based on unit class (air units render higher)
+    // Determine Y height based on unit class (air units float higher)
     let stats = unit_type.stats();
-    let layer = match stats.class {
-        UnitClass::Air | UnitClass::AirTransport => SpriteLayer::AirUnit,
-        _ => SpriteLayer::GroundUnit,
+    let unit_height = match stats.class {
+        UnitClass::Air | UnitClass::AirTransport => 24.0,  // Float above ground
+        _ => 0.1,  // Just above ground to avoid z-fighting
     };
 
     // Get sprite from assets or use procedural fallback
@@ -603,23 +604,24 @@ pub fn spawn_unit(
         },
     };
 
-    // Unit sprite with bottom-center anchor for proper Y-sorting
+    // Unit sprite positioned in 3D space with Billboard for camera-facing
     commands.spawn((
         sprite,
-        Transform::from_xyz(world_pos.x, world_pos.y - TILE_SIZE * 0.35, world_pos.z),
+        Transform::from_xyz(world_pos.x, unit_height, world_pos.z),
         Unit::new(unit_type),
         GridPosition::new(x, y),
         FactionMember { faction },
-        YSortable { layer },
+        Billboard,  // Face the camera
     )).with_children(|parent| {
-        // Shadow sprite under the unit
+        // Shadow sprite on the ground (positioned relative to unit)
         parent.spawn((
             Sprite {
                 color: Color::srgba(0.0, 0.0, 0.0, 0.3),
                 custom_size: Some(Vec2::new(TILE_SIZE * 0.5, TILE_SIZE * 0.15)),
                 ..default()
             },
-            Transform::from_xyz(0.0, -TILE_SIZE * 0.02, -0.01),
+            Transform::from_xyz(0.0, -unit_height + 0.05, 0.0)
+                .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
             UnitShadow,
         ));
 
@@ -632,7 +634,7 @@ pub fn spawn_unit(
             },
             TextColor(Color::WHITE),
             TextLayout::new_with_justify(JustifyText::Center),
-            Transform::from_xyz(0.0, TILE_SIZE * 0.2, 1.0),
+            Transform::from_xyz(0.0, TILE_SIZE * 0.2, 0.1),
             UnitSymbol,
         ));
 
@@ -644,7 +646,7 @@ pub fn spawn_unit(
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_xyz(TILE_SIZE * 0.22, TILE_SIZE * 0.05, 2.0),
+            Transform::from_xyz(TILE_SIZE * 0.22, TILE_SIZE * 0.05, 0.2),
             HpDisplay,
         ));
     });

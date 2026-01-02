@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::render::mesh::Mesh3d;
 use serde::{Deserialize, Serialize};
 
 use super::{Faction, spawn_unit, spawn_terrain_feature};
@@ -17,12 +18,14 @@ impl Plugin for MapPlugin {
 pub fn spawn_map_from_selection(
     commands: &mut Commands,
     game_map: &mut ResMut<GameMap>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
     sprite_assets: &super::SpriteAssets,
     images: &Assets<Image>,
     selected: &SelectedMap,
 ) -> MapData {
     let map_data = get_builtin_map(selected.map_id);
-    spawn_map_from_data(commands, game_map, sprite_assets, images, &map_data);
+    spawn_map_from_data(commands, game_map, meshes, materials, sprite_assets, images, &map_data);
     map_data
 }
 
@@ -30,6 +33,8 @@ pub fn spawn_map_from_selection(
 pub fn spawn_map_from_data(
     commands: &mut Commands,
     game_map: &mut ResMut<GameMap>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
     sprite_assets: &super::SpriteAssets,
     images: &Assets<Image>,
     map_data: &MapData,
@@ -39,8 +44,12 @@ pub fn spawn_map_from_data(
     game_map.height = map_data.height;
     game_map.tiles = map_data.terrain.clone();
 
+    // Offsets to center the map (grid Y -> world Z)
     let offset_x = -(game_map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_y = -(game_map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(game_map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Create shared tile mesh (flat quad on XZ plane)
+    let tile_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat((TILE_SIZE - 2.0) / 2.0)));
 
     // Build property ownership lookup
     let property_owners: std::collections::HashMap<(i32, i32), Faction> = map_data
@@ -49,12 +58,12 @@ pub fn spawn_map_from_data(
         .map(|p| ((p.x, p.y), p.owner))
         .collect();
 
-    // Spawn tile entities
+    // Spawn tile entities as 3D meshes on XZ plane
     for y in 0..game_map.height {
         for x in 0..game_map.width {
             let terrain = game_map.tiles[y as usize][x as usize];
             let world_x = x as f32 * TILE_SIZE + offset_x;
-            let world_y = y as f32 * TILE_SIZE + offset_y;
+            let world_z = y as f32 * TILE_SIZE + offset_z;  // Grid Y -> World Z
 
             let owner = property_owners.get(&(x as i32, y as i32)).copied();
 
@@ -65,12 +74,13 @@ pub fn spawn_map_from_data(
             };
 
             commands.spawn((
-                Sprite {
-                    color: tile_color,
-                    custom_size: Some(Vec2::splat(TILE_SIZE - 2.0)),
+                Mesh3d(tile_mesh.clone()),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: tile_color,
+                    unlit: true,  // Keep flat shading like original
                     ..default()
-                },
-                Transform::from_xyz(world_x, world_y, 0.0),
+                })),
+                Transform::from_xyz(world_x, 0.0, world_z),
                 Tile {
                     terrain,
                     position: IVec2::new(x as i32, y as i32),
@@ -82,7 +92,7 @@ pub fn spawn_map_from_data(
 
             // Spawn terrain feature sprite for terrains with vertical elements
             if terrain.has_feature() {
-                spawn_terrain_feature(commands, sprite_assets, images, x, y, terrain, owner, offset_x, offset_y);
+                spawn_terrain_feature(commands, sprite_assets, images, x, y, terrain, owner, offset_x, offset_z);
             }
         }
     }

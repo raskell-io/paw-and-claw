@@ -8,7 +8,7 @@ use crate::game::{
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
-    TILE_SIZE, Weather, WeatherType, SpriteAssets,
+    TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid,
 };
 use crate::states::GameState;
 
@@ -196,6 +196,8 @@ fn draw_battle_setup(
     mut commanders: ResMut<Commanders>,
     mut commands: Commands,
     mut game_map: ResMut<GameMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     sprite_assets: Res<SpriteAssets>,
     images: Res<Assets<Image>>,
 ) {
@@ -385,7 +387,7 @@ fn draw_battle_setup(
 
                             // Load and spawn the selected map
                             let map_data = get_builtin_map(setup_state.selected_map);
-                            spawn_map_from_data(&mut commands, &mut game_map, &sprite_assets, &images, &map_data);
+                            spawn_map_from_data(&mut commands, &mut game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data);
                             spawn_units_from_data(&mut commands, &game_map, &sprite_assets, &images, &map_data);
 
                             setup_state.needs_setup = false;
@@ -1191,17 +1193,13 @@ fn track_hovered_unit(
         return;
     };
 
-    // Convert screen position to world position
-    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
+    // Convert screen position to grid coordinates using ray-plane intersection
+    let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
         hovered.entity = None;
         return;
     };
-
-    // Convert to grid coordinates
-    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0;
-    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0;
-    let grid_x = ((world_pos.x - offset_x) / TILE_SIZE).floor() as i32;
-    let grid_y = ((world_pos.y - offset_y) / TILE_SIZE).floor() as i32;
+    let grid_x = grid_pos.x;
+    let grid_y = grid_pos.y;
 
     // Find unit at this position
     hovered.entity = None;
@@ -1677,19 +1675,25 @@ fn editor_paint(
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
 ) {
-    // Get mouse position in world coordinates
+    // Get mouse position in world coordinates using ray-plane intersection
     let Ok(window) = windows.get_single() else { return };
     let Ok((camera, camera_transform)) = camera.get_single() else { return };
 
     let Some(cursor_pos) = window.cursor_position() else { return };
-    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else { return };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return };
+
+    // Intersect with Y=0 ground plane
+    if ray.direction.y.abs() < 0.0001 { return; }
+    let t = -ray.origin.y / ray.direction.y;
+    if t < 0.0 { return; }
+    let hit = ray.origin + ray.direction * t;
 
     // Convert to tile coordinates
     let offset_x = -(editor_state.map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_y = -(editor_state.map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(editor_state.map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
 
-    let tile_x = ((world_pos.x - offset_x + TILE_SIZE / 2.0) / TILE_SIZE).floor() as i32;
-    let tile_y = ((world_pos.y - offset_y + TILE_SIZE / 2.0) / TILE_SIZE).floor() as i32;
+    let tile_x = ((hit.x - offset_x + TILE_SIZE / 2.0) / TILE_SIZE).floor() as i32;
+    let tile_y = ((hit.z - offset_z + TILE_SIZE / 2.0) / TILE_SIZE).floor() as i32;  // World Z -> Grid Y
 
     // Check bounds
     if tile_x < 0 || tile_y < 0 || tile_x >= editor_state.map.width as i32 || tile_y >= editor_state.map.height as i32 {

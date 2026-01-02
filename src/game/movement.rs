@@ -4,6 +4,44 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather};
 use crate::states::GameState;
 
+/// Convert screen position to grid coordinates using ray-plane intersection
+/// Returns None if the ray doesn't hit the ground plane or is outside the map
+pub fn screen_to_grid(
+    window: &Window,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    map: &GameMap,
+) -> Option<IVec2> {
+    let cursor_pos = window.cursor_position()?;
+    let ray = camera.viewport_to_world(camera_transform, cursor_pos).ok()?;
+
+    // Intersect with Y=0 ground plane
+    // Ray equation: P = origin + t * direction
+    // Plane equation: Y = 0
+    // Solve for t: origin.y + t * direction.y = 0
+    if ray.direction.y.abs() < 0.0001 {
+        return None; // Ray parallel to ground
+    }
+    let t = -ray.origin.y / ray.direction.y;
+    if t < 0.0 {
+        return None; // Intersection behind camera
+    }
+    let hit = ray.origin + ray.direction * t;
+
+    // Convert world position to grid coordinates
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0;
+
+    let gx = ((hit.x - offset_x) / TILE_SIZE).floor() as i32;
+    let gy = ((hit.z - offset_z) / TILE_SIZE).floor() as i32;  // World Z -> Grid Y
+
+    if gx >= 0 && gx < map.width as i32 && gy >= 0 && gy < map.height as i32 {
+        Some(IVec2::new(gx, gy))
+    } else {
+        None
+    }
+}
+
 pub struct MovementPlugin;
 
 impl Plugin for MovementPlugin {
@@ -351,11 +389,12 @@ fn handle_keyboard_input(
 }
 
 /// Handle camera panning with WASD/Arrow keys (when shift not held and cursor not active)
+/// Camera moves on XZ plane in 3D space
 fn handle_camera_movement(
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     cursor: Res<GridCursor>,
-    mut camera_query: Query<&mut Transform, With<Camera2d>>,
+    mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
     let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
@@ -364,21 +403,30 @@ fn handle_camera_movement(
         return;
     }
 
-    let mut camera_transform = camera_query.single_mut();
+    let Ok(mut camera_transform) = camera_query.get_single_mut() else { return };
     let speed = 300.0 * time.delta_secs();
 
+    // Get camera's forward/right vectors projected onto XZ plane
+    let forward = camera_transform.forward();
+    let forward_xz = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
+    let right_xz = Vec3::new(forward.z, 0.0, -forward.x);
+
+    let mut movement = Vec3::ZERO;
+
     if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
-        camera_transform.translation.y += speed;
+        movement += forward_xz;
     }
     if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
-        camera_transform.translation.y -= speed;
+        movement -= forward_xz;
     }
     if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
-        camera_transform.translation.x -= speed;
+        movement -= right_xz;
     }
     if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
-        camera_transform.translation.x += speed;
+        movement += right_xz;
     }
+
+    camera_transform.translation += movement * speed;
 }
 
 /// Handle mouse click for selection and movement
@@ -413,19 +461,11 @@ fn handle_click_input(
         let window = windows.single();
         let (camera, camera_transform) = cameras.single();
 
-        let Some(cursor_position) = window.cursor_position() else {
+        let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
             return;
         };
-
-        let Ok(world_position) = camera.viewport_to_world_2d(camera_transform, cursor_position) else {
-            return;
-        };
-
-        let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0;
-        let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0;
-
-        let grid_x = ((world_position.x - offset_x) / TILE_SIZE).floor() as i32;
-        let grid_y = ((world_position.y - offset_y) / TILE_SIZE).floor() as i32;
+        let grid_x = grid_pos.x;
+        let grid_y = grid_pos.y;
 
         // Check if clicking on an attack target
         if let Some(acting_entity) = pending_action.unit {
@@ -460,20 +500,11 @@ fn handle_click_input(
     let window = windows.single();
     let (camera, camera_transform) = cameras.single();
 
-    let Some(cursor_position) = window.cursor_position() else {
+    let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
         return;
     };
-
-    let Ok(world_position) = camera.viewport_to_world_2d(camera_transform, cursor_position) else {
-        return;
-    };
-
-    // Convert world position to grid position
-    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0;
-    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0;
-
-    let grid_x = ((world_position.x - offset_x) / TILE_SIZE).floor() as i32;
-    let grid_y = ((world_position.y - offset_y) / TILE_SIZE).floor() as i32;
+    let grid_x = grid_pos.x;
+    let grid_y = grid_pos.y;
 
     // Update cursor position to click location
     cursor.x = grid_x;
@@ -677,28 +708,31 @@ fn update_movement_highlights(
     units: Query<(&GridPosition, &FactionMember)>,
 ) {
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Rotation to lay the rectangle flat on the XZ plane
+    let flat_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
 
     // Draw movement range (blue) - multiple layers for visibility
     for &(x, y) in &highlights.tiles {
         let world_x = x as f32 * TILE_SIZE + offset_x;
-        let world_y = y as f32 * TILE_SIZE + offset_y;
+        let world_z = y as f32 * TILE_SIZE + offset_z;
 
         // Outer border (bright)
-        gizmos.rect_2d(
-            Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+        gizmos.rect(
+            Isometry3d::new(Vec3::new(world_x, 0.02, world_z), flat_rotation),
             Vec2::splat(TILE_SIZE - 2.0),
             Color::srgba(0.3, 0.7, 1.0, 0.9),
         );
         // Middle fill
-        gizmos.rect_2d(
-            Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+        gizmos.rect(
+            Isometry3d::new(Vec3::new(world_x, 0.03, world_z), flat_rotation),
             Vec2::splat(TILE_SIZE - 6.0),
             Color::srgba(0.2, 0.5, 0.9, 0.7),
         );
         // Inner highlight
-        gizmos.rect_2d(
-            Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+        gizmos.rect(
+            Isometry3d::new(Vec3::new(world_x, 0.04, world_z), flat_rotation),
             Vec2::splat(TILE_SIZE - 10.0),
             Color::srgba(0.4, 0.8, 1.0, 0.5),
         );
@@ -708,17 +742,17 @@ fn update_movement_highlights(
     for target_entity in &highlights.attack_targets {
         if let Ok((pos, _)) = units.get(*target_entity) {
             let world_x = pos.x as f32 * TILE_SIZE + offset_x;
-            let world_y = pos.y as f32 * TILE_SIZE + offset_y;
+            let world_z = pos.y as f32 * TILE_SIZE + offset_z;
 
             // Red border for attack target
-            gizmos.rect_2d(
-                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(world_x, 0.05, world_z), flat_rotation),
                 Vec2::splat(TILE_SIZE - 2.0),
                 Color::srgba(1.0, 0.2, 0.2, 0.8),
             );
             // Inner red highlight
-            gizmos.rect_2d(
-                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(world_x, 0.06, world_z), flat_rotation),
                 Vec2::splat(TILE_SIZE - 6.0),
                 Color::srgba(1.0, 0.3, 0.3, 0.4),
             );
@@ -737,21 +771,24 @@ fn draw_grid_cursor(
     }
 
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
 
     let world_x = cursor.x as f32 * TILE_SIZE + offset_x;
-    let world_y = cursor.y as f32 * TILE_SIZE + offset_y;
+    let world_z = cursor.y as f32 * TILE_SIZE + offset_z;
+
+    // Rotation to lay the rectangle flat on the XZ plane
+    let flat_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
 
     // Draw cursor outline
-    gizmos.rect_2d(
-        Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+    gizmos.rect(
+        Isometry3d::new(Vec3::new(world_x, 0.08, world_z), flat_rotation),
         Vec2::splat(TILE_SIZE - 2.0),
         Color::srgb(1.0, 1.0, 0.0), // Yellow cursor
     );
 
     // Draw inner highlight
-    gizmos.rect_2d(
-        Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+    gizmos.rect(
+        Isometry3d::new(Vec3::new(world_x, 0.09, world_z), flat_rotation),
         Vec2::splat(TILE_SIZE - 6.0),
         Color::srgba(1.0, 1.0, 0.0, 0.3),
     );
@@ -771,29 +808,32 @@ fn draw_action_targets(
     }
 
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Rotation to lay the rectangle flat on the XZ plane
+    let flat_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
 
     // Draw attack targets with pulsing red highlight
     for target_entity in &pending_action.targets {
         if let Ok(pos) = units.get(*target_entity) {
             let world_x = pos.x as f32 * TILE_SIZE + offset_x;
-            let world_y = pos.y as f32 * TILE_SIZE + offset_y;
+            let world_z = pos.y as f32 * TILE_SIZE + offset_z;
 
             // Bright red outer border
-            gizmos.rect_2d(
-                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(world_x, 0.10, world_z), flat_rotation),
                 Vec2::splat(TILE_SIZE - 2.0),
                 Color::srgba(1.0, 0.1, 0.1, 0.95),
             );
             // Middle red
-            gizmos.rect_2d(
-                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(world_x, 0.11, world_z), flat_rotation),
                 Vec2::splat(TILE_SIZE - 6.0),
                 Color::srgba(1.0, 0.2, 0.2, 0.7),
             );
             // Inner highlight
-            gizmos.rect_2d(
-                Isometry2d::from_translation(Vec2::new(world_x, world_y)),
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(world_x, 0.12, world_z), flat_rotation),
                 Vec2::splat(TILE_SIZE - 10.0),
                 Color::srgba(1.0, 0.4, 0.4, 0.5),
             );

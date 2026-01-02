@@ -6,22 +6,49 @@ pub struct SpritePlugin;
 
 impl Plugin for SpritePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, update_y_depth_sorting);
+        // Use billboard system instead of Y-sorting in 3D
+        app.add_systems(Update, update_billboards);
     }
 }
 
-/// Constants for Y-based depth sorting
-pub const Y_SORT_SCALE: f32 = 0.001;
-pub const MAX_MAP_HEIGHT: f32 = 20.0;
+/// Marker component for entities that should always face the camera
+#[derive(Component)]
+pub struct Billboard;
 
-/// Sprite layers for proper draw ordering
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum SpriteLayer {
-    TerrainFeature,  // z = 1.0-5.0
-    GroundUnit,      // z = 6.0-8.0
-    AirUnit,         // z = 10.0-12.0
+/// System to make billboard sprites face the camera
+fn update_billboards(
+    camera_query: Query<&Transform, With<Camera3d>>,
+    mut billboards: Query<&mut Transform, (With<Billboard>, Without<Camera3d>)>,
+) {
+    let Ok(cam) = camera_query.get_single() else { return };
+
+    for mut transform in billboards.iter_mut() {
+        // Cylindrical billboard - rotate around Y axis to face camera XZ position
+        let target = Vec3::new(
+            cam.translation.x,
+            transform.translation.y,  // Keep sprite's own height
+            cam.translation.z,
+        );
+        transform.look_at(target, Vec3::Y);
+    }
 }
 
+/// Constants for legacy Y-based depth sorting (kept for reference)
+#[allow(dead_code)]
+pub const Y_SORT_SCALE: f32 = 0.001;
+#[allow(dead_code)]
+pub const MAX_MAP_HEIGHT: f32 = 20.0;
+
+/// Sprite layers (legacy - kept for compatibility, not used in 3D mode)
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[allow(dead_code)]
+pub enum SpriteLayer {
+    TerrainFeature,
+    GroundUnit,
+    AirUnit,
+}
+
+#[allow(dead_code)]
 impl SpriteLayer {
     pub fn base_z(&self) -> f32 {
         match self {
@@ -32,8 +59,9 @@ impl SpriteLayer {
     }
 }
 
-/// Marker for entities that need Y-based depth sorting
+/// Legacy marker for Y-based depth sorting (not used in 3D mode)
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct YSortable {
     pub layer: SpriteLayer,
 }
@@ -53,21 +81,8 @@ pub struct FactionFlag;
 #[derive(Component)]
 pub struct UnitShadow;
 
-/// System to update Z position based on Y coordinate for depth sorting
-/// Lower Y values (bottom of screen) render in front (higher Z)
-fn update_y_depth_sorting(
-    mut query: Query<(&mut Transform, &GridPosition, &YSortable)>,
-) {
-    for (mut transform, pos, sortable) in query.iter_mut() {
-        let base_z = sortable.layer.base_z();
-        // Higher grid Y = further from camera = lower render priority
-        // So we subtract Y from MAX to invert it
-        let y_offset = (MAX_MAP_HEIGHT - pos.y as f32) * Y_SORT_SCALE;
-        transform.translation.z = base_z + y_offset;
-    }
-}
-
 /// Spawn a terrain feature sprite for terrain types that have vertical elements
+/// Now uses 3D coordinates: grid Y -> world Z, feature height -> world Y
 pub fn spawn_terrain_feature(
     commands: &mut Commands,
     sprite_assets: &super::SpriteAssets,
@@ -77,10 +92,11 @@ pub fn spawn_terrain_feature(
     terrain: Terrain,
     owner: Option<Faction>,
     offset_x: f32,
-    offset_y: f32,
+    offset_z: f32,  // Renamed from offset_y for clarity
 ) {
     let world_x = x as f32 * TILE_SIZE + offset_x;
-    let world_y = y as f32 * TILE_SIZE + offset_y;
+    let world_z = y as f32 * TILE_SIZE + offset_z;  // Grid Y -> World Z
+    let feature_height = terrain.feature_height() * 0.5;  // Y position (height above ground)
 
     // Get sprite from assets or use procedural fallback
     let sprite = match sprite_assets.get_terrain_feature_sprite(images, terrain) {
@@ -100,13 +116,13 @@ pub fn spawn_terrain_feature(
 
     let mut entity_commands = commands.spawn((
         sprite,
-        Transform::from_xyz(world_x, world_y - TILE_SIZE * 0.4, 1.0), // Z will be set by Y-sort
+        Transform::from_xyz(world_x, feature_height, world_z),
         TerrainFeature {
             terrain_type: terrain,
             grid_position: IVec2::new(x as i32, y as i32),
         },
         GridPosition::new(x as i32, y as i32),
-        YSortable { layer: SpriteLayer::TerrainFeature },
+        Billboard,  // Face the camera
     ));
 
     // Add faction flag for capturable buildings
