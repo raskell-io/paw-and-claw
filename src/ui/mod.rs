@@ -89,6 +89,12 @@ pub struct SelectedTile {
     pub screen_pos: (f32, f32),
 }
 
+/// Resource to track in-game menu state
+#[derive(Resource, Default)]
+pub struct InGameMenuState {
+    pub open: bool,
+}
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -98,6 +104,7 @@ impl Plugin for UiPlugin {
             .init_resource::<EditorState>()
             .init_resource::<HoveredUnit>()
             .init_resource::<SelectedTile>()
+            .init_resource::<InGameMenuState>()
             .add_systems(Update, (
                 draw_main_menu.run_if(in_state(GameState::Menu)),
                 draw_battle_setup.run_if(in_state(GameState::Battle)),
@@ -105,6 +112,8 @@ impl Plugin for UiPlugin {
                 draw_action_menu.run_if(in_state(GameState::Battle)),
                 draw_production_menu.run_if(in_state(GameState::Battle)),
                 draw_victory_screen.run_if(in_state(GameState::Battle)),
+                draw_ingame_menu.run_if(in_state(GameState::Battle)),
+                handle_ingame_menu_input.run_if(in_state(GameState::Battle)),
                 handle_fog_toggle.run_if(in_state(GameState::Battle)),
                 track_hovered_unit.run_if(in_state(GameState::Battle)),
                 track_hovered_tile.run_if(in_state(GameState::Battle)),
@@ -683,9 +692,131 @@ fn draw_battle_ui(
     // Bottom panel - controls hint
     egui::TopBottomPanel::bottom("controls").show(contexts.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
-            ui.label("Click: Select/Move | WASD/Arrows: Pan camera | Space: Select/Confirm | ESC: Cancel | F: Toggle Fog");
+            ui.label("Click: Select/Move | WASD/Arrows: Pan camera | Space: Select/Confirm | ESC: Menu | F: Toggle Fog");
         });
     });
+}
+
+/// Handle ESC key to toggle in-game menu
+fn handle_ingame_menu_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut menu_state: ResMut<InGameMenuState>,
+    mut pending_action: ResMut<PendingAction>,
+    mut highlights: ResMut<MovementHighlights>,
+    setup_state: Res<BattleSetupState>,
+    game_result: Res<GameResult>,
+) {
+    // Don't handle menu during setup or victory screen
+    if setup_state.needs_setup || game_result.game_over {
+        return;
+    }
+
+    if keyboard.just_pressed(KeyCode::Escape) {
+        // If there's an active action/selection, cancel it first
+        if pending_action.unit.is_some() || highlights.selected_unit.is_some() {
+            pending_action.unit = None;
+            pending_action.targets.clear();
+            pending_action.can_capture = false;
+            pending_action.capture_tile = None;
+            pending_action.can_join = false;
+            pending_action.join_target = None;
+            highlights.selected_unit = None;
+            highlights.tiles.clear();
+            highlights.attack_targets.clear();
+        } else {
+            // Otherwise toggle the in-game menu
+            menu_state.open = !menu_state.open;
+        }
+    }
+}
+
+/// Draw the in-game menu (Advance Wars style)
+fn draw_ingame_menu(
+    mut contexts: EguiContexts,
+    mut menu_state: ResMut<InGameMenuState>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut fog: ResMut<FogOfWar>,
+    setup_state: Res<BattleSetupState>,
+    game_result: Res<GameResult>,
+) {
+    // Don't show during setup or victory screen
+    if setup_state.needs_setup || game_result.game_over {
+        return;
+    }
+
+    if !menu_state.open {
+        return;
+    }
+
+    // Darken background
+    egui::Area::new(egui::Id::new("menu_backdrop"))
+        .fixed_pos(egui::pos2(0.0, 0.0))
+        .order(egui::Order::Middle)
+        .show(contexts.ctx_mut(), |ui| {
+            let screen = ui.ctx().screen_rect();
+            ui.painter().rect_filled(
+                screen,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180),
+            );
+        });
+
+    // Center menu window
+    egui::Window::new("Menu")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .min_width(250.0)
+        .show(contexts.ctx_mut(), |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(10.0);
+
+                let button_size = egui::vec2(200.0, 40.0);
+
+                // Resume button
+                if ui.add(egui::Button::new(egui::RichText::new("Resume").size(18.0)).min_size(button_size)).clicked() {
+                    menu_state.open = false;
+                }
+
+                ui.add_space(8.0);
+
+                // Toggle Fog of War
+                let fog_text = if fog.enabled { "Fog of War: ON" } else { "Fog of War: OFF" };
+                if ui.add(egui::Button::new(egui::RichText::new(fog_text).size(18.0)).min_size(button_size)).clicked() {
+                    fog.enabled = !fog.enabled;
+                }
+
+                ui.add_space(8.0);
+
+                // Unit Guide (placeholder)
+                if ui.add(egui::Button::new(egui::RichText::new("Unit Guide").size(18.0)).min_size(button_size)).clicked() {
+                    // TODO: Show unit guide
+                }
+
+                ui.add_space(8.0);
+
+                // Options (placeholder)
+                if ui.add(egui::Button::new(egui::RichText::new("Options").size(18.0)).min_size(button_size)).clicked() {
+                    // TODO: Show options menu
+                }
+
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                // Surrender button - highlighted in red
+                if ui.add(egui::Button::new(
+                    egui::RichText::new("Surrender")
+                        .size(18.0)
+                        .color(egui::Color32::from_rgb(255, 100, 100))
+                ).min_size(button_size)).clicked() {
+                    menu_state.open = false;
+                    next_state.set(GameState::Menu);
+                }
+
+                ui.add_space(10.0);
+            });
+        });
 }
 
 /// Draw the action menu when a unit has moved and can attack
