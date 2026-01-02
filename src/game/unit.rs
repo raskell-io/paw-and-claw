@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Faction, FactionMember, GameMap, TILE_SIZE};
+use super::{Faction, FactionMember, GameMap, TILE_SIZE, YSortable, SpriteLayer, UnitShadow};
 
 pub struct UnitPlugin;
 
@@ -526,18 +526,39 @@ pub fn spawn_unit(
     let grid_pos = GridPosition::new(x, y);
     let world_pos = grid_pos.to_world(map);
 
+    // Determine sprite layer based on unit class (air units render higher)
+    let stats = unit_type.stats();
+    let layer = match stats.class {
+        UnitClass::Air | UnitClass::AirTransport => SpriteLayer::AirUnit,
+        _ => SpriteLayer::GroundUnit,
+    };
+
+    // Unit sprite with bottom-center anchor for proper Y-sorting
     commands.spawn((
         Sprite {
             color: faction.color(),
-            custom_size: Some(Vec2::splat(TILE_SIZE * 0.7)),
+            custom_size: Some(Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.5)),
+            anchor: bevy::sprite::Anchor::BottomCenter,
             ..default()
         },
-        Transform::from_translation(world_pos),
+        Transform::from_xyz(world_pos.x, world_pos.y - TILE_SIZE * 0.35, world_pos.z),
         Unit::new(unit_type),
         GridPosition::new(x, y),
         FactionMember { faction },
+        YSortable { layer },
     )).with_children(|parent| {
-        // Unit type symbol in center
+        // Shadow sprite under the unit
+        parent.spawn((
+            Sprite {
+                color: Color::srgba(0.0, 0.0, 0.0, 0.3),
+                custom_size: Some(Vec2::new(TILE_SIZE * 0.5, TILE_SIZE * 0.15)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, -TILE_SIZE * 0.02, -0.01),
+            UnitShadow,
+        ));
+
+        // Unit type symbol (centered on unit body)
         parent.spawn((
             Text2d::new(unit_type.symbol()),
             TextFont {
@@ -546,11 +567,11 @@ pub fn spawn_unit(
             },
             TextColor(Color::WHITE),
             TextLayout::new_with_justify(JustifyText::Center),
-            Transform::from_xyz(0.0, 0.0, 1.0),
+            Transform::from_xyz(0.0, TILE_SIZE * 0.2, 1.0),
             UnitSymbol,
         ));
 
-        // HP display in bottom-right corner
+        // HP display in bottom-right corner (relative to bottom-center anchor)
         parent.spawn((
             Text2d::new(""),
             TextFont {
@@ -558,7 +579,7 @@ pub fn spawn_unit(
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_xyz(TILE_SIZE * 0.22, -TILE_SIZE * 0.22, 2.0),
+            Transform::from_xyz(TILE_SIZE * 0.22, TILE_SIZE * 0.05, 2.0),
             HpDisplay,
         ));
     });

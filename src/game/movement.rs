@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather};
 use crate::states::GameState;
 
 pub struct MovementPlugin;
@@ -165,6 +165,7 @@ fn handle_keyboard_input(
     mut attack_events: EventWriter<AttackEvent>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
+    weather: Res<Weather>,
 ) {
     // Don't process input if game is over
     if game_result.game_over {
@@ -325,7 +326,8 @@ fn handle_keyboard_input(
                         .collect();
                     let stats = unit.unit_type.stats();
                     let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
-                    let total_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                    let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                    let total_movement = weather.apply_movement(base_movement);
                     let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
 
                     // Calculate attack targets
@@ -395,6 +397,7 @@ fn handle_click_input(
     mut attack_events: EventWriter<AttackEvent>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
+    weather: Res<Weather>,
 ) {
     // Don't process input if game is over
     if game_result.game_over {
@@ -529,7 +532,8 @@ fn handle_click_input(
                         .collect();
                     let stats = unit.unit_type.stats();
                     let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
-                    let total_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                    let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                    let total_movement = weather.apply_movement(base_movement);
                     let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
 
                     // Calculate attack targets
@@ -616,7 +620,8 @@ fn handle_click_input(
                 .collect();
             let stats = unit.unit_type.stats();
             let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
-            let total_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+            let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+            let total_movement = weather.apply_movement(base_movement);
             let move_tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
 
             // Calculate attack targets

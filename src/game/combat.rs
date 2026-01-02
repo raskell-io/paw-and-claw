@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses};
+use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather};
 
 pub struct CombatPlugin;
 
@@ -27,25 +27,40 @@ pub struct CaptureEvent {
 }
 
 /// Calculate damage based on Advance Wars-like formula
-/// Now includes CO bonuses for attack and defense
+/// Includes CO bonuses and weather effects for attack and defense
 pub fn calculate_damage(
     attacker: &Unit,
     defender: &Unit,
     defender_terrain: Terrain,
     attacker_co: &CoBonuses,
     defender_co: &CoBonuses,
+    weather: &Weather,
 ) -> i32 {
     let attacker_stats = attacker.unit_type.stats();
     let defender_stats = defender.unit_type.stats();
+    let weather_effects = weather.effects();
 
     // Base damage formula (simplified Advance Wars)
-    // Damage = AttackPower * CO_Attack * (AttackerHP% / 100) * ((100 - DefenseBonus) / 100)
-    let attack_power = (attacker_stats.attack as f32 * attacker_co.attack) as i32;
+    // Damage = AttackPower * CO_Attack * Weather_Attack * (AttackerHP% / 100) * ((100 - DefenseBonus) / 100)
+    let attack_power = (attacker_stats.attack as f32
+        * attacker_co.attack
+        * weather_effects.attack_multiplier) as i32;
     let attacker_hp_modifier = attacker.hp_percentage();
 
-    // Defense from unit type + terrain, modified by CO
-    let base_defense = (defender_stats.defense as f32 * defender_co.defense) as i32;
-    let terrain_defense = defender_terrain.defense_bonus() * 10;
+    // Defense from unit type + terrain, modified by CO and weather
+    let base_defense = (defender_stats.defense as f32
+        * defender_co.defense
+        * weather_effects.defense_multiplier) as i32;
+
+    // Terrain defense - check if weather negates cover (thickets, brambles, etc.)
+    let terrain_defense = if (defender_terrain == Terrain::Thicket || defender_terrain == Terrain::Brambles)
+        && !weather.forests_provide_cover()
+    {
+        0 // Rain negates vegetation cover
+    } else {
+        defender_terrain.defense_bonus() * 10
+    };
+
     let total_defense = (base_defense + terrain_defense).min(200);
     let defense_modifier = (200.0 - total_defense as f32) / 200.0;
 
@@ -89,6 +104,7 @@ fn process_attacks(
     mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
     map: Res<GameMap>,
     mut commanders: ResMut<Commanders>,
+    weather: Res<Weather>,
 ) {
     for event in events.read() {
         let Ok([(mut attacker_unit, attacker_pos, attacker_faction),
@@ -112,8 +128,8 @@ fn process_attacks(
             .get(defender_pos.x, defender_pos.y)
             .unwrap_or(Terrain::Grass);
 
-        // Calculate and apply damage (with CO bonuses)
-        let damage = calculate_damage(&attacker_unit, &defender_unit, defender_terrain, &attacker_co, &defender_co);
+        // Calculate and apply damage (with CO bonuses and weather effects)
+        let damage = calculate_damage(&attacker_unit, &defender_unit, defender_terrain, &attacker_co, &defender_co, &weather);
         defender_unit.hp -= damage;
 
         info!(
@@ -145,7 +161,7 @@ fn process_attacks(
                     .get(attacker_pos.x, attacker_pos.y)
                     .unwrap_or(Terrain::Grass);
 
-                let counter_damage = calculate_damage(&defender_unit, &attacker_unit, attacker_terrain, &defender_co, &attacker_co);
+                let counter_damage = calculate_damage(&defender_unit, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather);
                 attacker_unit.hp -= counter_damage;
 
                 info!(

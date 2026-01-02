@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Faction, spawn_unit};
+use super::{Faction, spawn_unit, spawn_terrain_feature};
 use super::maps::{MapData, SelectedMap, get_builtin_map};
 
 pub struct MapPlugin;
@@ -75,6 +75,11 @@ pub fn spawn_map_from_data(
                     capturing_faction: None,
                 },
             ));
+
+            // Spawn terrain feature sprite for terrains with vertical elements
+            if terrain.has_feature() {
+                spawn_terrain_feature(commands, x, y, terrain, owner, offset_x, offset_y);
+            }
         }
     }
 }
@@ -234,6 +239,30 @@ impl Terrain {
             Terrain::Base => Color::srgb(0.65, 0.45, 0.30),       // Fortified brown
             Terrain::Outpost => Color::srgb(0.55, 0.50, 0.40),    // Stone gray-brown
             Terrain::Storehouse => Color::srgb(0.50, 0.45, 0.35), // Weathered wood
+        }
+    }
+
+    /// Whether this terrain has a vertical feature sprite (trees, rocks, buildings)
+    pub fn has_feature(&self) -> bool {
+        matches!(self,
+            Terrain::Thicket | Terrain::Brambles | Terrain::Boulder |
+            Terrain::Hollow | Terrain::Log | Terrain::Base |
+            Terrain::Outpost | Terrain::Storehouse
+        )
+    }
+
+    /// Height of the feature sprite in pixels (for visual rendering)
+    pub fn feature_height(&self) -> f32 {
+        match self {
+            Terrain::Thicket => 32.0,    // Medium trees
+            Terrain::Brambles => 24.0,   // Shorter bushes
+            Terrain::Boulder => 28.0,    // Rock formations
+            Terrain::Hollow => 36.0,     // Stump/cave entrance
+            Terrain::Log => 16.0,        // Low fallen log
+            Terrain::Base => 48.0,       // Tall building
+            Terrain::Outpost => 40.0,    // Medium building
+            Terrain::Storehouse => 32.0, // Small building
+            _ => 0.0,
         }
     }
 

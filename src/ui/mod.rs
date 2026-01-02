@@ -8,16 +8,28 @@ use crate::game::{
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
-    TILE_SIZE,
+    TILE_SIZE, Weather, WeatherType,
 };
 use crate::states::GameState;
 
 /// Resource to track battle setup (CO + Map selection)
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct BattleSetupState {
     pub needs_setup: bool,
+    pub player_faction: Faction,
     pub player_co: Option<CommanderId>,
     pub selected_map: MapId,
+}
+
+impl Default for BattleSetupState {
+    fn default() -> Self {
+        Self {
+            needs_setup: false,
+            player_faction: Faction::Eastern,
+            player_co: None,
+            selected_map: MapId::Woodland,
+        }
+    }
 }
 
 /// Edit mode for map editor
@@ -62,6 +74,13 @@ impl Default for EditorState {
     }
 }
 
+/// Resource tracking hovered unit for tooltip display
+#[derive(Resource, Default)]
+pub struct HoveredUnit {
+    pub entity: Option<Entity>,
+    pub screen_pos: (f32, f32),
+}
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -69,6 +88,7 @@ impl Plugin for UiPlugin {
         app.add_plugins(EguiPlugin)
             .init_resource::<BattleSetupState>()
             .init_resource::<EditorState>()
+            .init_resource::<HoveredUnit>()
             .add_systems(Update, (
                 draw_main_menu.run_if(in_state(GameState::Menu)),
                 draw_battle_setup.run_if(in_state(GameState::Battle)),
@@ -77,6 +97,8 @@ impl Plugin for UiPlugin {
                 draw_production_menu.run_if(in_state(GameState::Battle)),
                 draw_victory_screen.run_if(in_state(GameState::Battle)),
                 handle_fog_toggle.run_if(in_state(GameState::Battle)),
+                track_hovered_unit.run_if(in_state(GameState::Battle)),
+                draw_unit_tooltip.run_if(in_state(GameState::Battle)),
                 draw_editor.run_if(in_state(GameState::Editor)),
                 editor_paint.run_if(in_state(GameState::Editor)),
             ))
@@ -135,6 +157,38 @@ fn draw_main_menu(
     });
 }
 
+/// Helper to format CO bonuses as string
+fn format_co_bonuses(co: &crate::game::Commander) -> String {
+    let mut bonuses = Vec::new();
+    if co.attack_bonus > 1.0 {
+        bonuses.push(format!("+{:.0}% ATK", (co.attack_bonus - 1.0) * 100.0));
+    } else if co.attack_bonus < 1.0 {
+        bonuses.push(format!("{:.0}% ATK", (co.attack_bonus - 1.0) * 100.0));
+    }
+    if co.defense_bonus > 1.0 {
+        bonuses.push(format!("+{:.0}% DEF", (co.defense_bonus - 1.0) * 100.0));
+    } else if co.defense_bonus < 1.0 {
+        bonuses.push(format!("{:.0}% DEF", (co.defense_bonus - 1.0) * 100.0));
+    }
+    if co.movement_bonus > 0 {
+        bonuses.push(format!("+{} MOV", co.movement_bonus));
+    } else if co.movement_bonus < 0 {
+        bonuses.push(format!("{} MOV", co.movement_bonus));
+    }
+    if co.income_bonus > 1.0 {
+        bonuses.push(format!("+{:.0}% $", (co.income_bonus - 1.0) * 100.0));
+    }
+    if co.vision_bonus > 0 {
+        bonuses.push(format!("+{} VIS", co.vision_bonus));
+    }
+    if co.cost_modifier < 1.0 {
+        bonuses.push(format!("-{:.0}% Cost", (1.0 - co.cost_modifier) * 100.0));
+    } else if co.cost_modifier > 1.0 {
+        bonuses.push(format!("+{:.0}% Cost", (co.cost_modifier - 1.0) * 100.0));
+    }
+    bonuses.join(" | ")
+}
+
 /// Draw battle setup screen (CO + Map selection)
 fn draw_battle_setup(
     mut contexts: EguiContexts,
@@ -152,111 +206,137 @@ fn draw_battle_setup(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(contexts.ctx_mut(), |ui| {
-            ui.set_min_width(600.0);
+            ui.set_min_width(700.0);
+
+            // === FACTION SELECTION ===
+            ui.label(egui::RichText::new("Choose Your Faction").size(18.0).strong());
+            ui.add_space(5.0);
+
+            ui.horizontal(|ui| {
+                let factions = [
+                    (Faction::Eastern, "Eastern Empire", egui::Color32::from_rgb(200, 80, 80)),
+                    (Faction::Northern, "Northern Realm", egui::Color32::from_rgb(80, 120, 200)),
+                    (Faction::Western, "Western Frontier", egui::Color32::from_rgb(80, 160, 80)),
+                    (Faction::Southern, "Southern Pride", egui::Color32::from_rgb(200, 160, 50)),
+                ];
+
+                for (faction, name, color) in factions {
+                    let is_selected = setup_state.player_faction == faction;
+                    let button_color = if is_selected { color } else { egui::Color32::from_rgb(60, 60, 60) };
+
+                    if ui.add(egui::Button::new(egui::RichText::new(name).size(13.0))
+                        .fill(button_color)
+                        .min_size(egui::vec2(150.0, 30.0))).clicked()
+                    {
+                        if setup_state.player_faction != faction {
+                            setup_state.player_faction = faction;
+                            setup_state.player_co = None; // Reset CO when faction changes
+                        }
+                    }
+                }
+            });
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(10.0);
 
             // Two columns: Map selection on left, CO selection on right
             ui.horizontal(|ui| {
                 // === MAP SELECTION ===
                 ui.vertical(|ui| {
                     ui.set_min_width(280.0);
-                    ui.label(egui::RichText::new("Select Map").size(18.0).strong());
+                    ui.label(egui::RichText::new("Select Map").size(16.0).strong());
                     ui.add_space(5.0);
 
-                    for map_id in MapId::all_builtin() {
-                        let map_data = get_builtin_map(map_id);
-                        let is_selected = setup_state.selected_map == map_id;
+                    egui::ScrollArea::vertical().max_height(250.0).show(ui, |ui| {
+                        for map_id in MapId::all_builtin() {
+                            let map_data = get_builtin_map(map_id);
+                            let is_selected = setup_state.selected_map == map_id;
 
-                        let button_color = if is_selected {
-                            egui::Color32::from_rgb(80, 120, 180)
-                        } else {
-                            egui::Color32::from_rgb(60, 60, 60)
-                        };
+                            let button_color = if is_selected {
+                                egui::Color32::from_rgb(80, 120, 180)
+                            } else {
+                                egui::Color32::from_rgb(60, 60, 60)
+                            };
 
-                        ui.horizontal(|ui| {
-                            if ui.add(egui::Button::new(
-                                egui::RichText::new(if is_selected { "▶" } else { "  " })
-                            ).fill(button_color).min_size(egui::vec2(24.0, 24.0))).clicked() {
-                                setup_state.selected_map = map_id;
+                            ui.horizontal(|ui| {
+                                if ui.add(egui::Button::new(
+                                    egui::RichText::new(if is_selected { "▶" } else { "  " })
+                                ).fill(button_color).min_size(egui::vec2(24.0, 24.0))).clicked() {
+                                    setup_state.selected_map = map_id;
+                                }
+
+                                ui.vertical(|ui| {
+                                    ui.label(egui::RichText::new(map_id.name()).size(12.0).strong());
+                                    ui.label(egui::RichText::new(format!("{}x{}", map_data.width, map_data.height))
+                                        .size(10.0).weak());
+                                });
+                            });
+
+                            if is_selected {
+                                ui.indent("map_desc", |ui| {
+                                    ui.label(egui::RichText::new(&map_data.description)
+                                        .size(10.0).weak().italics());
+                                });
                             }
-
-                            ui.vertical(|ui| {
-                                ui.label(egui::RichText::new(map_id.name()).size(13.0).strong());
-                                ui.label(egui::RichText::new(format!("{}x{}", map_data.width, map_data.height))
-                                    .size(10.0).weak());
-                            });
-                        });
-
-                        if is_selected {
-                            ui.indent("map_desc", |ui| {
-                                ui.label(egui::RichText::new(&map_data.description)
-                                    .size(10.0).weak().italics());
-                            });
+                            ui.add_space(3.0);
                         }
-                        ui.add_space(4.0);
-                    }
+                    });
                 });
 
                 ui.separator();
 
                 // === CO SELECTION ===
                 ui.vertical(|ui| {
-                    ui.set_min_width(280.0);
-                    ui.label(egui::RichText::new("Select Commander").size(18.0).strong());
+                    ui.set_min_width(350.0);
+                    ui.label(egui::RichText::new(format!("{} Commanders", setup_state.player_faction.name()))
+                        .size(16.0).strong());
                     ui.add_space(5.0);
 
-                    let eastern_cos = CommanderId::for_faction(Faction::Eastern);
-                    for co_id in eastern_cos {
-                        let co = co_id.get_commander();
-                        let is_selected = setup_state.player_co == Some(co_id);
+                    let faction_cos = CommanderId::for_faction(setup_state.player_faction);
 
-                        let button_color = if is_selected {
-                            egui::Color32::from_rgb(100, 200, 100)
-                        } else {
-                            egui::Color32::from_rgb(60, 60, 60)
-                        };
+                    if faction_cos.is_empty() {
+                        ui.label(egui::RichText::new("No commanders available for this faction")
+                            .color(egui::Color32::GRAY));
+                    } else {
+                        for co_id in faction_cos {
+                            let co = co_id.get_commander();
+                            let is_selected = setup_state.player_co == Some(co_id);
 
-                        ui.horizontal(|ui| {
-                            if ui.add(egui::Button::new(
-                                egui::RichText::new(if is_selected { "▶" } else { "  " })
-                            ).fill(button_color).min_size(egui::vec2(24.0, 24.0))).clicked() {
-                                setup_state.player_co = Some(co_id);
-                            }
+                            let faction_color = setup_state.player_faction.color().to_srgba();
+                            let button_color = if is_selected {
+                                egui::Color32::from_rgb(
+                                    (faction_color.red * 255.0) as u8,
+                                    (faction_color.green * 255.0) as u8,
+                                    (faction_color.blue * 255.0) as u8,
+                                )
+                            } else {
+                                egui::Color32::from_rgb(60, 60, 60)
+                            };
 
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new(co.name).size(13.0).strong());
-                                    ui.label(egui::RichText::new(format!("- {}", co.power.name))
-                                        .size(11.0).color(egui::Color32::from_rgb(255, 200, 50)));
+                            ui.horizontal(|ui| {
+                                if ui.add(egui::Button::new(
+                                    egui::RichText::new(if is_selected { "▶" } else { "  " })
+                                ).fill(button_color).min_size(egui::vec2(24.0, 24.0))).clicked() {
+                                    setup_state.player_co = Some(co_id);
+                                }
+
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new(co.name).size(13.0).strong());
+                                        ui.label(egui::RichText::new(format!("- {}", co.power.name))
+                                            .size(11.0).color(egui::Color32::from_rgb(255, 200, 50)));
+                                    });
+
+                                    let bonuses_str = format_co_bonuses(&co);
+                                    if !bonuses_str.is_empty() {
+                                        ui.label(egui::RichText::new(bonuses_str)
+                                            .size(10.0).color(egui::Color32::from_rgb(150, 200, 150)));
+                                    }
                                 });
-
-                                // Passive bonuses
-                                let mut bonuses = Vec::new();
-                                if co.attack_bonus > 1.0 {
-                                    bonuses.push(format!("+{:.0}% ATK", (co.attack_bonus - 1.0) * 100.0));
-                                }
-                                if co.defense_bonus > 1.0 {
-                                    bonuses.push(format!("+{:.0}% DEF", (co.defense_bonus - 1.0) * 100.0));
-                                }
-                                if co.movement_bonus > 0 {
-                                    bonuses.push(format!("+{} MOV", co.movement_bonus));
-                                }
-                                if co.income_bonus > 1.0 {
-                                    bonuses.push(format!("+{:.0}% $", (co.income_bonus - 1.0) * 100.0));
-                                }
-                                if co.vision_bonus > 0 {
-                                    bonuses.push(format!("+{} VIS", co.vision_bonus));
-                                }
-                                if co.cost_modifier < 1.0 {
-                                    bonuses.push(format!("-{:.0}% Cost", (1.0 - co.cost_modifier) * 100.0));
-                                }
-
-                                if !bonuses.is_empty() {
-                                    ui.label(egui::RichText::new(bonuses.join(" | "))
-                                        .size(10.0).color(egui::Color32::from_rgb(150, 200, 150)));
-                                }
                             });
-                        });
-                        ui.add_space(4.0);
+                            ui.add_space(4.0);
+                        }
                     }
                 });
             });
@@ -274,21 +354,36 @@ fn draw_battle_setup(
                         .min_size(egui::vec2(200.0, 45.0))).clicked()
                     {
                         if let Some(player_co) = setup_state.player_co {
+                            let player_faction = setup_state.player_faction;
+
                             // Set player CO
-                            commanders.set_commander(Faction::Eastern, player_co);
+                            commanders.set_commander(player_faction, player_co);
+
+                            // Determine AI faction (opposite of player)
+                            let ai_faction = match player_faction {
+                                Faction::Eastern => Faction::Northern,
+                                Faction::Northern => Faction::Eastern,
+                                Faction::Western => Faction::Southern,
+                                Faction::Southern => Faction::Western,
+                                Faction::Wanderer => Faction::Northern,
+                            };
 
                             // Assign random CO to AI
-                            let ai_cos = CommanderId::for_faction(Faction::Northern);
-                            let ai_co = ai_cos[rand::random::<usize>() % ai_cos.len()];
-                            commanders.set_commander(Faction::Northern, ai_co);
+                            let ai_cos = CommanderId::for_faction(ai_faction);
+                            if !ai_cos.is_empty() {
+                                let ai_co = ai_cos[rand::random::<usize>() % ai_cos.len()];
+                                commanders.set_commander(ai_faction, ai_co);
+
+                                info!("Battle started! Map: {}, Player ({:?}): {:?}, AI ({:?}): {:?}",
+                                    setup_state.selected_map.name(),
+                                    player_faction, player_co,
+                                    ai_faction, ai_co);
+                            }
 
                             // Load and spawn the selected map
                             let map_data = get_builtin_map(setup_state.selected_map);
                             spawn_map_from_data(&mut commands, &mut game_map, &map_data);
                             spawn_units_from_data(&mut commands, &game_map, &map_data);
-
-                            info!("Battle started! Map: {}, Player CO: {:?}, AI CO: {:?}",
-                                setup_state.selected_map.name(), player_co, ai_co);
 
                             setup_state.needs_setup = false;
                         }
@@ -318,6 +413,7 @@ fn draw_battle_ui(
     mut commanders: ResMut<Commanders>,
     mut power_events: EventWriter<PowerActivatedEvent>,
     selection_state: Res<BattleSetupState>,
+    weather: Res<Weather>,
 ) {
     // Don't show battle UI controls if game is over (victory screen handles it)
     if game_result.game_over {
@@ -398,6 +494,20 @@ fn draw_battle_ui(
                     }
                 });
             }
+
+            ui.separator();
+
+            // Weather display
+            let weather_color = match weather.current {
+                WeatherType::Clear => egui::Color32::from_rgb(255, 220, 100),     // Sunny yellow
+                WeatherType::Rain => egui::Color32::from_rgb(100, 150, 200),      // Rainy blue
+                WeatherType::Snow => egui::Color32::from_rgb(200, 220, 255),      // Icy white-blue
+                WeatherType::Sandstorm => egui::Color32::from_rgb(200, 150, 80),  // Sandy brown
+                WeatherType::Fog => egui::Color32::from_rgb(150, 150, 160),       // Misty gray
+            };
+            ui.label(egui::RichText::new(format!("{} {}", weather.current.icon(), weather.current.name()))
+                .color(weather_color)
+                .strong());
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Fog of war toggle
@@ -573,6 +683,7 @@ fn draw_action_menu(
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
+    weather: Res<Weather>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -613,9 +724,9 @@ fn draw_action_menu(
             units.get(entity).ok().map(|(unit, _faction, pos)| {
                 let pos_xy = pos.map(|p| (p.x, p.y)).unwrap_or((0, 0));
 
-                // Calculate damage estimate (with CO bonuses)
+                // Calculate damage estimate (with CO bonuses and weather)
                 let defender_terrain = map.get(pos_xy.0, pos_xy.1).unwrap_or(Terrain::Grass);
-                let damage = calculate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co);
+                let damage = calculate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &weather);
 
                 // Calculate counter-attack damage (if defender can counter)
                 let defender_stats = unit.unit_type.stats();
@@ -627,7 +738,7 @@ fn draw_action_menu(
                         // Create a temporary unit with reduced HP for counter calculation
                         let mut temp_defender = unit.clone();
                         temp_defender.hp = defender_hp_after;
-                        Some(calculate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co))
+                        Some(calculate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather))
                     } else {
                         None // Defender will be destroyed, no counter
                     }
@@ -1050,6 +1161,230 @@ fn handle_fog_toggle(
         fog.enabled = !fog.enabled;
         info!("Fog of war: {}", if fog.enabled { "ON" } else { "OFF" });
     }
+}
+
+// ============================================================================
+// UNIT TOOLTIP
+// ============================================================================
+
+/// Track which unit is under the mouse cursor
+fn track_hovered_unit(
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    units: Query<(Entity, &GridPosition, &Unit, &FactionMember)>,
+    map: Res<GameMap>,
+    mut hovered: ResMut<HoveredUnit>,
+    fog: Res<FogOfWar>,
+) {
+    let Ok(window) = windows.get_single() else { return };
+    let Ok((camera, camera_transform)) = cameras.get_single() else { return };
+
+    let Some(cursor_pos) = window.cursor_position() else {
+        hovered.entity = None;
+        return;
+    };
+
+    // Convert screen position to world position
+    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else {
+        hovered.entity = None;
+        return;
+    };
+
+    // Convert to grid coordinates
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0;
+    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0;
+    let grid_x = ((world_pos.x - offset_x) / TILE_SIZE).floor() as i32;
+    let grid_y = ((world_pos.y - offset_y) / TILE_SIZE).floor() as i32;
+
+    // Find unit at this position
+    hovered.entity = None;
+    for (entity, pos, _unit, faction) in units.iter() {
+        if pos.x == grid_x && pos.y == grid_y {
+            // Check fog of war - only show tooltip for visible units
+            if fog.enabled && faction.faction != Faction::Eastern && !fog.is_visible(pos.x, pos.y) {
+                continue;
+            }
+            hovered.entity = Some(entity);
+            hovered.screen_pos = (cursor_pos.x, cursor_pos.y);
+            break;
+        }
+    }
+}
+
+/// Draw tooltip for hovered unit
+fn draw_unit_tooltip(
+    mut contexts: EguiContexts,
+    hovered: Res<HoveredUnit>,
+    units: Query<(&Unit, &FactionMember, &GridPosition)>,
+    map: Res<GameMap>,
+    commanders: Res<Commanders>,
+    weather: Res<Weather>,
+) {
+    let Some(entity) = hovered.entity else { return };
+    let Ok((unit, faction, pos)) = units.get(entity) else { return };
+
+    let stats = unit.unit_type.stats();
+    let co_bonuses = commanders.get_bonuses(faction.faction);
+    let terrain = map.get(pos.x, pos.y).unwrap_or(Terrain::Grass);
+
+    // Calculate effective stats with CO and weather bonuses
+    let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+    let effective_movement = weather.apply_movement(base_movement);
+    let base_vision = stats.vision + co_bonuses.vision;
+    let effective_vision = weather.apply_vision(base_vision);
+
+    // Attack with CO bonus
+    let effective_attack = (stats.attack as f32 * co_bonuses.attack * weather.effects().attack_multiplier).round() as u32;
+    // Defense with CO bonus + terrain
+    let terrain_def = terrain.defense_bonus() as u32;
+    let effective_defense = (stats.defense as f32 * co_bonuses.defense * weather.effects().defense_multiplier).round() as u32 + terrain_def * 10;
+
+    // Faction color
+    let faction_color = faction.faction.color().to_srgba();
+    let color = egui::Color32::from_rgb(
+        (faction_color.red * 255.0) as u8,
+        (faction_color.green * 255.0) as u8,
+        (faction_color.blue * 255.0) as u8,
+    );
+
+    // Position tooltip near cursor but ensure it stays on screen
+    let tooltip_x = hovered.screen_pos.0 + 15.0;
+    let tooltip_y = hovered.screen_pos.1 + 15.0;
+
+    egui::Window::new("unit_tooltip")
+        .title_bar(false)
+        .resizable(false)
+        .collapsible(false)
+        .fixed_pos(egui::pos2(tooltip_x, tooltip_y))
+        .frame(egui::Frame::popup(&contexts.ctx_mut().style()))
+        .show(contexts.ctx_mut(), |ui| {
+            ui.set_min_width(180.0);
+
+            // Unit name and faction
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(unit.unit_type.name())
+                    .size(14.0)
+                    .strong()
+                    .color(color));
+                ui.label(egui::RichText::new(format!("({})", faction.faction.name()))
+                    .size(10.0)
+                    .weak());
+            });
+
+            ui.separator();
+
+            // HP bar
+            let hp_ratio = unit.hp as f32 / stats.max_hp as f32;
+            let hp_color = if hp_ratio > 0.6 {
+                egui::Color32::from_rgb(80, 200, 80)
+            } else if hp_ratio > 0.3 {
+                egui::Color32::from_rgb(220, 180, 50)
+            } else {
+                egui::Color32::from_rgb(220, 80, 80)
+            };
+            ui.horizontal(|ui| {
+                ui.label("HP:");
+                ui.add(egui::ProgressBar::new(hp_ratio)
+                    .fill(hp_color)
+                    .text(format!("{}/{}", unit.hp, stats.max_hp)));
+            });
+
+            ui.add_space(4.0);
+
+            // Stats grid
+            egui::Grid::new("stats_grid")
+                .num_columns(2)
+                .spacing([20.0, 2.0])
+                .show(ui, |ui| {
+                    // Attack
+                    ui.label("Attack:");
+                    let atk_text = if effective_attack != stats.attack as u32 {
+                        format!("{} ({})", effective_attack, stats.attack)
+                    } else {
+                        format!("{}", stats.attack)
+                    };
+                    ui.label(egui::RichText::new(atk_text).color(egui::Color32::from_rgb(255, 120, 120)));
+                    ui.end_row();
+
+                    // Defense
+                    ui.label("Defense:");
+                    let def_bonus = if terrain_def > 0 { format!(" +{}", terrain_def * 10) } else { String::new() };
+                    ui.label(egui::RichText::new(format!("{}{}", effective_defense, def_bonus))
+                        .color(egui::Color32::from_rgb(120, 180, 255)));
+                    ui.end_row();
+
+                    // Movement
+                    ui.label("Movement:");
+                    let mov_text = if effective_movement != stats.movement {
+                        format!("{} ({})", effective_movement, stats.movement)
+                    } else {
+                        format!("{}", stats.movement)
+                    };
+                    ui.label(egui::RichText::new(mov_text).color(egui::Color32::from_rgb(120, 255, 120)));
+                    ui.end_row();
+
+                    // Vision
+                    ui.label("Vision:");
+                    let vis_text = if effective_vision != stats.vision {
+                        format!("{} ({})", effective_vision, stats.vision)
+                    } else {
+                        format!("{}", stats.vision)
+                    };
+                    ui.label(egui::RichText::new(vis_text).color(egui::Color32::from_rgb(255, 255, 120)));
+                    ui.end_row();
+
+                    // Range
+                    ui.label("Range:");
+                    let (min_r, max_r) = stats.attack_range;
+                    let range_text = if min_r == max_r {
+                        format!("{}", min_r)
+                    } else {
+                        format!("{}-{}", min_r, max_r)
+                    };
+                    ui.label(range_text);
+                    ui.end_row();
+
+                    // Cost
+                    ui.label("Cost:");
+                    let adjusted_cost = (stats.cost as f32 * co_bonuses.cost).round() as u32;
+                    let cost_text = if adjusted_cost != stats.cost {
+                        format!("{} ({})", adjusted_cost, stats.cost)
+                    } else {
+                        format!("{}", stats.cost)
+                    };
+                    ui.label(egui::RichText::new(cost_text).color(egui::Color32::from_rgb(255, 200, 80)));
+                    ui.end_row();
+                });
+
+            // Terrain info
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Terrain:").weak());
+                ui.label(format!("{}", terrain.name()));
+                if terrain_def > 0 {
+                    ui.label(egui::RichText::new(format!("(+{} def)", terrain_def * 10))
+                        .size(10.0)
+                        .color(egui::Color32::from_rgb(120, 180, 255)));
+                }
+            });
+
+            // Status indicators
+            if unit.moved || unit.attacked {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if unit.moved {
+                        ui.label(egui::RichText::new("Moved")
+                            .size(10.0)
+                            .color(egui::Color32::GRAY));
+                    }
+                    if unit.attacked {
+                        ui.label(egui::RichText::new("Attacked")
+                            .size(10.0)
+                            .color(egui::Color32::GRAY));
+                    }
+                });
+            }
+        });
 }
 
 // ============================================================================

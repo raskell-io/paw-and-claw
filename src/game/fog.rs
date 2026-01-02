@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use super::{Faction, FactionMember, Unit, GridPosition, GameMap, Tile, Terrain, TurnState, Commanders};
+use super::{Faction, FactionMember, Unit, GridPosition, GameMap, Tile, Terrain, TurnState, Commanders, Weather, TerrainFeature};
 
 pub struct FogPlugin;
 
@@ -11,6 +11,7 @@ impl Plugin for FogPlugin {
             .add_systems(Update, (
                 update_fog_of_war,
                 apply_fog_to_tiles,
+                apply_fog_to_features,
                 apply_fog_to_units,
             ).chain());
     }
@@ -142,6 +143,7 @@ fn update_fog_of_war(
     units: Query<(&GridPosition, &Unit, &FactionMember)>,
     tiles: Query<&Tile>,
     commanders: Res<Commanders>,
+    weather: Res<Weather>,
 ) {
     if !fog.enabled {
         return;
@@ -162,17 +164,19 @@ fn update_fog_of_war(
     for (pos, unit, faction) in units.iter() {
         if faction.faction == Faction::Eastern {
             let stats = unit.unit_type.stats();
-            let mut vision = stats.vision + co_bonuses.vision;
+            let mut base_vision = stats.vision + co_bonuses.vision;
 
             // Terrain affects vision - boulders provide height advantage
             if let Some(terrain) = map.get(pos.x, pos.y) {
                 match terrain {
-                    Terrain::Boulder => vision += 1, // Height advantage
-                    Terrain::Hollow => vision += 1, // Elevated position
+                    Terrain::Boulder => base_vision += 1, // Height advantage
+                    Terrain::Hollow => base_vision += 1, // Elevated position
                     _ => {}
                 }
             }
 
+            // Apply weather effects to vision
+            let vision = weather.apply_vision(base_vision);
             fog.add_vision(pos.x, pos.y, vision, &map);
         }
     }
@@ -181,12 +185,13 @@ fn update_fog_of_war(
     for tile in tiles.iter() {
         if tile.owner == Some(Faction::Eastern) && tile.terrain.is_capturable() {
             // Bases and outposts provide 2 vision
-            let vision = match tile.terrain {
+            let base_vision = match tile.terrain {
                 Terrain::Base => 3,
                 Terrain::Outpost => 2,
                 Terrain::Storehouse => 1,
                 _ => 1,
             };
+            let vision = weather.apply_vision(base_vision);
             fog.add_vision(tile.position.x, tile.position.y, vision, &map);
         }
     }
@@ -235,6 +240,49 @@ fn apply_fog_to_tiles(
                     1.0,
                 );
                 sprite.color = very_dark;
+            }
+        }
+    }
+}
+
+/// Apply fog visual effect to terrain features (trees, rocks, buildings)
+fn apply_fog_to_features(
+    fog: Res<FogOfWar>,
+    mut features: Query<(&TerrainFeature, &mut Sprite, &Children)>,
+    mut child_sprites: Query<&mut Sprite, Without<TerrainFeature>>,
+) {
+    if !fog.enabled {
+        return;
+    }
+
+    for (feature, mut sprite, children) in features.iter_mut() {
+        let visibility = fog.get_visibility(feature.grid_position.x, feature.grid_position.y);
+
+        let brightness = match visibility {
+            TileVisibility::Visible => 1.0,
+            TileVisibility::Fogged => 0.4,
+            TileVisibility::Unexplored => 0.2,
+        };
+
+        // Apply brightness to main feature sprite
+        let base = sprite.color.to_srgba();
+        sprite.color = Color::srgba(
+            base.red * brightness,
+            base.green * brightness,
+            base.blue * brightness,
+            1.0,
+        );
+
+        // Apply brightness to child sprites (flags, roofs)
+        for child in children.iter() {
+            if let Ok(mut child_sprite) = child_sprites.get_mut(*child) {
+                let child_base = child_sprite.color.to_srgba();
+                child_sprite.color = Color::srgba(
+                    child_base.red * brightness,
+                    child_base.green * brightness,
+                    child_base.blue * brightness,
+                    child_base.alpha,
+                );
             }
         }
     }

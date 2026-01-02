@@ -34,6 +34,14 @@ pub enum CommanderId {
     Grimjaw,
     Frost,
     Bjorn,
+    // Western Frontier
+    Bandit,
+    Talon,
+    Dusty,
+    // Southern Pride
+    Lionheart,
+    Tusker,
+    Prowler,
 }
 
 impl CommanderId {
@@ -68,7 +76,7 @@ impl CommanderId {
                 id: *self,
                 name: "Tanuki",
                 faction: Faction::Eastern,
-                personality: AiPersonality::Economic,
+                personality: AiPersonality::Methodical,
                 description: "A shrewd merchant-commander who knows the value of gold. Properties under his control generate more income.",
                 attack_bonus: 1.0,
                 defense_bonus: 1.0,
@@ -110,7 +118,7 @@ impl CommanderId {
                 id: *self,
                 name: "Grimjaw",
                 faction: Faction::Northern,
-                personality: AiPersonality::Defensive,
+                personality: AiPersonality::Cautious,
                 description: "A grizzled veteran who has never lost a defensive battle. His troops dig in like stone.",
                 attack_bonus: 1.0,
                 defense_bonus: 1.15,    // +15% defense
@@ -132,7 +140,7 @@ impl CommanderId {
                 id: *self,
                 name: "Frost",
                 faction: Faction::Northern,
-                personality: AiPersonality::Swarm,
+                personality: AiPersonality::Reckless,
                 description: "A commander who believes in strength through numbers. Units are cheaper to produce.",
                 attack_bonus: 1.0,
                 defense_bonus: 1.0,
@@ -166,6 +174,140 @@ impl CommanderId {
                 },
                 power_cost: 180,
             },
+
+            // === WESTERN FRONTIER ===
+            CommanderId::Bandit => Commander {
+                id: *self,
+                name: "Bandit",
+                faction: Faction::Western,
+                personality: AiPersonality::Aggressive,
+                description: "A cunning raccoon who raids enemy supplies. Attacks on properties steal funds.",
+                attack_bonus: 1.05,     // +5% attack
+                defense_bonus: 1.0,
+                movement_bonus: 0,
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 0.95,    // -5% unit cost
+                power: CoPower {
+                    name: "Heist",
+                    description: "Steal 30% of enemy funds and gain +15% attack",
+                    effect: PowerEffect::StealFunds {
+                        steal_percent: 0.3,
+                        attack_boost: 1.15,
+                    },
+                },
+                power_cost: 130,
+            },
+            CommanderId::Talon => Commander {
+                id: *self,
+                name: "Talon",
+                faction: Faction::Western,
+                personality: AiPersonality::Cautious,
+                description: "A sharp-eyed hawk who spots enemies from miles away. Master of reconnaissance.",
+                attack_bonus: 1.0,
+                defense_bonus: 1.0,
+                movement_bonus: 0,
+                income_bonus: 1.0,
+                vision_bonus: 2,        // +2 vision
+                cost_modifier: 1.0,
+                power: CoPower {
+                    name: "Eagle Eye",
+                    description: "Reveal all enemies and deal +50% damage to revealed units",
+                    effect: PowerEffect::RevealAndBoost {
+                        attack_boost: 1.5,
+                    },
+                },
+                power_cost: 120,
+            },
+            CommanderId::Dusty => Commander {
+                id: *self,
+                name: "Dusty",
+                faction: Faction::Western,
+                personality: AiPersonality::Reckless,
+                description: "A wily coyote who uses hit-and-run tactics. Units can strike and retreat.",
+                attack_bonus: 1.0,
+                defense_bonus: 0.9,     // -10% defense (glass cannon)
+                movement_bonus: 1,      // +1 movement
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 1.0,
+                power: CoPower {
+                    name: "Ambush",
+                    description: "All units gain +30% attack and can move after attacking",
+                    effect: PowerEffect::StatBoost {
+                        attack: 1.3,
+                        defense: 1.0,
+                        movement: 2,    // Extra movement for retreat
+                    },
+                },
+                power_cost: 140,
+            },
+
+            // === SOUTHERN PRIDE ===
+            CommanderId::Lionheart => Commander {
+                id: *self,
+                name: "Lionheart",
+                faction: Faction::Southern,
+                personality: AiPersonality::Aggressive,
+                description: "A majestic lion whose roar inspires courage. His presence strengthens all allies.",
+                attack_bonus: 1.1,      // +10% attack
+                defense_bonus: 1.05,    // +5% defense
+                movement_bonus: 0,
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 1.1,     // +10% unit cost (premium units)
+                power: CoPower {
+                    name: "King's Roar",
+                    description: "All units gain +25% attack and +25% defense for 1 turn",
+                    effect: PowerEffect::StatBoost {
+                        attack: 1.25,
+                        defense: 1.25,
+                        movement: 0,
+                    },
+                },
+                power_cost: 110,
+            },
+            CommanderId::Tusker => Commander {
+                id: *self,
+                name: "Tusker",
+                faction: Faction::Southern,
+                personality: AiPersonality::Methodical,
+                description: "A mighty elephant who never forgets a battle. His units are incredibly resilient.",
+                attack_bonus: 1.0,
+                defense_bonus: 1.2,     // +20% defense
+                movement_bonus: -1,     // -1 movement (slow but tough)
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 1.0,
+                power: CoPower {
+                    name: "Stampede",
+                    description: "All units heal 3 HP and gain +50% defense",
+                    effect: PowerEffect::DefenseAndHeal {
+                        defense: 1.5,
+                        heal: 30,
+                    },
+                },
+                power_cost: 100,
+            },
+            CommanderId::Prowler => Commander {
+                id: *self,
+                name: "Prowler",
+                faction: Faction::Southern,
+                personality: AiPersonality::Reckless,
+                description: "A lightning-fast cheetah who strikes before enemies can react. Speed is everything.",
+                attack_bonus: 1.15,     // +15% attack
+                defense_bonus: 0.85,    // -15% defense (fragile)
+                movement_bonus: 2,      // +2 movement!
+                income_bonus: 1.0,
+                vision_bonus: 1,
+                cost_modifier: 1.0,
+                power: CoPower {
+                    name: "Blinding Speed",
+                    description: "All units can move again and gain +20% attack",
+                    effect: PowerEffect::ExtraMove,
+                },
+                power_cost: 160,
+            },
         }
     }
 
@@ -179,7 +321,9 @@ impl CommanderId {
         match faction {
             Faction::Eastern => vec![CommanderId::Kira, CommanderId::Tanuki, CommanderId::Sensei],
             Faction::Northern => vec![CommanderId::Grimjaw, CommanderId::Frost, CommanderId::Bjorn],
-            _ => vec![], // Other factions not implemented yet
+            Faction::Western => vec![CommanderId::Bandit, CommanderId::Talon, CommanderId::Dusty],
+            Faction::Southern => vec![CommanderId::Lionheart, CommanderId::Tusker, CommanderId::Prowler],
+            Faction::Wanderer => vec![], // Lone wolf, no COs
         }
     }
 }
@@ -242,6 +386,11 @@ pub enum PowerEffect {
     },
     /// Allow all units to move again
     ExtraMove,
+    /// Steal funds from enemy and boost attack
+    StealFunds {
+        steal_percent: f32,
+        attack_boost: f32,
+    },
 }
 
 // ============================================================================
@@ -398,6 +547,9 @@ impl Commanders {
                 PowerEffect::DefenseAndHeal { defense, .. } => {
                     bonuses.defense *= defense;
                 }
+                PowerEffect::StealFunds { attack_boost, .. } => {
+                    bonuses.attack *= attack_boost;
+                }
                 _ => {}
             }
         }
@@ -552,6 +704,28 @@ fn apply_power_effects(
                     }
                 }
                 info!("Charge! activated - all units can move again!");
+            }
+
+            PowerEffect::StealFunds { steal_percent, attack_boost: _ } => {
+                // Determine enemy faction and steal their funds
+                let enemy_faction = match event.faction {
+                    Faction::Eastern => Faction::Northern,
+                    Faction::Northern => Faction::Eastern,
+                    Faction::Western => Faction::Southern,
+                    Faction::Southern => Faction::Western,
+                    Faction::Wanderer => Faction::Northern,
+                };
+
+                let enemy_funds = funds.get(enemy_faction);
+                let stolen = (enemy_funds as f32 * steal_percent).round() as u32;
+
+                if stolen > 0 && funds.spend(enemy_faction, stolen) {
+                    funds.add(event.faction, stolen);
+                    info!("Heist! Stole {} funds from {:?}!", stolen, enemy_faction);
+                } else {
+                    info!("Heist attempted but enemy has no funds!");
+                }
+                // Attack boost is handled through get_bonuses()
             }
         }
     }

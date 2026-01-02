@@ -10,6 +10,8 @@ mod turn;
 mod ai;
 mod fog;
 mod commander;
+mod weather;
+mod sprites;
 
 pub use map::*;
 pub use maps::*;
@@ -21,6 +23,8 @@ pub use turn::*;
 pub use ai::*;
 pub use fog::*;
 pub use commander::*;
+pub use weather::*;
+pub use sprites::*;
 
 // Future: use crate::states::GameState;
 
@@ -35,6 +39,8 @@ impl Plugin for GamePlugin {
             .add_plugins(CombatPlugin)
             .add_plugins(AiPlugin)
             .add_plugins(FogPlugin)
-            .add_plugins(CommanderPlugin);
+            .add_plugins(CommanderPlugin)
+            .add_plugins(WeatherPlugin)
+            .add_plugins(SpritePlugin);
     }
 }

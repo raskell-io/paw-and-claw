@@ -5,7 +5,7 @@ use super::{
     Faction, FactionMember, Unit, UnitType, GridPosition, GameMap, Tile, Terrain,
     TurnState, TurnPhase, FactionFunds, AttackEvent, CaptureEvent, GameResult,
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
-    Commanders, PowerActivatedEvent,
+    Commanders, PowerActivatedEvent, Weather, WeatherType,
 };
 
 pub struct AiPlugin;
@@ -23,33 +23,77 @@ impl Plugin for AiPlugin {
 // AI CONFIGURATION & TYPES
 // ============================================================================
 
-/// AI personality types - affects strategic decisions
-/// Future: Used for CO (Commanding Officer) system
+/// AI personality types - affects HOW the AI plays (risk tolerance, aggression)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[allow(dead_code)]
 pub enum AiPersonality {
     #[default]
-    Aggressive,  // Attack priority, risk-taking
-    Defensive,   // Hold ground, protect bases
-    Economic,    // Capture priority, income focus
-    Swarm,       // Mass cheap units
+    Aggressive,  // High risk tolerance, always pushes forward
+    Cautious,    // Calculates trades carefully, avoids bad engagements
+    Reckless,    // Will sacrifice units for objectives
+    Methodical,  // Slow, deliberate, prefers good positions
 }
 
-/// AI commander configuration - for future CO system
-#[derive(Resource)]
-#[allow(dead_code)]
-pub struct AiCommander {
-    pub faction: Faction,
+/// AI strategy types - affects WHAT the AI prioritizes (objectives, goals)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiStrategy {
+    #[default]
+    Balanced,      // Adapt to situation, no strong preference
+    Annihilation,  // Kill all enemy units, ignore economy - "leave no survivors"
+    Domination,    // Capture all properties, starve enemy of income
+    Blitz,         // Rush enemy HQ, ignore everything else
+    Attrition,     // Trade efficiently, wear down enemy over time
+    Swarm,         // Mass cheap units, overwhelm with numbers
+    Fortress,      // Defend key positions, counter-attack only
+}
+
+/// AI configuration combining personality and strategy
+#[derive(Resource, Clone)]
+pub struct AiConfig {
     pub personality: AiPersonality,
-    pub name: String,
+    pub strategy: AiStrategy,
 }
 
-impl Default for AiCommander {
+impl Default for AiConfig {
     fn default() -> Self {
         Self {
-            faction: Faction::Northern,
             personality: AiPersonality::Aggressive,
-            name: "Commander Blue".to_string(),
+            strategy: AiStrategy::Balanced,
+        }
+    }
+}
+
+impl AiConfig {
+    pub fn new(personality: AiPersonality, strategy: AiStrategy) -> Self {
+        Self { personality, strategy }
+    }
+
+    /// Get risk tolerance multiplier (how much the AI discounts danger)
+    pub fn risk_tolerance(&self) -> f32 {
+        match self.personality {
+            AiPersonality::Aggressive => 0.5,  // Ignores half the risk
+            AiPersonality::Cautious => 1.5,    // Amplifies risk perception
+            AiPersonality::Reckless => 0.2,    // Nearly ignores risk
+            AiPersonality::Methodical => 1.0,  // Normal risk assessment
+        }
+    }
+
+    /// Get attack preference multiplier
+    pub fn attack_preference(&self) -> f32 {
+        match self.personality {
+            AiPersonality::Aggressive => 1.5,
+            AiPersonality::Cautious => 0.8,
+            AiPersonality::Reckless => 2.0,
+            AiPersonality::Methodical => 1.0,
+        }
+    }
+
+    /// Get position value multiplier (how much AI values good terrain)
+    pub fn position_value(&self) -> f32 {
+        match self.personality {
+            AiPersonality::Aggressive => 0.5,   // Doesn't care much about position
+            AiPersonality::Cautious => 1.5,     // Values good positions highly
+            AiPersonality::Reckless => 0.3,     // Ignores terrain advantages
+            AiPersonality::Methodical => 2.0,   // Very focused on positioning
         }
     }
 }
@@ -59,6 +103,7 @@ pub struct AiState {
     pub enabled: bool,
     pub action_delay: Timer,
     pub phase: AiTurnPhase,
+    pub config: AiConfig,
 }
 
 impl Default for AiState {
@@ -67,6 +112,16 @@ impl Default for AiState {
             enabled: true,
             action_delay: Timer::from_seconds(0.2, TimerMode::Once),
             phase: AiTurnPhase::Waiting,
+            config: AiConfig::default(),
+        }
+    }
+}
+
+impl AiState {
+    pub fn with_config(personality: AiPersonality, strategy: AiStrategy) -> Self {
+        Self {
+            config: AiConfig::new(personality, strategy),
+            ..Default::default()
         }
     }
 }
@@ -349,7 +404,7 @@ fn determine_strategic_goals(
     analysis: &GameAnalysis,
     _influence: &InfluenceMaps,
     memory: &AiMemory,
-    personality: AiPersonality,
+    config: &AiConfig,
 ) -> Vec<StrategicGoal> {
     let mut goals = Vec::new();
 
@@ -373,103 +428,152 @@ fn determine_strategic_goals(
         .filter(|t| t.owner.is_none())
         .count() as f32;
 
-    // Count damaged units
+    // Count damaged units and unit counts
     let damaged_units = analysis.ai_units.iter()
         .filter(|u| u.hp_percent < 0.5)
         .count();
-
     let total_units = analysis.ai_units.len();
+    let enemy_units = analysis.enemy_units.len();
 
-    // === ATTACK GOAL ===
-    let mut attack_priority: f32 = 0.0;
+    // Check for enemy HQ
+    let enemy_hq = analysis.enemy_properties.iter()
+        .find(|t| t.terrain == Terrain::Base);
 
-    // Strong advantage -> attack
+    // =========================================================================
+    // STRATEGY-BASED GOAL PRIORITIES
+    // Strategy determines the BASE priorities, personality modifies them
+    // =========================================================================
+
+    let (mut attack_priority, mut defend_priority, mut expand_priority, mut consolidate_priority): (f32, f32, f32, f32) =
+        match config.strategy {
+            AiStrategy::Balanced => {
+                // Adapt to situation
+                let attack = if strength_ratio > 1.0 { 50.0 } else { 30.0 };
+                let defend = if strength_ratio < 0.8 { 40.0 } else { 20.0 };
+                let expand = if neutral_properties > 0.0 { 35.0 } else { 10.0 };
+                let consolidate = 0.0;
+                (attack, defend, expand, consolidate)
+            }
+            AiStrategy::Annihilation => {
+                // Kill everything - attacks are always top priority
+                // "The only good enemy is a dead enemy"
+                let attack = 80.0 + (enemy_units as f32 * 5.0); // More enemies = more to kill
+                let defend = 10.0; // Minimal defense
+                let expand = 5.0;  // Ignore economy
+                let consolidate = 0.0; // Never retreat
+                (attack, defend, expand, consolidate)
+            }
+            AiStrategy::Domination => {
+                // Capture everything, strangle enemy economy
+                let expand = 70.0 + (neutral_properties * 10.0);
+                let attack = 30.0; // Attack to clear capturers
+                let defend = 40.0; // Defend captured properties
+                let consolidate = 0.0;
+                (attack, defend, expand, consolidate)
+            }
+            AiStrategy::Blitz => {
+                // Rush enemy HQ, ignore everything else
+                let attack = if enemy_hq.is_some() { 90.0 } else { 50.0 };
+                let expand = 60.0; // Capture HQ specifically
+                let defend = 5.0;  // Don't defend, keep pushing
+                let consolidate = 0.0;
+                (attack, defend, expand, consolidate)
+            }
+            AiStrategy::Attrition => {
+                // Trade efficiently, wear them down
+                // Only attack when we have advantage
+                let attack = if strength_ratio > 1.2 { 60.0 } else { 20.0 };
+                let defend = 50.0; // Strong defense
+                let expand = 40.0; // Build economy
+                let consolidate = if strength_ratio < 0.8 { 30.0 } else { 0.0 };
+                (attack, defend, expand, consolidate)
+            }
+            AiStrategy::Swarm => {
+                // Overwhelm with numbers
+                let attack = 50.0 + (total_units as f32 * 3.0); // More units = more aggressive
+                let expand = 60.0; // Need income for units
+                let defend = 20.0;
+                let consolidate = 0.0;
+                (attack, defend, expand, consolidate)
+            }
+            AiStrategy::Fortress => {
+                // Defend, only counter-attack
+                let defend = 70.0;
+                let attack = if strength_ratio > 1.5 { 40.0 } else { 15.0 }; // Counter-attack when strong
+                let expand = 30.0;
+                let consolidate = if damaged_units > 0 { 20.0 } else { 0.0 };
+                (attack, defend, expand, consolidate)
+            }
+        };
+
+    // =========================================================================
+    // PERSONALITY MODIFIERS
+    // Personality adjusts the strategy-based priorities
+    // =========================================================================
+
+    match config.personality {
+        AiPersonality::Aggressive => {
+            attack_priority *= 1.3;
+            defend_priority *= 0.7;
+            consolidate_priority *= 0.3;
+        }
+        AiPersonality::Cautious => {
+            attack_priority *= 0.8;
+            defend_priority *= 1.2;
+            // More likely to consolidate when hurt
+            if total_units > 0 && damaged_units as f32 / total_units as f32 > 0.4 {
+                consolidate_priority += 15.0;
+            }
+        }
+        AiPersonality::Reckless => {
+            attack_priority *= 1.5;
+            defend_priority *= 0.5;
+            consolidate_priority = 0.0; // Never retreat
+        }
+        AiPersonality::Methodical => {
+            // Values position, doesn't rush
+            defend_priority *= 1.1;
+            expand_priority *= 1.2;
+        }
+    }
+
+    // =========================================================================
+    // SITUATIONAL ADJUSTMENTS
+    // =========================================================================
+
+    // Strength advantage encourages attacking
     if strength_ratio > 1.3 {
-        attack_priority += 40.0;
-    } else if strength_ratio > 1.0 {
         attack_priority += 20.0;
     }
 
-    // Personality modifier
-    attack_priority += match personality {
-        AiPersonality::Aggressive => 30.0,
-        AiPersonality::Defensive => -20.0,
-        AiPersonality::Economic => 0.0,
-        AiPersonality::Swarm => 15.0,
-    };
+    // Strength disadvantage (except for reckless/annihilation)
+    if strength_ratio < 0.6 && config.strategy != AiStrategy::Annihilation {
+        defend_priority += 20.0;
+        if config.personality != AiPersonality::Reckless {
+            consolidate_priority += 15.0;
+        }
+    }
 
-    // If player is passive, be more aggressive
-    if memory.player_aggression < 0.3 {
-        attack_priority += 15.0;
+    // React to player aggression
+    if memory.player_aggression > 0.7 {
+        defend_priority += 15.0;
+    } else if memory.player_aggression < 0.3 {
+        attack_priority += 10.0;
+    }
+
+    // Early game expansion bonus
+    if memory.turn_count < 5 && config.strategy != AiStrategy::Annihilation {
+        expand_priority += 15.0;
+    }
+
+    // Economic disadvantage
+    if enemy_income > our_income + 1.0 && config.strategy != AiStrategy::Annihilation {
+        expand_priority += (enemy_income - our_income) * 8.0;
     }
 
     goals.push(StrategicGoal::Attack { priority: attack_priority.max(0.0) });
-
-    // === DEFEND GOAL ===
-    let mut defend_priority = 0.0;
-
-    // Weak position -> defend
-    if strength_ratio < 0.8 {
-        defend_priority += 40.0;
-    }
-
-    // Have valuable properties to defend
-    defend_priority += our_income * 5.0;
-
-    // Personality
-    defend_priority += match personality {
-        AiPersonality::Aggressive => -15.0,
-        AiPersonality::Defensive => 35.0,
-        AiPersonality::Economic => 10.0,
-        AiPersonality::Swarm => 0.0,
-    };
-
-    // If player is aggressive, defend more
-    if memory.player_aggression > 0.7 {
-        defend_priority += 20.0;
-    }
-
     goals.push(StrategicGoal::Defend { priority: defend_priority.max(0.0) });
-
-    // === EXPAND GOAL ===
-    let mut expand_priority = 0.0;
-
-    // Neutral properties available
-    expand_priority += neutral_properties * 10.0;
-
-    // Economic disadvantage -> expand
-    if enemy_income > our_income {
-        expand_priority += (enemy_income - our_income) * 15.0;
-    }
-
-    // Early game -> expand
-    if memory.turn_count < 5 {
-        expand_priority += 25.0;
-    }
-
-    // Personality
-    expand_priority += match personality {
-        AiPersonality::Aggressive => -10.0,
-        AiPersonality::Defensive => 5.0,
-        AiPersonality::Economic => 40.0,
-        AiPersonality::Swarm => 20.0,
-    };
-
     goals.push(StrategicGoal::Expand { priority: expand_priority.max(0.0) });
-
-    // === CONSOLIDATE GOAL ===
-    let mut consolidate_priority: f32 = 0.0;
-
-    // Many damaged units -> consolidate
-    if total_units > 0 && damaged_units as f32 / total_units as f32 > 0.4 {
-        consolidate_priority += 35.0;
-    }
-
-    // Significant disadvantage -> consolidate
-    if strength_ratio < 0.6 {
-        consolidate_priority += 30.0;
-    }
-
     goals.push(StrategicGoal::Consolidate { priority: consolidate_priority.max(0.0) });
 
     // Sort by priority
@@ -505,17 +609,17 @@ impl UtilityCurves {
         let damage_ratio = (damage as f32 / target_hp as f32).min(1.0);
 
         if damage >= target_hp {
-            // Kill! Very high utility
-            target_value as f32 * 2.5
+            // Kill! Very high utility - should almost always be worth it
+            target_value as f32 * 5.0 + 50.0
         } else if damage_ratio > 0.7 {
             // Nearly kill - good but not as good as kill
-            target_value as f32 * 1.5 * damage_ratio
+            target_value as f32 * 3.0 * damage_ratio
         } else if damage_ratio > 0.4 {
             // Significant damage
-            target_value as f32 * damage_ratio
+            target_value as f32 * 2.0 * damage_ratio
         } else {
-            // Minor damage - diminishing returns
-            target_value as f32 * damage_ratio * 0.5
+            // Minor damage - still worthwhile
+            target_value as f32 * damage_ratio
         }
     }
 
@@ -539,15 +643,16 @@ impl UtilityCurves {
     }
 
     /// Position safety utility with threshold
+    /// Note: These penalties are intentionally moderate - combat is inherently risky
     fn position_safety(threat: f32, our_hp: i32) -> f32 {
         let danger_ratio = threat / our_hp as f32;
 
         if danger_ratio > 1.5 {
-            -50.0  // Extremely dangerous
+            -25.0  // Dangerous but sometimes worth it
         } else if danger_ratio > 1.0 {
-            -30.0  // Likely to die
+            -15.0  // Risky
         } else if danger_ratio > 0.5 {
-            -15.0 * danger_ratio  // Risky
+            -5.0 * danger_ratio  // Slightly risky
         } else {
             0.0  // Acceptable risk
         }
@@ -626,9 +731,10 @@ fn predict_enemy_actions(
                     if dist >= min_r && dist <= max_r {
                         // They can attack us! (use neutral bonuses for prediction)
                         let no_bonus = CoBonuses::none();
+                        let clear_weather = Weather::new(WeatherType::Clear);
                         let damage = calculate_damage(&enemy.unit, &ai_unit.unit,
                             map.get(ai_unit.pos.x, ai_unit.pos.y).unwrap_or(Terrain::Grass),
-                            &no_bonus, &no_bonus);
+                            &no_bonus, &no_bonus, &clear_weather);
 
                         // Players tend to go for kills
                         if damage >= ai_unit.unit.hp {
@@ -839,21 +945,22 @@ fn score_action(
     goals: &[StrategicGoal],
     predictions: &[PredictedAction],
     map: &GameMap,
+    config: &AiConfig,
 ) -> f32 {
     let primary_goal = goals.first().cloned().unwrap_or(StrategicGoal::Attack { priority: 50.0 });
 
     match action {
         AiAction::Attack { move_to, target } => {
-            score_attack_action(unit, *move_to, *target, analysis, influence, &primary_goal, predictions, map)
+            score_attack_action(unit, *move_to, *target, analysis, influence, &primary_goal, predictions, map, config)
         }
         AiAction::Capture { move_to, tile } => {
-            score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map)
+            score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map, config)
         }
         AiAction::Move { move_to } => {
-            score_move_action(unit, *move_to, analysis, influence, &primary_goal, predictions, map)
+            score_move_action(unit, *move_to, analysis, influence, &primary_goal, predictions, map, config)
         }
         AiAction::Wait => {
-            score_wait_action(unit, influence)
+            score_wait_action(unit, influence, config)
         }
     }
 }
@@ -867,6 +974,7 @@ fn score_attack_action(
     goal: &StrategicGoal,
     predictions: &[PredictedAction],
     map: &GameMap,
+    config: &AiConfig,
 ) -> f32 {
     let target_unit = match analysis.enemy_units.iter().find(|u| u.entity == target) {
         Some(u) => u,
@@ -875,21 +983,29 @@ fn score_attack_action(
 
     // Use neutral bonuses for AI prediction (actual combat uses real CO bonuses)
     let no_bonus = CoBonuses::none();
+    let clear_weather = Weather::new(WeatherType::Clear);
 
     let defender_terrain = map.get(target_unit.pos.x, target_unit.pos.y).unwrap_or(Terrain::Grass);
-    let damage = calculate_damage(&attacker.unit, &target_unit.unit, defender_terrain, &no_bonus, &no_bonus);
+    let damage = calculate_damage(&attacker.unit, &target_unit.unit, defender_terrain, &no_bonus, &no_bonus, &clear_weather);
 
     // === BASE DAMAGE UTILITY ===
-    let mut score = UtilityCurves::damage_utility(damage, target_unit.unit.hp, target_unit.value);
+    // Apply personality attack preference
+    let mut score = UtilityCurves::damage_utility(damage, target_unit.unit.hp, target_unit.value)
+        * config.attack_preference();
+
+    // Base attack bonus - attacking is generally good in a tactics game
+    score += 20.0 * config.attack_preference();
 
     // === COUNTER-ATTACK RISK ===
+    // Apply personality risk tolerance (lower = ignores risk more)
     let target_stats = target_unit.unit.unit_type.stats();
     if target_stats.attack > 0 && target_stats.attack_range.0 == 1 && target_unit.unit.hp > damage {
         let attacker_terrain = map.get(move_to.0, move_to.1).unwrap_or(Terrain::Grass);
         let mut temp_target = target_unit.unit.clone();
         temp_target.hp -= damage;
-        let counter = calculate_damage(&temp_target, &attacker.unit, attacker_terrain, &no_bonus, &no_bonus);
-        score += UtilityCurves::risk_utility(counter, attacker.unit.hp, attacker.value);
+        let counter = calculate_damage(&temp_target, &attacker.unit, attacker_terrain, &no_bonus, &no_bonus, &clear_weather);
+        score += UtilityCurves::risk_utility(counter, attacker.unit.hp, attacker.value)
+            * config.risk_tolerance();
     }
 
     // === FOCUS FIRE BONUS ===
@@ -904,6 +1020,38 @@ fn score_attack_action(
         if pred.unit == target && pred.likely_target.is_some() && pred.confidence > 0.5 {
             score += 25.0; // Preemptive strike!
         }
+    }
+
+    // === STRATEGY-SPECIFIC BONUSES ===
+    match config.strategy {
+        AiStrategy::Annihilation => {
+            // Massive bonus for any attack, extra for kills
+            score += 30.0;
+            if damage >= target_unit.unit.hp {
+                score += 50.0; // Kill bonus
+            }
+        }
+        AiStrategy::Attrition => {
+            // Bonus for favorable trades
+            let our_loss_estimate = if target_stats.attack > 0 && target_stats.attack_range.0 == 1 {
+                (target_stats.attack as f32 * 0.3) as i32
+            } else { 0 };
+            if damage > our_loss_estimate * 2 {
+                score += 25.0; // Good trade
+            }
+        }
+        AiStrategy::Blitz => {
+            // Bonus for attacking units blocking path to HQ
+            let dist_to_enemy_hq = analysis.enemy_properties.iter()
+                .filter(|t| t.terrain == Terrain::Base)
+                .map(|t| ((target_unit.pos.x - t.pos.x).abs() + (target_unit.pos.y - t.pos.y).abs()) as f32)
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(100.0);
+            if dist_to_enemy_hq < 5.0 {
+                score += 30.0; // Clearing path to HQ
+            }
+        }
+        _ => {}
     }
 
     // === STRATEGIC GOAL ALIGNMENT ===
@@ -921,14 +1069,15 @@ fn score_attack_action(
     }
 
     // === POSITION AFTER ATTACK ===
+    // Apply risk tolerance to position safety
     let threat_after = influence.get_threat(move_to.0, move_to.1);
-    score += UtilityCurves::position_safety(threat_after, attacker.unit.hp - if damage < target_unit.unit.hp {
-        // Estimate we might take counter damage
-        let target_stats = target_unit.unit.unit_type.stats();
+    let estimated_hp_after = attacker.unit.hp - if damage < target_unit.unit.hp {
         if target_stats.attack > 0 && target_stats.attack_range.0 == 1 {
             (target_stats.attack as f32 * 0.3) as i32
         } else { 0 }
-    } else { 0 });
+    } else { 0 };
+    score += UtilityCurves::position_safety(threat_after, estimated_hp_after)
+        * config.risk_tolerance();
 
     // === INFLUENCE MAP BONUSES ===
     // Attacking in contested territory is good
@@ -950,6 +1099,7 @@ fn score_capture_action(
     goal: &StrategicGoal,
     predictions: &[PredictedAction],
     _map: &GameMap,
+    config: &AiConfig,
 ) -> f32 {
     let tile = match analysis.capturable_tiles.iter().find(|t| t.entity == tile_entity) {
         Some(t) => t,
@@ -971,6 +1121,34 @@ fn score_capture_action(
     // === BASE CAPTURE UTILITY ===
     let mut score = UtilityCurves::capture_utility(total_progress, required, income, is_base);
 
+    // === STRATEGY-SPECIFIC BONUSES ===
+    match config.strategy {
+        AiStrategy::Domination => {
+            // Huge bonus for capturing
+            score *= 1.5;
+            if tile.owner.is_none() {
+                score += 30.0; // Extra for neutral properties
+            }
+        }
+        AiStrategy::Blitz => {
+            // Only care about enemy HQ
+            if is_base && tile.owner == Some(Faction::Eastern) {
+                score += 200.0; // This is the win condition!
+            } else {
+                score *= 0.3; // Ignore other captures
+            }
+        }
+        AiStrategy::Annihilation => {
+            // Don't really care about capturing
+            score *= 0.3;
+        }
+        AiStrategy::Swarm => {
+            // Need income for swarm
+            score *= 1.3;
+        }
+        _ => {}
+    }
+
     // === ENEMY BASE = VICTORY CONDITION ===
     if is_base && tile.owner.is_some() && tile.owner != Some(Faction::Northern) {
         score += 150.0; // Capturing enemy base is huge
@@ -978,12 +1156,12 @@ fn score_capture_action(
 
     // === RISK ASSESSMENT ===
     let threat = influence.get_threat(move_to.0, move_to.1);
-    score += UtilityCurves::position_safety(threat, unit.unit.hp);
+    score += UtilityCurves::position_safety(threat, unit.unit.hp) * config.risk_tolerance();
 
     // If enemies are predicted to attack this position, risky
     for pred in predictions {
         if pred.likely_position == move_to {
-            score -= 30.0 * pred.confidence;
+            score -= 30.0 * pred.confidence * config.risk_tolerance();
         }
     }
 
@@ -1002,9 +1180,9 @@ fn score_capture_action(
     }
 
     // === INFLUENCE MAP ===
-    // Capturing behind enemy lines is risky
+    // Capturing behind enemy lines is risky (but personality affects this)
     if influence.get_territory(move_to.0, move_to.1) < -0.3 {
-        score -= 20.0;
+        score -= 20.0 * config.risk_tolerance();
     }
 
     // Capturing in safe territory is better
@@ -1023,6 +1201,7 @@ fn score_move_action(
     goal: &StrategicGoal,
     predictions: &[PredictedAction],
     map: &GameMap,
+    config: &AiConfig,
 ) -> f32 {
     let mut score = 0.0;
 
@@ -1030,14 +1209,14 @@ fn score_move_action(
     let defense_bonus = terrain.defense_bonus();
 
     // === TERRAIN DEFENSE ===
-    score += defense_bonus as f32 * 4.0;
+    // Personality affects how much we value defensive terrain
+    score += defense_bonus as f32 * 4.0 * config.position_value();
 
     // === THREAT AVOIDANCE ===
     let threat = influence.get_threat(move_to.0, move_to.1);
-    score += UtilityCurves::position_safety(threat, unit.unit.hp);
+    score += UtilityCurves::position_safety(threat, unit.unit.hp) * config.risk_tolerance();
 
     // === SUPPORT FROM ALLIES ===
-    // Note: support map value available via influence.get_support() for future use
     let nearby_allies = analysis.ai_units.iter()
         .filter(|u| {
             let dist = (u.pos.x - move_to.0).abs() + (u.pos.y - move_to.1).abs();
@@ -1045,6 +1224,39 @@ fn score_move_action(
         })
         .count();
     score += UtilityCurves::support_utility(nearby_allies);
+
+    // === STRATEGY-SPECIFIC MOVEMENT ===
+    match config.strategy {
+        AiStrategy::Blitz => {
+            // Move toward enemy HQ aggressively
+            let dist_to_enemy_hq = analysis.enemy_properties.iter()
+                .filter(|t| t.terrain == Terrain::Base)
+                .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(100.0);
+            score += 50.0 - dist_to_enemy_hq * 3.0; // Strong pull toward HQ
+        }
+        AiStrategy::Fortress => {
+            // Stay near our properties
+            let dist_to_our_base = analysis.our_properties.iter()
+                .filter(|t| t.terrain == Terrain::Base)
+                .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(100.0);
+            if dist_to_our_base < 4.0 {
+                score += 20.0; // Bonus for staying close to base
+            }
+        }
+        AiStrategy::Annihilation => {
+            // Move toward enemies always
+            let dist_to_enemy = analysis.enemy_units.iter()
+                .map(|e| ((move_to.0 - e.pos.x).abs() + (move_to.1 - e.pos.y).abs()) as f32)
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(100.0);
+            score += 30.0 - dist_to_enemy * 2.0;
+        }
+        _ => {}
+    }
 
     // === STRATEGIC GOAL ALIGNMENT ===
     match goal {
@@ -1091,21 +1303,21 @@ fn score_move_action(
             }
         }
         StrategicGoal::Consolidate { priority } => {
-            // Move toward safe positions
+            // Move toward safe positions but don't flee too aggressively
             let retreat = influence.retreat_value.get(&move_to).copied().unwrap_or(0.0);
-            score += retreat * 0.5 * (priority / 100.0);
+            score += retreat * 0.2 * (priority / 100.0);
 
-            // Move away from enemies
+            // Slight preference for distance from enemies, but don't run away
             let dist_to_enemy = analysis.enemy_units.iter()
                 .map(|e| ((move_to.0 - e.pos.x).abs() + (move_to.1 - e.pos.y).abs()) as f32)
                 .min_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(100.0);
-            score += dist_to_enemy * 0.5 * (priority / 100.0);
+            score += dist_to_enemy * 0.2 * (priority / 100.0);
         }
     }
 
     // === STRATEGIC VALUE OF POSITION ===
-    score += influence.get_strategic(move_to.0, move_to.1) * 0.2;
+    score += influence.get_strategic(move_to.0, move_to.1) * 0.2 * config.position_value();
 
     // === ARTILLERY POSITIONING ===
     if unit.is_indirect {
@@ -1119,21 +1331,29 @@ fn score_move_action(
             score += 25.0;
         }
         // Extra safety for artillery
-        score += UtilityCurves::position_safety(threat, unit.unit.hp) * 0.5;
+        score += UtilityCurves::position_safety(threat, unit.unit.hp) * 0.5 * config.risk_tolerance();
     }
 
     score
 }
 
-fn score_wait_action(unit: &UnitInfo, influence: &InfluenceMaps) -> f32 {
+fn score_wait_action(unit: &UnitInfo, influence: &InfluenceMaps, config: &AiConfig) -> f32 {
     // Waiting is usually bad, but okay if in a good defensive position
     let threat = influence.get_threat(unit.pos.x, unit.pos.y);
     let support = influence.get_support(unit.pos.x, unit.pos.y);
 
+    // Aggressive personalities hate waiting
+    let wait_penalty = match config.personality {
+        AiPersonality::Aggressive => -30.0,
+        AiPersonality::Reckless => -50.0,
+        AiPersonality::Cautious => -10.0,
+        AiPersonality::Methodical => -15.0,
+    };
+
     if threat < 10.0 && support > 20.0 {
-        0.0 // Okay to wait in safe supported position
+        wait_penalty + 10.0 // Okay to wait in safe supported position
     } else {
-        -20.0 // Generally want to do something
+        wait_penalty // Generally want to do something
     }
 }
 
@@ -1147,6 +1367,7 @@ fn plan_turn_advanced(
     goals: &[StrategicGoal],
     predictions: &[PredictedAction],
     map: &GameMap,
+    config: &AiConfig,
 ) -> Vec<PlannedAction> {
     let mut actions: Vec<PlannedAction> = Vec::new();
     let mut planned_positions: HashSet<(i32, i32)> = HashSet::new();
@@ -1187,7 +1408,7 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             target: enemy.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map);
+                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config);
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1201,7 +1422,7 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             tile: tile.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map);
+                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config);
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1209,13 +1430,13 @@ fn plan_turn_advanced(
 
             // Evaluate moves
             let action = AiAction::Move { move_to: (*mx, *my) };
-            let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map);
+            let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config);
             all_possible.push((ai_unit.entity, action, score));
         }
 
         // Wait action
         let wait = AiAction::Wait;
-        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map);
+        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config);
         all_possible.push((ai_unit.entity, wait, score));
     }
 
@@ -1261,7 +1482,7 @@ fn plan_turn_advanced(
 // ============================================================================
 
 fn smart_production(
-    personality: AiPersonality,
+    config: &AiConfig,
     funds: &mut ResMut<FactionFunds>,
     faction: Faction,
     analysis: &GameAnalysis,
@@ -1291,7 +1512,7 @@ fn smart_production(
 
     // Analyze needs
     let our_scouts = analysis.ai_units.iter().filter(|u| u.unit_type == UnitType::Scout).count();
-    let our_combat = analysis.ai_units.iter().filter(|u| u.unit_type != UnitType::Scout).count();
+    let _our_combat = analysis.ai_units.iter().filter(|u| u.unit_type != UnitType::Scout).count();
     let enemy_tanks = analysis.enemy_units.iter().filter(|u| u.unit_type == UnitType::Ironclad).count();
     let enemy_artillery = analysis.enemy_units.iter().filter(|u| u.is_indirect).count();
 
@@ -1299,58 +1520,106 @@ fn smart_production(
 
     let mut build_list: Vec<(UnitType, u32, f32)> = Vec::new();
 
-    // Need scouts for capturing
-    if our_scouts < 2 {
-        build_list.push((UnitType::Scout, 10, 85.0));
-    }
-
-    // Counter enemy composition
-    if enemy_tanks > 0 {
-        build_list.push((UnitType::Shocktrooper, 30, 70.0 + enemy_tanks as f32 * 15.0));
-    }
-    if enemy_artillery > 0 {
-        build_list.push((UnitType::Recon, 40, 65.0 + enemy_artillery as f32 * 20.0));
-    }
-
-    // Goal-based production
-    match primary_goal {
-        Some(StrategicGoal::Attack { .. }) => {
-            build_list.push((UnitType::Ironclad, 70, 60.0));
-            build_list.push((UnitType::Shocktrooper, 30, 55.0));
-        }
-        Some(StrategicGoal::Defend { .. }) => {
-            build_list.push((UnitType::Siege, 60, 65.0));
-            build_list.push((UnitType::Shocktrooper, 30, 60.0));
-        }
-        Some(StrategicGoal::Expand { .. }) => {
-            build_list.push((UnitType::Scout, 10, 90.0));
-            build_list.push((UnitType::Recon, 40, 50.0));
-        }
-        Some(StrategicGoal::Consolidate { .. }) => {
-            // Save money during consolidation
-            if our_combat < 2 {
-                build_list.push((UnitType::Shocktrooper, 30, 50.0));
+    // === STRATEGY-BASED PRODUCTION ===
+    match config.strategy {
+        AiStrategy::Annihilation => {
+            // Build heavy combat units
+            build_list.push((UnitType::Ironclad, 70, 90.0));
+            build_list.push((UnitType::Shocktrooper, 30, 80.0));
+            build_list.push((UnitType::Siege, 60, 70.0));
+            // Minimal scouts
+            if our_scouts < 1 {
+                build_list.push((UnitType::Scout, 10, 50.0));
             }
         }
-        None => {
+        AiStrategy::Domination => {
+            // Lots of scouts for capturing
+            build_list.push((UnitType::Scout, 10, 95.0));
+            build_list.push((UnitType::Scout, 10, 90.0)); // Want multiple scouts
+            build_list.push((UnitType::Recon, 40, 60.0)); // Fast capture support
             build_list.push((UnitType::Shocktrooper, 30, 50.0));
         }
+        AiStrategy::Blitz => {
+            // Fast, mobile units
+            build_list.push((UnitType::Recon, 40, 85.0));
+            build_list.push((UnitType::Scout, 10, 80.0)); // For capturing HQ
+            build_list.push((UnitType::Ironclad, 70, 70.0));
+        }
+        AiStrategy::Attrition => {
+            // Balanced, cost-effective units
+            build_list.push((UnitType::Shocktrooper, 30, 80.0));
+            build_list.push((UnitType::Siege, 60, 75.0)); // Artillery for safe damage
+            if our_scouts < 2 {
+                build_list.push((UnitType::Scout, 10, 70.0));
+            }
+        }
+        AiStrategy::Swarm => {
+            // Cheap units, lots of them
+            build_list.push((UnitType::Scout, 10, 95.0));
+            build_list.push((UnitType::Scout, 10, 90.0));
+            build_list.push((UnitType::Shocktrooper, 30, 85.0));
+            build_list.push((UnitType::Shocktrooper, 30, 80.0));
+        }
+        AiStrategy::Fortress => {
+            // Defensive units
+            build_list.push((UnitType::Siege, 60, 85.0)); // Artillery
+            build_list.push((UnitType::Ironclad, 70, 80.0)); // Tanks to hold ground
+            build_list.push((UnitType::Shocktrooper, 30, 70.0));
+            if our_scouts < 1 {
+                build_list.push((UnitType::Scout, 10, 60.0));
+            }
+        }
+        AiStrategy::Balanced => {
+            // Standard production based on goals
+            if our_scouts < 2 {
+                build_list.push((UnitType::Scout, 10, 85.0));
+            }
+
+            match primary_goal {
+                Some(StrategicGoal::Attack { .. }) => {
+                    build_list.push((UnitType::Ironclad, 70, 70.0));
+                    build_list.push((UnitType::Shocktrooper, 30, 65.0));
+                }
+                Some(StrategicGoal::Defend { .. }) => {
+                    build_list.push((UnitType::Siege, 60, 70.0));
+                    build_list.push((UnitType::Shocktrooper, 30, 65.0));
+                }
+                Some(StrategicGoal::Expand { .. }) => {
+                    build_list.push((UnitType::Scout, 10, 90.0));
+                    build_list.push((UnitType::Recon, 40, 60.0));
+                }
+                _ => {
+                    build_list.push((UnitType::Shocktrooper, 30, 60.0));
+                }
+            }
+        }
+    }
+
+    // Counter enemy composition (applies to all strategies)
+    if enemy_tanks > 1 {
+        build_list.push((UnitType::Shocktrooper, 30, 75.0 + enemy_tanks as f32 * 10.0));
+    }
+    if enemy_artillery > 1 {
+        build_list.push((UnitType::Recon, 40, 70.0 + enemy_artillery as f32 * 15.0));
     }
 
     // Personality adjustments
-    match personality {
-        AiPersonality::Aggressive => {
-            build_list.push((UnitType::Ironclad, 70, 55.0));
+    match config.personality {
+        AiPersonality::Aggressive | AiPersonality::Reckless => {
+            // Prefer offensive units
+            for (unit_type, _, priority) in build_list.iter_mut() {
+                if *unit_type == UnitType::Ironclad || *unit_type == UnitType::Shocktrooper {
+                    *priority += 10.0;
+                }
+            }
         }
-        AiPersonality::Defensive => {
-            build_list.push((UnitType::Siege, 60, 55.0));
-        }
-        AiPersonality::Economic => {
-            build_list.push((UnitType::Scout, 10, 80.0));
-        }
-        AiPersonality::Swarm => {
-            build_list.push((UnitType::Scout, 10, 75.0));
-            build_list.push((UnitType::Shocktrooper, 30, 45.0));
+        AiPersonality::Cautious | AiPersonality::Methodical => {
+            // Prefer defensive units
+            for (unit_type, _, priority) in build_list.iter_mut() {
+                if *unit_type == UnitType::Siege {
+                    *priority += 10.0;
+                }
+            }
         }
     }
 
@@ -1362,9 +1631,107 @@ fn smart_production(
             let adjusted_cost = (*base_cost as f32 * cost_modifier).round() as u32;
             if funds.spend(faction, adjusted_cost) {
                 spawn_unit(commands, map, faction, *unit_type, x, y);
-                info!("AI built {:?} at ({}, {})", unit_type, x, y);
+                info!("AI ({:?}/{:?}) built {:?} at ({}, {})",
+                    config.strategy, config.personality, unit_type, x, y);
                 break;
             }
+        }
+    }
+}
+
+// ============================================================================
+// AI CO POWER DECISION
+// ============================================================================
+
+/// Decide whether the AI should activate its CO power
+fn should_ai_activate_power(
+    commanders: &Commanders,
+    units: &Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    tiles: &Query<(Entity, &Tile)>,
+    faction: Faction,
+) -> bool {
+    use super::PowerEffect;
+
+    let Some(co) = commanders.get_commander(faction) else {
+        return false;
+    };
+
+    let ai_units: Vec<_> = units.iter()
+        .filter(|(_, _, _, f, _)| f.faction == faction)
+        .collect();
+
+    let enemy_units: Vec<_> = units.iter()
+        .filter(|(_, _, _, f, _)| f.faction != faction)
+        .collect();
+
+    let ai_unit_count = ai_units.len();
+    let enemy_unit_count = enemy_units.len();
+
+    // Don't waste power if we have no units
+    if ai_unit_count == 0 {
+        return false;
+    }
+
+    match &co.power.effect {
+        PowerEffect::StatBoost { attack, defense, movement } => {
+            // Use stat boost when we have units to benefit
+            // Better when we have more units and enemies nearby
+            let has_good_army = ai_unit_count >= 2;
+            let has_enemies = enemy_unit_count > 0;
+            let boost_significant = *attack > 1.1 || *defense > 1.1 || *movement > 0;
+            has_good_army && has_enemies && boost_significant
+        }
+
+        PowerEffect::BonusFunds { multiplier: _ } => {
+            // Use Gold Rush when we have decent funds to multiply
+            // Don't use when nearly broke (waste) or when swimming in cash (overkill)
+            // Best used mid-game when economy is established
+            let owned_bases = tiles.iter()
+                .filter(|(_, t)| t.terrain == Terrain::Base && t.owner == Some(faction))
+                .count();
+            owned_bases >= 1 // Use if we have at least one base
+        }
+
+        PowerEffect::RevealAndBoost { attack_boost: _ } => {
+            // Fog Piercer - always useful if there are enemies
+            enemy_unit_count > 0
+        }
+
+        PowerEffect::DefenseAndHeal { defense: _, heal } => {
+            // Iron Wall - use when units are damaged
+            let damaged_units = ai_units.iter()
+                .filter(|(_, _, _, _, u)| {
+                    let max_hp = u.unit_type.stats().max_hp;
+                    u.hp < max_hp - *heal // Would benefit from heal
+                })
+                .count();
+            damaged_units >= 2 || (damaged_units >= 1 && ai_unit_count <= 2)
+        }
+
+        PowerEffect::FreeUnits { unit_type: _ } => {
+            // Endless Horde - use when we have empty bases
+            let empty_bases = tiles.iter()
+                .filter(|(_, t)| t.terrain == Terrain::Base && t.owner == Some(faction))
+                .filter(|(_, t)| {
+                    !units.iter().any(|(_, p, _, _, _)| p.x == t.position.x && p.y == t.position.y)
+                })
+                .count();
+            empty_bases >= 1
+        }
+
+        PowerEffect::ExtraMove => {
+            // Charge! - use when we have unmoved units that can attack
+            // Best used when enemies are in range
+            let can_attack_count = ai_units.iter()
+                .filter(|(_, _, _, _, u)| !u.moved && u.unit_type.stats().attack > 0)
+                .count();
+            can_attack_count >= 2 && enemy_unit_count > 0
+        }
+
+        PowerEffect::StealFunds { steal_percent: _, attack_boost: _ } => {
+            // Heist - use when enemies have units (implies they have funds)
+            // and we have units to benefit from attack boost
+            ai_unit_count >= 1 && enemy_unit_count > 0
         }
     }
 }
@@ -1408,7 +1775,12 @@ fn ai_turn_system(
         return;
     }
 
-    let personality = AiPersonality::Aggressive;
+    // Get AI config from CO personality
+    let co = commanders.get_active(Faction::Northern).get_commander();
+    let config = AiConfig {
+        personality: co.personality,
+        strategy: ai_state.config.strategy, // Keep strategy from state
+    };
 
     match ai_state.phase {
         AiTurnPhase::Waiting => {
@@ -1416,20 +1788,24 @@ fn ai_turn_system(
             update_memory(&mut memory, &units);
             memory.turn_count += 1;
             ai_state.phase = AiTurnPhase::Planning;
+
+            // Log AI configuration at start of turn
+            info!("AI Turn ({}) - Strategy: {:?}, Personality: {:?}",
+                co.name, config.strategy, config.personality);
         }
 
         AiTurnPhase::Planning => {
-            // Check if AI can activate CO power
+            // Check if AI should activate CO power
             if commanders.can_activate(Faction::Northern) {
-                // AI decision: activate power when it has multiple units
-                let ai_unit_count = units.iter()
-                    .filter(|(_, _, _, f, _)| f.faction == Faction::Northern)
-                    .count();
+                let should_activate = should_ai_activate_power(
+                    &commanders,
+                    &units,
+                    &tiles,
+                    Faction::Northern,
+                );
 
-                // Activate power if we have at least 2 units (power will benefit them)
-                if ai_unit_count >= 2 {
+                if should_activate {
                     if let Some(effect) = commanders.activate_power(Faction::Northern) {
-                        let co = commanders.get_active(Faction::Northern).get_commander();
                         info!("AI activated CO Power: {}!", co.power.name);
                         power_events.send(PowerActivatedEvent {
                             faction: Faction::Northern,
@@ -1450,13 +1826,13 @@ fn ai_turn_system(
             // Full analysis pipeline
             let analysis = analyze_game_state(&all_units, &all_tiles, Faction::Northern);
             let influence = build_influence_maps(&analysis, &map, &all_tiles);
-            let goals = determine_strategic_goals(&analysis, &influence, &memory, personality);
+            let goals = determine_strategic_goals(&analysis, &influence, &memory, &config);
             let predictions = predict_enemy_actions(&analysis, &influence, &memory, &map);
 
             info!("AI Strategic Goals: {:?}", goals.iter().take(2).collect::<Vec<_>>());
 
             // Plan with all systems
-            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map);
+            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config);
 
             turn_plan.actions = actions;
             turn_plan.current_index = 0;
@@ -1497,11 +1873,11 @@ fn ai_turn_system(
 
             let analysis = analyze_game_state(&all_units, &all_tiles, Faction::Northern);
             let influence = build_influence_maps(&analysis, &map, &all_tiles);
-            let goals = determine_strategic_goals(&analysis, &influence, &memory, personality);
+            let goals = determine_strategic_goals(&analysis, &influence, &memory, &config);
 
             let co_bonuses = commanders.get_bonuses(Faction::Northern);
             smart_production(
-                personality,
+                &config,
                 &mut funds,
                 Faction::Northern,
                 &analysis,
