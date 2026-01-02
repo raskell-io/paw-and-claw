@@ -1733,6 +1733,12 @@ fn should_ai_activate_power(
             // and we have units to benefit from attack boost
             ai_unit_count >= 1 && enemy_unit_count > 0
         }
+
+        PowerEffect::IgnoreTerrain => {
+            // Undermine - use when we have units on difficult terrain
+            // or when we need to cross difficult terrain to reach enemies
+            ai_unit_count >= 2 && enemy_unit_count > 0
+        }
     }
 }
 

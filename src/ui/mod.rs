@@ -365,6 +365,7 @@ fn draw_battle_setup(
                                 Faction::Northern => Faction::Eastern,
                                 Faction::Western => Faction::Southern,
                                 Faction::Southern => Faction::Western,
+                                Faction::Nether => Faction::Eastern,  // Nether vs everyone
                                 Faction::Wanderer => Faction::Northern,
                             };
 

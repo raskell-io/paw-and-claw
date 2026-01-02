@@ -17,6 +17,9 @@ pub enum Faction {
     /// Southern Pride - African animals (lion, elephant, rhino, hyena)
     /// Playstyle: Raw power, territorial control, endurance
     Southern,
+    /// Nether Dominion - Subterranean creatures (moles, naked mole rats, beetles)
+    /// Playstyle: Ambush tactics, terrain manipulation, relentless expansion
+    Nether,
     /// The Wanderer - Lone wolf mercenary
     /// Playstyle: Single powerful agent, diplomacy, versatility
     Wanderer,
@@ -29,6 +32,7 @@ impl Faction {
             Faction::Northern => "Northern Realm",
             Faction::Western => "Western Frontier",
             Faction::Southern => "Southern Pride",
+            Faction::Nether => "Nether Dominion",
             Faction::Wanderer => "The Wanderer",
         }
     }
@@ -40,6 +44,7 @@ impl Faction {
             Faction::Northern => "Stalwart defenders of the ancient forests. Unbreakable lines.",
             Faction::Western => "Cunning survivalists of the wild frontier. Strike and fade.",
             Faction::Southern => "Mighty beasts of the savanna. Power and endurance.",
+            Faction::Nether => "Relentless swarm from below. They emerge without warning.",
             Faction::Wanderer => "A lone warrior seeking fortune. One blade, many paths.",
         }
     }
@@ -50,6 +55,7 @@ impl Faction {
             Faction::Northern => Color::srgb(0.3, 0.5, 0.9),  // Blue (European motif)
             Faction::Western => Color::srgb(0.4, 0.7, 0.3),   // Green (American wilderness)
             Faction::Southern => Color::srgb(0.9, 0.7, 0.2),  // Gold (African savanna)
+            Faction::Nether => Color::srgb(0.5, 0.2, 0.6),    // Purple (underground menace)
             Faction::Wanderer => Color::srgb(0.6, 0.5, 0.4),  // Brown (neutral)
         }
     }
@@ -61,6 +67,7 @@ impl Faction {
             Faction::Northern => 1.0,   // Standard costs
             Faction::Western => 0.95,   // Slightly cheaper, hit and run
             Faction::Southern => 1.1,   // More expensive but powerful units
+            Faction::Nether => 0.9,     // Cheap expendable units, endless horde
             Faction::Wanderer => 2.0,   // Very expensive but powerful
         }
     }
@@ -73,6 +80,7 @@ impl Faction {
             Faction::Northern => &["Badger", "Hedgehog", "Stoat", "Owl", "Fox"],
             Faction::Western => &["Raccoon", "Opossum", "Coyote", "Hawk", "Armadillo"],
             Faction::Southern => &["Lion", "Elephant", "Rhino", "Hyena", "Cheetah"],
+            Faction::Nether => &["Mole", "Naked Mole Rat", "Beetle", "Worm", "Ant"],
             Faction::Wanderer => &["Wolf"],
         }
     }

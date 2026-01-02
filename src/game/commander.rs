@@ -42,6 +42,10 @@ pub enum CommanderId {
     Lionheart,
     Tusker,
     Prowler,
+    // Nether Dominion
+    Burrower,
+    Hivemind,
+    Dredge,
 }
 
 impl CommanderId {
@@ -61,6 +65,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Blitz",
                     description: "All units gain +1 movement and +20% attack this turn",
@@ -84,6 +89,7 @@ impl CommanderId {
                 income_bonus: 1.15,     // +15% income
                 vision_bonus: 0,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Gold Rush",
                     description: "Gain 50% of current funds instantly",
@@ -103,6 +109,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 1,        // +1 vision
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Fog Piercer",
                     description: "Reveal entire map and gain +30% attack for 1 turn",
@@ -126,6 +133,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Iron Wall",
                     description: "All units gain +40% defense and heal 2 HP",
@@ -148,6 +156,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 0.9,     // -10% unit cost
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Endless Horde",
                     description: "All bases produce a free Scout",
@@ -167,6 +176,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Charge!",
                     description: "All units can move again this turn",
@@ -188,6 +198,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 0.95,    // -5% unit cost
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Heist",
                     description: "Steal 30% of enemy funds and gain +15% attack",
@@ -210,6 +221,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 2,        // +2 vision
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Eagle Eye",
                     description: "Reveal all enemies and deal +50% damage to revealed units",
@@ -231,6 +243,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Ambush",
                     description: "All units gain +30% attack and can move after attacking",
@@ -256,6 +269,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 1.1,     // +10% unit cost (premium units)
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "King's Roar",
                     description: "All units gain +25% attack and +25% defense for 1 turn",
@@ -279,6 +293,7 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 0,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Stampede",
                     description: "All units heal 3 HP and gain +50% defense",
@@ -301,12 +316,75 @@ impl CommanderId {
                 income_bonus: 1.0,
                 vision_bonus: 1,
                 cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
                 power: CoPower {
                     name: "Blinding Speed",
                     description: "All units can move again and gain +20% attack",
                     effect: PowerEffect::ExtraMove,
                 },
                 power_cost: 160,
+            },
+
+            // === NETHER DOMINION ===
+            CommanderId::Burrower => Commander {
+                id: *self,
+                name: "Burrower",
+                faction: Faction::Nether,
+                personality: AiPersonality::Methodical,
+                description: "An ancient mole who knows every tunnel beneath the earth. Terrain means nothing to his forces.",
+                attack_bonus: 1.0,
+                defense_bonus: 1.0,
+                movement_bonus: 0,
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 1.0,
+                terrain_cost_reduction: 1,  // Units ignore 1 terrain movement cost
+                power: CoPower {
+                    name: "Undermine",
+                    description: "All units ignore terrain movement costs this turn",
+                    effect: PowerEffect::IgnoreTerrain,
+                },
+                power_cost: 120,
+            },
+            CommanderId::Hivemind => Commander {
+                id: *self,
+                name: "Hivemind",
+                faction: Faction::Nether,
+                personality: AiPersonality::Aggressive,
+                description: "The naked mole rat queen whose colony spans continents. Her children are legion.",
+                attack_bonus: 0.95,     // -5% attack (weak individually)
+                defense_bonus: 0.95,    // -5% defense (weak individually)
+                movement_bonus: 0,
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 0.8,     // -20% unit cost! Swarm tactics
+                terrain_cost_reduction: 0,
+                power: CoPower {
+                    name: "Endless Swarm",
+                    description: "Spawn a free Scout at every owned property",
+                    effect: PowerEffect::FreeUnits { unit_type: UnitType::Scout },
+                },
+                power_cost: 140,
+            },
+            CommanderId::Dredge => Commander {
+                id: *self,
+                name: "Dredge",
+                faction: Faction::Nether,
+                personality: AiPersonality::Reckless,
+                description: "A massive stag beetle who crushes all opposition. Strike first, strike hard.",
+                attack_bonus: 1.15,     // +15% attack (aggressive)
+                defense_bonus: 0.9,     // -10% defense (glass cannon)
+                movement_bonus: 0,
+                income_bonus: 1.0,
+                vision_bonus: 0,
+                cost_modifier: 1.0,
+                terrain_cost_reduction: 0,
+                power: CoPower {
+                    name: "From Below",
+                    description: "All units heal 3 HP and attack first in combat this turn",
+                    effect: PowerEffect::DefenseAndHeal { defense: 1.0, heal: 3 },
+                },
+                power_cost: 130,
             },
         }
     }
@@ -323,6 +401,7 @@ impl CommanderId {
             Faction::Northern => vec![CommanderId::Grimjaw, CommanderId::Frost, CommanderId::Bjorn],
             Faction::Western => vec![CommanderId::Bandit, CommanderId::Talon, CommanderId::Dusty],
             Faction::Southern => vec![CommanderId::Lionheart, CommanderId::Tusker, CommanderId::Prowler],
+            Faction::Nether => vec![CommanderId::Burrower, CommanderId::Hivemind, CommanderId::Dredge],
             Faction::Wanderer => vec![], // Lone wolf, no COs
         }
     }
@@ -344,6 +423,7 @@ pub struct Commander {
     pub income_bonus: f32,
     pub vision_bonus: u32,
     pub cost_modifier: f32,
+    pub terrain_cost_reduction: u32,  // Reduce terrain movement cost by this amount
 
     // CO Power
     pub power: CoPower,
@@ -391,6 +471,8 @@ pub enum PowerEffect {
         steal_percent: f32,
         attack_boost: f32,
     },
+    /// Ignore terrain movement costs this turn
+    IgnoreTerrain,
 }
 
 // ============================================================================
@@ -416,17 +498,26 @@ impl Default for Commanders {
         let mut power_meter = HashMap::new();
         let mut power_active = HashMap::new();
 
-        // Default COs
+        // Default COs for each faction
         active.insert(Faction::Eastern, CommanderId::Kira);
         active.insert(Faction::Northern, CommanderId::Grimjaw);
+        active.insert(Faction::Western, CommanderId::Bandit);
+        active.insert(Faction::Southern, CommanderId::Lionheart);
+        active.insert(Faction::Nether, CommanderId::Burrower);
 
         // Starting power (0)
         power_meter.insert(Faction::Eastern, 0);
         power_meter.insert(Faction::Northern, 0);
+        power_meter.insert(Faction::Western, 0);
+        power_meter.insert(Faction::Southern, 0);
+        power_meter.insert(Faction::Nether, 0);
 
         // No powers active
         power_active.insert(Faction::Eastern, false);
         power_active.insert(Faction::Northern, false);
+        power_active.insert(Faction::Western, false);
+        power_active.insert(Faction::Southern, false);
+        power_active.insert(Faction::Nether, false);
 
         Self {
             active,
@@ -713,6 +804,7 @@ fn apply_power_effects(
                     Faction::Northern => Faction::Eastern,
                     Faction::Western => Faction::Southern,
                     Faction::Southern => Faction::Western,
+                    Faction::Nether => Faction::Northern,  // Nether antagonizes everyone
                     Faction::Wanderer => Faction::Northern,
                 };
 
@@ -726,6 +818,12 @@ fn apply_power_effects(
                     info!("Heist attempted but enemy has no funds!");
                 }
                 // Attack boost is handled through get_bonuses()
+            }
+
+            PowerEffect::IgnoreTerrain => {
+                // Terrain cost ignorance is handled in movement calculations
+                // by checking if the faction's CO power is active
+                info!("Undermine activated - all units ignore terrain movement costs!");
             }
         }
     }

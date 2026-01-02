@@ -130,6 +130,11 @@ pixel art faction emblem, 32x32, hawk and cactus, sage green and tan, frontier s
 pixel art faction emblem, 32x32, lion and sun, golden amber, African patterns, Southern Pride symbol, transparent background
 ```
 
+### Nether Dominion
+```
+pixel art faction emblem, 32x32, beetle emerging from earth, deep purple and black, cracked ground, subterranean menace, Nether Dominion symbol, transparent background
+```
+
 ## HP Bar Components
 
 ```
