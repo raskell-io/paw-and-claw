@@ -436,10 +436,10 @@ fn handle_camera_movement(
     let mut movement = Vec3::ZERO;
 
     if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
-        movement += forward_xz;
+        movement -= forward_xz;  // Move camera "up" on screen (away from where it's looking)
     }
     if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
-        movement -= forward_xz;
+        movement += forward_xz;  // Move camera "down" on screen (toward where it's looking)
     }
     if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
         movement -= right_xz;
