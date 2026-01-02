@@ -8,7 +8,8 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<AttackEvent>()
             .add_event::<CaptureEvent>()
-            .add_systems(Update, (process_attacks, process_captures));
+            .add_event::<JoinEvent>()
+            .add_systems(Update, (process_attacks, process_captures, process_joins));
     }
 }
 
@@ -24,6 +25,13 @@ pub struct AttackEvent {
 pub struct CaptureEvent {
     pub unit: Entity,
     pub tile: Entity,
+}
+
+/// Event fired when two units join/merge
+#[derive(Event)]
+pub struct JoinEvent {
+    pub source: Entity,  // Unit that moved (will be despawned)
+    pub target: Entity,  // Unit being joined into (will receive HP/ammo/stamina)
 }
 
 /// Calculate damage based on Advance Wars-like formula
@@ -119,6 +127,19 @@ fn process_attacks(
             continue;
         }
 
+        // Check ammo - can't attack without ammo (if unit uses ammo)
+        let attacker_stats = attacker_unit.unit_type.stats();
+        if attacker_stats.max_ammo > 0 && attacker_unit.ammo == 0 {
+            warn!("No ammo to attack!");
+            continue;
+        }
+
+        // Deduct ammo if unit uses ammo
+        if attacker_stats.max_ammo > 0 {
+            attacker_unit.ammo = attacker_unit.ammo.saturating_sub(1);
+            info!("Ammo: {} -> {}", attacker_unit.ammo + 1, attacker_unit.ammo);
+        }
+
         // Get CO bonuses for both factions
         let attacker_co = commanders.get_bonuses(attacker_faction.faction);
         let defender_co = commanders.get_bonuses(defender_faction.faction);
@@ -156,7 +177,17 @@ fn process_attacks(
         } else {
             // Counter-attack (if defender has direct attack and attacker is in range)
             let counter_stats = defender_unit.unit_type.stats();
-            if counter_stats.attack > 0 && counter_stats.attack_range.0 == 1 {
+            // Can only counter if: has attack power, is melee (range 1), and has ammo (if uses ammo)
+            let can_counter = counter_stats.attack > 0
+                && counter_stats.attack_range.0 == 1
+                && (counter_stats.max_ammo == 0 || defender_unit.ammo > 0);
+
+            if can_counter {
+                // Deduct ammo for counter-attack if unit uses ammo
+                if counter_stats.max_ammo > 0 {
+                    defender_unit.ammo = defender_unit.ammo.saturating_sub(1);
+                }
+
                 let attacker_terrain = map
                     .get(attacker_pos.x, attacker_pos.y)
                     .unwrap_or(Terrain::Grass);
@@ -262,4 +293,49 @@ fn blend_color(base: Color, tint: Color, amount: f32) -> Color {
         base_rgba.blue * (1.0 - amount) + tint_rgba.blue * amount,
         1.0,
     )
+}
+
+/// Process unit joining/merging
+fn process_joins(
+    mut events: EventReader<JoinEvent>,
+    mut commands: Commands,
+    mut units: Query<&mut Unit>,
+) {
+    for event in events.read() {
+        let Ok([source_unit, mut target_unit]) = units.get_many_mut([event.source, event.target]) else {
+            warn!("Failed to get units for join!");
+            continue;
+        };
+
+        // Both units must be same type (this should have been checked before sending the event)
+        if source_unit.unit_type != target_unit.unit_type {
+            warn!("Cannot join different unit types!");
+            continue;
+        }
+
+        let stats = target_unit.unit_type.stats();
+
+        // Combine HP (capped at max)
+        let combined_hp = (target_unit.hp + source_unit.hp).min(stats.max_hp);
+
+        // Combine stamina and ammo (capped at max)
+        let combined_stamina = (target_unit.stamina + source_unit.stamina).min(stats.max_stamina);
+        let combined_ammo = (target_unit.ammo + source_unit.ammo).min(stats.max_ammo);
+
+        info!(
+            "Joining {} units: HP {}+{}->{}, Stamina {}+{}->{}, Ammo {}+{}->{}",
+            target_unit.unit_type.name(),
+            target_unit.hp, source_unit.hp, combined_hp,
+            target_unit.stamina, source_unit.stamina, combined_stamina,
+            target_unit.ammo, source_unit.ammo, combined_ammo
+        );
+
+        // Apply combined stats to target
+        target_unit.hp = combined_hp;
+        target_unit.stamina = combined_stamina;
+        target_unit.ammo = combined_ammo;
+
+        // Despawn source unit
+        commands.entity(event.source).despawn();
+    }
 }

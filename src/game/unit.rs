@@ -7,7 +7,68 @@ pub struct UnitPlugin;
 
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, update_hp_displays);
+        app.add_systems(Update, (
+            update_hp_displays,
+            animate_unit_movement,
+        ));
+    }
+}
+
+/// Component for smooth unit movement animation
+#[derive(Component)]
+pub struct UnitAnimation {
+    /// Starting world position
+    pub start_pos: Vec3,
+    /// Target world position
+    pub end_pos: Vec3,
+    /// Animation progress (0.0 to 1.0)
+    pub progress: f32,
+    /// Animation speed (units per second, higher = faster)
+    pub speed: f32,
+}
+
+impl UnitAnimation {
+    /// Create a new movement animation
+    pub fn new(start: Vec3, end: Vec3) -> Self {
+        Self {
+            start_pos: start,
+            end_pos: end,
+            progress: 0.0,
+            speed: 5.0, // Complete animation in ~0.2 seconds per tile
+        }
+    }
+
+    /// Check if animation is complete
+    pub fn is_complete(&self) -> bool {
+        self.progress >= 1.0
+    }
+}
+
+/// System to animate unit movement smoothly
+fn animate_unit_movement(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation)>,
+) {
+    for (entity, mut transform, mut animation) in units.iter_mut() {
+        // Update progress
+        animation.progress += time.delta_secs() * animation.speed;
+        animation.progress = animation.progress.min(1.0);
+
+        if animation.is_complete() {
+            // Animation done - snap to final position and remove component
+            transform.translation.x = animation.end_pos.x;
+            transform.translation.z = animation.end_pos.z;
+            commands.entity(entity).remove::<UnitAnimation>();
+        } else {
+            // Smooth interpolation using smoothstep for nice easing
+            let t = animation.progress;
+            let t_smooth = t * t * (3.0 - 2.0 * t);
+
+            // Lerp position (only X and Z, preserve Y height)
+            transform.translation.x = animation.start_pos.x + (animation.end_pos.x - animation.start_pos.x) * t_smooth;
+            transform.translation.z = animation.start_pos.z + (animation.end_pos.z - animation.start_pos.z) * t_smooth;
+        }
     }
 }
 
@@ -95,6 +156,8 @@ impl UnitType {
                 can_capture: true,
                 cost: 1000,
                 class: UnitClass::Foot,
+                max_stamina: 99,
+                max_ammo: 0,  // Claws/teeth - unlimited
             },
             // Shocktrooper: Slower but hits harder, anti-armor. (Mech equivalent)
             UnitType::Shocktrooper => UnitStats {
@@ -107,6 +170,8 @@ impl UnitType {
                 can_capture: true,
                 cost: 3000,
                 class: UnitClass::Foot,
+                max_stamina: 70,
+                max_ammo: 3,  // Heavy weapon durability
             },
 
             // ========== GROUND VEHICLES ==========
@@ -121,6 +186,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 4000,
                 class: UnitClass::Wheels,
+                max_stamina: 80,
+                max_ammo: 0,  // Light weapon - unlimited
             },
             // Ironclad: Main battle unit, good attack and defense. (Tank equivalent)
             UnitType::Ironclad => UnitStats {
@@ -133,6 +200,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 7000,
                 class: UnitClass::Treads,
+                max_stamina: 70,
+                max_ammo: 9,
             },
             // Juggernaut: Heavy tank, powerful but expensive. (Md. Tank equivalent)
             UnitType::Juggernaut => UnitStats {
@@ -145,6 +214,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 16000,
                 class: UnitClass::Treads,
+                max_stamina: 50,
+                max_ammo: 8,
             },
             // Behemoth: Super-heavy tank, devastating. (Neotank equivalent)
             UnitType::Behemoth => UnitStats {
@@ -157,6 +228,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 22000,
                 class: UnitClass::Treads,
+                max_stamina: 99,
+                max_ammo: 9,
             },
             // Flak: Anti-air vehicle, strong vs aircraft. (Anti-Air equivalent)
             UnitType::Flak => UnitStats {
@@ -169,6 +242,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 8000,
                 class: UnitClass::Treads,
+                max_stamina: 60,
+                max_ammo: 9,
             },
             // Siege: Indirect fire, medium range. (Artillery equivalent)
             UnitType::Siege => UnitStats {
@@ -181,6 +256,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 6000,
                 class: UnitClass::Treads,
+                max_stamina: 50,
+                max_ammo: 6,
             },
             // Barrage: Long-range rockets. (Rockets equivalent)
             UnitType::Barrage => UnitStats {
@@ -193,6 +270,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 15000,
                 class: UnitClass::Treads,
+                max_stamina: 50,
+                max_ammo: 6,
             },
             // Stinger: Long-range anti-air missiles. (Missiles equivalent)
             UnitType::Stinger => UnitStats {
@@ -205,6 +284,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 12000,
                 class: UnitClass::Wheels,
+                max_stamina: 50,
+                max_ammo: 6,
             },
 
             // ========== GROUND SUPPORT ==========
@@ -219,6 +300,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 5000,
                 class: UnitClass::Transport,
+                max_stamina: 70,
+                max_ammo: 0,  // No weapon
             },
             // Supplier: Mobile resupply. (APC supply role)
             UnitType::Supplier => UnitStats {
@@ -231,6 +314,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 5000,
                 class: UnitClass::Transport,
+                max_stamina: 70,
+                max_ammo: 0,  // No weapon
             },
 
             // ========== AIR UNITS ==========
@@ -245,6 +330,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 5000,
                 class: UnitClass::AirTransport,
+                max_stamina: 99,
+                max_ammo: 0,  // No weapon
             },
             // Skywing: Versatile attack helicopter. (B-Copter equivalent)
             UnitType::Skywing => UnitStats {
@@ -257,6 +344,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 9000,
                 class: UnitClass::Air,
+                max_stamina: 99,
+                max_ammo: 6,
             },
             // Raptor: Air superiority fighter. (Fighter equivalent)
             UnitType::Raptor => UnitStats {
@@ -269,6 +358,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 20000,
                 class: UnitClass::Air,
+                max_stamina: 99,
+                max_ammo: 9,
             },
             // Talon: Heavy bomber. (Bomber equivalent)
             UnitType::Talon => UnitStats {
@@ -281,6 +372,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 22000,
                 class: UnitClass::Air,
+                max_stamina: 99,
+                max_ammo: 9,
             },
 
             // ========== NAVAL UNITS ==========
@@ -295,6 +388,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 12000,
                 class: UnitClass::NavalTransport,
+                max_stamina: 99,
+                max_ammo: 0,  // No weapon
             },
             // Frigate: Fast naval, anti-air/sub. (Cruiser equivalent)
             UnitType::Frigate => UnitStats {
@@ -307,6 +402,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 18000,
                 class: UnitClass::Naval,
+                max_stamina: 99,
+                max_ammo: 9,
             },
             // Lurker: Submarine, stealth. (Sub equivalent)
             UnitType::Lurker => UnitStats {
@@ -319,6 +416,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 20000,
                 class: UnitClass::Naval,
+                max_stamina: 70,
+                max_ammo: 6,
             },
             // Dreadnought: Battleship, indirect fire. (Battleship equivalent)
             UnitType::Dreadnought => UnitStats {
@@ -331,6 +430,8 @@ impl UnitType {
                 can_capture: false,
                 cost: 28000,
                 class: UnitClass::Naval,
+                max_stamina: 99,
+                max_ammo: 9,
             },
         }
     }
@@ -494,6 +595,8 @@ pub struct UnitStats {
     pub can_capture: bool,
     pub cost: u32,
     pub class: UnitClass,
+    pub max_stamina: u32,         // Movement stamina (consumed per tile moved)
+    pub max_ammo: u32,            // Weapon uses (ammo for ranged, durability for melee, 0 = unlimited)
 }
 
 /// Component for unit entities
@@ -501,6 +604,8 @@ pub struct UnitStats {
 pub struct Unit {
     pub unit_type: UnitType,
     pub hp: i32,
+    pub stamina: u32,
+    pub ammo: u32,
     pub moved: bool,
     pub attacked: bool,
 }
@@ -511,6 +616,8 @@ impl Unit {
         Self {
             unit_type,
             hp: stats.max_hp,
+            stamina: stats.max_stamina,
+            ammo: stats.max_ammo,
             moved: false,
             attacked: false,
         }
@@ -518,6 +625,18 @@ impl Unit {
 
     pub fn hp_percentage(&self) -> f32 {
         self.hp as f32 / self.unit_type.stats().max_hp as f32
+    }
+
+    pub fn stamina_percentage(&self) -> f32 {
+        let stats = self.unit_type.stats();
+        if stats.max_stamina == 0 { return 1.0; }
+        self.stamina as f32 / stats.max_stamina as f32
+    }
+
+    pub fn ammo_percentage(&self) -> f32 {
+        let stats = self.unit_type.stats();
+        if stats.max_ammo == 0 { return 1.0; }
+        self.ammo as f32 / stats.max_ammo as f32
     }
 
     #[allow(dead_code)]

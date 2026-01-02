@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders};
+use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition};
 
 pub struct TurnPlugin;
 
@@ -11,7 +11,7 @@ impl Plugin for TurnPlugin {
             .init_resource::<FactionFunds>()
             .init_resource::<GameResult>()
             .add_event::<TurnStartEvent>()
-            .add_systems(Update, (check_victory_condition, generate_income));
+            .add_systems(Update, (check_victory_condition, generate_income, resupply_units));
     }
 }
 
@@ -215,6 +215,54 @@ fn generate_income(
             } else {
                 info!("{:?} receives {} income (total: {})",
                     event.faction, income, funds.get(event.faction));
+            }
+        }
+    }
+}
+
+/// Resupply units on friendly bases and storehouses at turn start
+fn resupply_units(
+    mut events: EventReader<TurnStartEvent>,
+    mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
+    tiles: Query<&Tile>,
+) {
+    for event in events.read() {
+        // Build a map of supply buildings owned by this faction
+        let supply_buildings: HashMap<(i32, i32), Terrain> = tiles.iter()
+            .filter(|t| t.owner == Some(event.faction))
+            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Storehouse))
+            .map(|t| ((t.position.x, t.position.y), t.terrain))
+            .collect();
+
+        // Resupply units on these buildings
+        for (mut unit, pos, faction) in units.iter_mut() {
+            // Only resupply units of the active faction
+            if faction.faction != event.faction {
+                continue;
+            }
+
+            // Check if unit is on a supply building
+            if let Some(terrain) = supply_buildings.get(&(pos.x, pos.y)) {
+                let stats = unit.unit_type.stats();
+                let old_stamina = unit.stamina;
+                let old_ammo = unit.ammo;
+
+                // Restore stamina and ammo to max
+                unit.stamina = stats.max_stamina;
+                unit.ammo = stats.max_ammo;
+
+                // Log if anything was resupplied
+                if old_stamina < stats.max_stamina || old_ammo < stats.max_ammo {
+                    info!(
+                        "{} resupplied at {:?}: stamina {}->{}, ammo {}->{}",
+                        unit.unit_type.name(),
+                        terrain,
+                        old_stamina,
+                        unit.stamina,
+                        old_ammo,
+                        unit.ammo
+                    );
+                }
             }
         }
     }

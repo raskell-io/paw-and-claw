@@ -6,6 +6,7 @@ use super::{
     TurnState, TurnPhase, FactionFunds, AttackEvent, CaptureEvent, GameResult,
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
     Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssets, SpriteAssetsParam,
+    UnitAnimation,
 };
 
 pub struct AiPlugin;
@@ -1647,7 +1648,7 @@ fn smart_production(
 /// Decide whether the AI should activate its CO power
 fn should_ai_activate_power(
     commanders: &Commanders,
-    units: &Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: &Query<(Entity, &Tile)>,
     faction: Faction,
 ) -> bool {
@@ -1756,7 +1757,7 @@ fn ai_turn_system(
     time: Res<Time>,
     mut commands: Commands,
     map: Res<GameMap>,
-    mut units: Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: Query<(Entity, &Tile)>,
     mut attack_events: EventWriter<AttackEvent>,
     mut capture_events: EventWriter<CaptureEvent>,
@@ -1858,6 +1859,7 @@ fn ai_turn_system(
 
             let planned = &turn_plan.actions[turn_plan.current_index];
             execute_action(
+                &mut commands,
                 planned.action.clone(),
                 planned.unit,
                 &mut units,
@@ -1921,7 +1923,7 @@ fn ai_turn_system(
 
 fn update_memory(
     memory: &mut AiMemory,
-    units: &Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
 ) {
     // Track player unit movements for aggression calculation
     let attacks_detected = 0; // TODO: Track actual attacks in future
@@ -1949,44 +1951,60 @@ fn update_memory(
 }
 
 fn execute_action(
+    commands: &mut Commands,
     action: AiAction,
     entity: Entity,
-    units: &mut Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    units: &mut Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     map: &GameMap,
     attack_events: &mut EventWriter<AttackEvent>,
     capture_events: &mut EventWriter<CaptureEvent>,
 ) {
     match action {
         AiAction::Attack { move_to, target } => {
-            if let Ok((_, mut pos, mut transform, _, mut unit)) = units.get_mut(entity) {
+            if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} ({},{}) -> ({},{}) attacks",
                     unit.unit_type, pos.x, pos.y, move_to.0, move_to.1);
+                let start_pos = transform.translation;
                 pos.x = move_to.0;
                 pos.y = move_to.1;
-                transform.translation = pos.to_world(map);
+                // Calculate end position (preserve Y height)
+                let new_world_pos = pos.to_world(map);
+                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
+                // Add animation component for smooth movement
+                commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.attacked = true;
             }
             attack_events.send(AttackEvent { attacker: entity, defender: target });
         }
         AiAction::Capture { move_to, tile } => {
-            if let Ok((_, mut pos, mut transform, _, mut unit)) = units.get_mut(entity) {
+            if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} captures at ({},{})", unit.unit_type, move_to.0, move_to.1);
+                let start_pos = transform.translation;
                 pos.x = move_to.0;
                 pos.y = move_to.1;
-                transform.translation = pos.to_world(map);
+                // Calculate end position (preserve Y height)
+                let new_world_pos = pos.to_world(map);
+                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
+                // Add animation component for smooth movement
+                commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.attacked = true;
             }
             capture_events.send(CaptureEvent { unit: entity, tile });
         }
         AiAction::Move { move_to } => {
-            if let Ok((_, mut pos, mut transform, _, mut unit)) = units.get_mut(entity) {
+            if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} ({},{}) -> ({},{})",
                     unit.unit_type, pos.x, pos.y, move_to.0, move_to.1);
+                let start_pos = transform.translation;
                 pos.x = move_to.0;
                 pos.y = move_to.1;
-                transform.translation = pos.to_world(map);
+                // Calculate end position (preserve Y height)
+                let new_world_pos = pos.to_world(map);
+                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
+                // Add animation component for smooth movement
+                commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
             }
         }

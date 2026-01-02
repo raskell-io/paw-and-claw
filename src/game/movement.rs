@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction};
 use crate::states::GameState;
 
 /// Convert screen position to grid coordinates using ray-plane intersection
@@ -130,6 +130,8 @@ pub struct PendingAction {
     pub targets: HashSet<Entity>,  // Enemies that can be attacked from new position
     pub can_capture: bool,         // Whether the unit can capture the tile it's on
     pub capture_tile: Option<Entity>, // The tile entity that can be captured
+    pub can_join: bool,            // Whether the unit can join another unit
+    pub join_target: Option<Entity>, // The unit entity that can be joined
 }
 
 /// Tracks when production menu should be shown
@@ -144,6 +146,7 @@ pub struct ProductionState {
 #[derive(Resource, Default)]
 pub struct MovementHighlights {
     pub tiles: HashSet<(i32, i32)>,
+    pub tile_costs: HashMap<(i32, i32), u32>,  // Cost to reach each tile (for stamina)
     pub attack_targets: HashSet<Entity>,  // Enemy units that can be attacked
     pub selected_unit: Option<Entity>,
 }
@@ -199,12 +202,34 @@ pub fn calculate_attack_targets(
 }
 
 /// Calculate reachable tiles using BFS
+/// Movement is capped by both the movement stat and available stamina
 pub fn calculate_movement_range(
     start: &GridPosition,
     movement: u32,
     map: &GameMap,
     units: &HashMap<(i32, i32), Entity>,
 ) -> HashSet<(i32, i32)> {
+    let (reachable, _) = calculate_movement_range_with_costs(start, movement, map, units);
+    reachable
+}
+
+/// Unit info for movement calculation
+pub struct UnitInfo {
+    pub entity: Entity,
+    pub faction: Faction,
+    pub unit_type: super::UnitType,
+    pub hp: i32,
+}
+
+/// Calculate reachable tiles and their costs using BFS
+/// Returns (reachable tiles, cost to reach each tile)
+/// Now takes UnitInfo to allow moving onto friendly same-type units for joining
+pub fn calculate_movement_range_with_costs(
+    start: &GridPosition,
+    movement: u32,
+    map: &GameMap,
+    units: &HashMap<(i32, i32), Entity>,
+) -> (HashSet<(i32, i32)>, HashMap<(i32, i32), u32>) {
     let mut reachable = HashSet::new();
     let mut visited = HashMap::new();
     let mut queue = VecDeque::new();
@@ -227,7 +252,9 @@ pub fn calculate_movement_range(
                 let move_cost = terrain.movement_cost();
                 let new_cost = cost + move_cost;
 
-                // Can't move through enemy units (simplified - just check if any unit is there)
+                // Can't move through units (but can stop on friendly same-type for joining)
+                // For now, just block all movement through occupied tiles
+                // The join check happens at the destination
                 if units.contains_key(&(nx, ny)) && (nx, ny) != (start.x, start.y) {
                     continue;
                 }
@@ -249,17 +276,99 @@ pub fn calculate_movement_range(
 
     // Remove starting position from reachable (can't stay in place... or can we?)
     // Actually, let's keep it - unit can choose not to move
-    reachable
+    (reachable, visited)
+}
+
+/// Calculate reachable tiles including those occupied by joinable friendly units
+pub fn calculate_movement_range_with_joins(
+    start: &GridPosition,
+    movement: u32,
+    map: &GameMap,
+    moving_unit_type: super::UnitType,
+    moving_faction: Faction,
+    all_units: &[(Entity, (i32, i32), Faction, super::UnitType)],
+) -> (HashSet<(i32, i32)>, HashMap<(i32, i32), u32>) {
+    let mut reachable = HashSet::new();
+    let mut visited = HashMap::new();
+    let mut queue = VecDeque::new();
+
+    // Build a set of blocked positions (enemy units)
+    // and joinable positions (friendly same-type units)
+    let mut blocked: HashSet<(i32, i32)> = HashSet::new();
+    let mut joinable: HashSet<(i32, i32)> = HashSet::new();
+
+    for (_, (x, y), faction, unit_type) in all_units {
+        if (*x, *y) == (start.x, start.y) {
+            continue; // Skip self
+        }
+        if *faction == moving_faction && *unit_type == moving_unit_type {
+            joinable.insert((*x, *y));
+        } else {
+            blocked.insert((*x, *y));
+        }
+    }
+
+    queue.push_back((start.x, start.y, 0u32));
+    visited.insert((start.x, start.y), 0);
+
+    let directions = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+
+    while let Some((x, y, cost)) = queue.pop_front() {
+        if cost <= movement {
+            reachable.insert((x, y));
+        }
+
+        for (dx, dy) in directions {
+            let nx = x + dx;
+            let ny = y + dy;
+
+            if let Some(terrain) = map.get(nx, ny) {
+                let move_cost = terrain.movement_cost();
+                let new_cost = cost + move_cost;
+
+                // Can't move through blocked tiles (enemy units)
+                if blocked.contains(&(nx, ny)) {
+                    continue;
+                }
+
+                // Can move onto joinable tiles, but can't move THROUGH them
+                let is_joinable = joinable.contains(&(nx, ny));
+
+                if new_cost <= movement {
+                    let should_visit = visited
+                        .get(&(nx, ny))
+                        .map(|&prev_cost| new_cost < prev_cost)
+                        .unwrap_or(true);
+
+                    if should_visit {
+                        visited.insert((nx, ny), new_cost);
+                        // If this is a joinable tile, add it to reachable but don't continue BFS from it
+                        if !is_joinable {
+                            queue.push_back((nx, ny, new_cost));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (reachable, visited)
+}
+
+/// Calculate effective movement range (limited by stamina)
+pub fn effective_movement(base_movement: u32, stamina: u32) -> u32 {
+    base_movement.min(stamina)
 }
 
 /// Handle keyboard input for cursor movement and actions
 fn handle_keyboard_input(
+    mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut cursor: ResMut<GridCursor>,
     mut highlights: ResMut<MovementHighlights>,
     mut pending_action: ResMut<PendingAction>,
     mut turn_state: ResMut<TurnState>,
-    mut units: Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: Query<(Entity, &Tile)>,
     map: Res<GameMap>,
     mut attack_events: EventWriter<AttackEvent>,
@@ -321,6 +430,7 @@ fn handle_keyboard_input(
     if keyboard.just_pressed(KeyCode::Escape) {
         highlights.selected_unit = None;
         highlights.tiles.clear();
+                highlights.tile_costs.clear();
         highlights.attack_targets.clear();
         cursor.visible = false;
         return;
@@ -350,30 +460,52 @@ fn handle_keyboard_input(
                 }
                 highlights.selected_unit = None;
                 highlights.tiles.clear();
+                highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
                 return;
             }
 
             // Try to move to cursor position
             if highlights.tiles.contains(&(cursor.x, cursor.y)) {
-                // Check we're not moving onto another unit
-                let target_occupied = units.iter()
-                    .any(|(e, p, _, _, _)| e != selected_entity && p.x == cursor.x && p.y == cursor.y);
+                // Check if target has a joinable unit (friendly same-type)
+                let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type));
+                let joinable_unit = units.iter()
+                    .find(|(e, p, _, f, u)| {
+                        *e != selected_entity
+                            && p.x == cursor.x && p.y == cursor.y
+                            && selected_unit_info.map_or(false, |(sf, su)| f.faction == sf && u.unit_type == su)
+                    })
+                    .map(|(e, _, _, _, _)| e);
 
-                if !target_occupied {
+                // Check if target is occupied by non-joinable unit
+                let target_blocked = units.iter()
+                    .any(|(e, p, _, _, _)| e != selected_entity && p.x == cursor.x && p.y == cursor.y && joinable_unit != Some(e));
+
+                if !target_blocked {
                     let new_pos = GridPosition::new(cursor.x, cursor.y);
 
-                    // Move the unit
+                    // Get movement cost for stamina deduction
+                    let move_cost = highlights.tile_costs.get(&(cursor.x, cursor.y)).copied().unwrap_or(1);
+
+                    // Move the unit with animation
                     let faction_copy;
                     let unit_copy;
-                    if let Ok((_, mut grid_pos, mut transform, faction, mut unit)) = units.get_mut(selected_entity) {
+                    let start_pos;
+                    if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
+                        start_pos = transform.translation;
                         grid_pos.x = cursor.x;
                         grid_pos.y = cursor.y;
-                        transform.translation = grid_pos.to_world(&map);
+                        // Calculate end position (preserve Y height)
+                        let new_world_pos = grid_pos.to_world(&map);
+                        let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
+                        // Add animation component for smooth movement
+                        commands.entity(selected_entity).insert(UnitAnimation::new(start_pos, end_pos));
                         unit.moved = true;
+                        // Deduct stamina based on movement cost
+                        unit.stamina = unit.stamina.saturating_sub(move_cost);
                         faction_copy = faction.clone();
                         unit_copy = unit.clone();
-                        info!("Moved unit to ({}, {})", cursor.x, cursor.y);
+                        info!("Moved unit to ({}, {}), stamina {} -> {}", cursor.x, cursor.y, unit.stamina + move_cost, unit.stamina);
                     } else {
                         return;
                     }
@@ -397,18 +529,28 @@ fn handle_keyboard_input(
                         (false, None)
                     };
 
+                    // Check if can join (moved onto friendly same-type unit)
+                    let (can_join, join_target) = if let Some(join_entity) = joinable_unit {
+                        (true, Some(join_entity))
+                    } else {
+                        (false, None)
+                    };
+
                     highlights.selected_unit = None;
                     highlights.tiles.clear();
+                    highlights.tile_costs.clear();
                     highlights.attack_targets.clear();
 
-                    // Enter Action phase if there are targets or can capture
-                    if (!targets.is_empty() && !unit_copy.attacked) || can_capture {
+                    // Enter Action phase if there are targets, can capture, or can join
+                    if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
                         pending_action.unit = Some(selected_entity);
                         pending_action.targets = targets;
                         pending_action.can_capture = can_capture;
                         pending_action.capture_tile = capture_tile;
+                        pending_action.can_join = can_join;
+                        pending_action.join_target = join_target;
                         turn_state.phase = TurnPhase::Action;
-                        info!("Entering action phase: {} targets, can_capture: {}", pending_action.targets.len(), can_capture);
+                        info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
                     }
                 }
             }
@@ -420,15 +562,20 @@ fn handle_keyboard_input(
                     && !unit.moved
                     && faction.faction == turn_state.current_faction
                 {
-                    let unit_positions: HashMap<(i32, i32), Entity> = units
-                        .iter()
-                        .map(|(e, p, _, _, _)| ((p.x, p.y), e))
-                        .collect();
                     let stats = unit.unit_type.stats();
                     let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
                     let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                    let total_movement = weather.apply_movement(base_movement);
-                    let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
+                    let weather_movement = weather.apply_movement(base_movement);
+                    // Limit movement by stamina
+                    let total_movement = effective_movement(weather_movement, unit.stamina);
+
+                    // Build unit list for join-aware movement
+                    let all_unit_info: Vec<_> = units.iter()
+                        .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
+                        .collect();
+                    let (tiles, tile_costs) = calculate_movement_range_with_joins(
+                        &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info
+                    );
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
@@ -436,13 +583,14 @@ fn handle_keyboard_input(
                         .collect();
                     let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
 
-                    found_unit = Some((entity, tiles, attack_targets));
+                    found_unit = Some((entity, tiles, tile_costs, attack_targets));
                     break;
                 }
             }
-            if let Some((entity, tiles, attack_targets)) = found_unit {
+            if let Some((entity, tiles, tile_costs, attack_targets)) = found_unit {
                 highlights.selected_unit = Some(entity);
                 highlights.tiles = tiles;
+                highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
                 info!("Selected unit at ({}, {})", cursor.x, cursor.y);
             }
@@ -605,10 +753,11 @@ fn update_camera_angle(
 
 /// Handle mouse click for selection and movement
 fn handle_click_input(
+    mut commands: Commands,
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    mut units: Query<(Entity, &mut GridPosition, &mut Transform, &FactionMember, &mut Unit)>,
+    mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: Query<(Entity, &Tile)>,
     mut highlights: ResMut<MovementHighlights>,
     mut pending_action: ResMut<PendingAction>,
@@ -706,6 +855,7 @@ fn handle_click_input(
             }
             highlights.selected_unit = None;
             highlights.tiles.clear();
+                highlights.tile_costs.clear();
             highlights.attack_targets.clear();
             return;
         }
@@ -719,6 +869,7 @@ fn handle_click_input(
                 // Clicking on selected unit - deselect
                 highlights.selected_unit = None;
                 highlights.tiles.clear();
+                highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
                 return;
             }
@@ -760,18 +911,39 @@ fn handle_click_input(
                 return;
             }
 
-            // Move the unit
+            // Check if target has a joinable unit (friendly same-type)
+            let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type));
+            let joinable_unit = units.iter()
+                .find(|(e, p, _, f, u)| {
+                    *e != selected_entity
+                        && p.x == grid_x && p.y == grid_y
+                        && selected_unit_info.map_or(false, |(sf, su)| f.faction == sf && u.unit_type == su)
+                })
+                .map(|(e, _, _, _, _)| e);
+
+            // Move the unit with animation
             let new_pos = GridPosition::new(grid_x, grid_y);
+
+            // Get movement cost for stamina deduction
+            let move_cost = highlights.tile_costs.get(&(grid_x, grid_y)).copied().unwrap_or(1);
+
             let faction_copy;
             let unit_copy;
-            if let Ok((_, mut grid_pos, mut transform, faction, mut unit)) = units.get_mut(selected_entity) {
+            if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
+                let start_pos = transform.translation;
                 grid_pos.x = grid_x;
                 grid_pos.y = grid_y;
-                transform.translation = grid_pos.to_world(&map);
+                // Calculate end position (preserve Y height)
+                let new_world_pos = grid_pos.to_world(&map);
+                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
+                // Add animation component for smooth movement
+                commands.entity(selected_entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
+                // Deduct stamina based on movement cost
+                unit.stamina = unit.stamina.saturating_sub(move_cost);
                 faction_copy = faction.clone();
                 unit_copy = unit.clone();
-                info!("Moved unit to ({}, {})", grid_x, grid_y);
+                info!("Moved unit to ({}, {}), stamina {} -> {}", grid_x, grid_y, unit.stamina + move_cost, unit.stamina);
             } else {
                 return;
             }
@@ -795,18 +967,28 @@ fn handle_click_input(
                 (false, None)
             };
 
+            // Check if can join (moved onto friendly same-type unit)
+            let (can_join, join_target) = if let Some(join_entity) = joinable_unit {
+                (true, Some(join_entity))
+            } else {
+                (false, None)
+            };
+
             highlights.selected_unit = None;
             highlights.tiles.clear();
+            highlights.tile_costs.clear();
             highlights.attack_targets.clear();
 
-            // Enter Action phase if there are targets or can capture
-            if (!targets.is_empty() && !unit_copy.attacked) || can_capture {
+            // Enter Action phase if there are targets, can capture, or can join
+            if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
                 pending_action.unit = Some(selected_entity);
                 pending_action.targets = targets;
                 pending_action.can_capture = can_capture;
                 pending_action.capture_tile = capture_tile;
+                pending_action.can_join = can_join;
+                pending_action.join_target = join_target;
                 turn_state.phase = TurnPhase::Action;
-                info!("Entering action phase: {} targets, can_capture: {}", pending_action.targets.len(), can_capture);
+                info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
             }
             return;
         }
@@ -819,15 +1001,20 @@ fn handle_click_input(
             && !unit.moved
             && faction.faction == turn_state.current_faction
         {
-            let unit_positions: HashMap<(i32, i32), Entity> = units
-                .iter()
-                .map(|(e, p, _, _, _)| ((p.x, p.y), e))
-                .collect();
             let stats = unit.unit_type.stats();
             let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
             let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-            let total_movement = weather.apply_movement(base_movement);
-            let move_tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
+            let weather_movement = weather.apply_movement(base_movement);
+            // Limit movement by stamina
+            let total_movement = effective_movement(weather_movement, unit.stamina);
+
+            // Build unit list for join-aware movement
+            let all_unit_info: Vec<_> = units.iter()
+                .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
+                .collect();
+            let (move_tiles, move_costs) = calculate_movement_range_with_joins(
+                &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info
+            );
 
             // Calculate attack targets
             let all_units: Vec<_> = units.iter()
@@ -835,14 +1022,15 @@ fn handle_click_input(
                 .collect();
             let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
 
-            select_unit = Some((entity, move_tiles, attack_targets, pos.x, pos.y));
+            select_unit = Some((entity, move_tiles, move_costs, attack_targets, pos.x, pos.y));
             break;
         }
     }
 
-    if let Some((entity, tiles, attack_targets, x, y)) = select_unit {
+    if let Some((entity, tiles, tile_costs, attack_targets, x, y)) = select_unit {
         highlights.selected_unit = Some(entity);
         highlights.tiles = tiles;
+        highlights.tile_costs = tile_costs;
         highlights.attack_targets = attack_targets;
         info!("Selected unit at ({}, {}), can reach {} tiles", x, y, highlights.tiles.len());
         return;
@@ -871,6 +1059,7 @@ fn handle_click_input(
     // Clicked on empty space or enemy unit - deselect
     highlights.selected_unit = None;
     highlights.tiles.clear();
+                highlights.tile_costs.clear();
     highlights.attack_targets.clear();
     production_state.active = false;
 }

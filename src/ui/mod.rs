@@ -1,9 +1,10 @@
 use bevy::prelude::*;
+use bevy::core_pipeline::core_3d::Camera3d;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
-    MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent,
+    MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent,
     TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit,
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
@@ -81,6 +82,13 @@ pub struct HoveredUnit {
     pub screen_pos: (f32, f32),
 }
 
+/// Resource to track selected tile for info panel (right-click or hover)
+#[derive(Resource, Default)]
+pub struct SelectedTile {
+    pub position: Option<IVec2>,
+    pub screen_pos: (f32, f32),
+}
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -89,6 +97,7 @@ impl Plugin for UiPlugin {
             .init_resource::<BattleSetupState>()
             .init_resource::<EditorState>()
             .init_resource::<HoveredUnit>()
+            .init_resource::<SelectedTile>()
             .add_systems(Update, (
                 draw_main_menu.run_if(in_state(GameState::Menu)),
                 draw_battle_setup.run_if(in_state(GameState::Battle)),
@@ -98,7 +107,10 @@ impl Plugin for UiPlugin {
                 draw_victory_screen.run_if(in_state(GameState::Battle)),
                 handle_fog_toggle.run_if(in_state(GameState::Battle)),
                 track_hovered_unit.run_if(in_state(GameState::Battle)),
+                track_hovered_tile.run_if(in_state(GameState::Battle)),
                 draw_unit_tooltip.run_if(in_state(GameState::Battle)),
+                draw_terrain_info_panel.run_if(in_state(GameState::Battle)),
+                draw_unit_hp_numbers.run_if(in_state(GameState::Battle)),
                 draw_editor.run_if(in_state(GameState::Editor)),
                 editor_paint.run_if(in_state(GameState::Editor)),
             ))
@@ -685,6 +697,7 @@ fn draw_action_menu(
     tiles: Query<&Tile>,
     mut attack_events: EventWriter<AttackEvent>,
     mut capture_events: EventWriter<CaptureEvent>,
+    mut join_events: EventWriter<JoinEvent>,
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
@@ -765,6 +778,7 @@ fn draw_action_menu(
     // Track which action was taken
     let mut attack_target: Option<Entity> = None;
     let mut capture_clicked = false;
+    let mut join_clicked = false;
     let mut wait_clicked = false;
 
     // Get capture info if applicable
@@ -848,6 +862,24 @@ fn draw_action_menu(
                 ui.separator();
             }
 
+            // Show join option if available
+            if pending_action.can_join {
+                ui.heading("Join");
+                ui.separator();
+
+                ui.label("Merge with allied unit");
+                ui.label(egui::RichText::new("Combines HP, Stamina, Ammo")
+                    .color(egui::Color32::from_rgb(150, 200, 150)));
+
+                if ui.add(egui::Button::new(egui::RichText::new("Join").size(14.0))
+                    .min_size(egui::vec2(180.0, 28.0))).clicked()
+                {
+                    join_clicked = true;
+                }
+
+                ui.separator();
+            }
+
             // Wait button
             if ui.add(egui::Button::new(egui::RichText::new("Wait").size(16.0))
                 .min_size(egui::vec2(180.0, 35.0))).clicked()
@@ -871,6 +903,8 @@ fn draw_action_menu(
         pending_action.targets.clear();
         pending_action.can_capture = false;
         pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
         turn_state.phase = TurnPhase::Select;
     } else if capture_clicked {
         if let Some(tile_entity) = pending_action.capture_tile {
@@ -887,6 +921,26 @@ fn draw_action_menu(
             pending_action.targets.clear();
             pending_action.can_capture = false;
             pending_action.capture_tile = None;
+            pending_action.can_join = false;
+            pending_action.join_target = None;
+            turn_state.phase = TurnPhase::Select;
+        }
+    } else if join_clicked {
+        if let Some(join_target) = pending_action.join_target {
+            join_events.send(JoinEvent {
+                source: acting_entity,
+                target: join_target,
+            });
+
+            // The source unit will be despawned by the join system
+            // No need to mark as attacked since it will be gone
+
+            pending_action.unit = None;
+            pending_action.targets.clear();
+            pending_action.can_capture = false;
+            pending_action.capture_tile = None;
+            pending_action.can_join = false;
+            pending_action.join_target = None;
             turn_state.phase = TurnPhase::Select;
         }
     } else if wait_clicked {
@@ -894,6 +948,8 @@ fn draw_action_menu(
         pending_action.targets.clear();
         pending_action.can_capture = false;
         pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
         turn_state.phase = TurnPhase::Select;
     }
 }
@@ -1176,6 +1232,71 @@ fn handle_fog_toggle(
     }
 }
 
+/// Draw HP numbers on damaged units (Advance Wars style: 1-9)
+fn draw_unit_hp_numbers(
+    mut contexts: EguiContexts,
+    units: Query<(Entity, &Unit, &GlobalTransform, &FactionMember)>,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    setup_state: Res<BattleSetupState>,
+    game_result: Res<GameResult>,
+    fog: Res<FogOfWar>,
+) {
+    // Don't draw during setup or if game is over
+    if setup_state.needs_setup || game_result.game_over {
+        return;
+    }
+
+    let Ok((camera, camera_transform)) = camera.get_single() else { return };
+
+    for (entity, unit, unit_transform, faction) in units.iter() {
+        // Check fog visibility for enemy units
+        if fog.enabled && faction.faction != Faction::Eastern {
+            // Get grid position from world position
+            let world_pos = unit_transform.translation();
+            let grid_x = (world_pos.x / TILE_SIZE).round() as i32;
+            let grid_y = (world_pos.z / TILE_SIZE).round() as i32;
+            if !fog.is_visible(grid_x, grid_y) {
+                continue;
+            }
+        }
+
+        // Calculate HP display (1-9, don't show if 10 = full health)
+        let hp_display = (unit.hp as f32 / 10.0).ceil() as i32;
+        if hp_display >= 10 || hp_display <= 0 {
+            continue; // Full health or dead, no display
+        }
+
+        // Convert world position to screen position
+        let world_pos = unit_transform.translation();
+        let Ok(screen_pos) = camera.world_to_viewport(camera_transform, world_pos) else {
+            continue;
+        };
+
+        // Position at bottom-right of unit sprite
+        let offset_x = 8.0;
+        let offset_y = 8.0;
+
+        // Draw HP number with dark background for visibility
+        egui::Area::new(egui::Id::new(("hp_num", entity)))
+            .fixed_pos(egui::pos2(screen_pos.x + offset_x, screen_pos.y + offset_y))
+            .order(egui::Order::Foreground)
+            .show(contexts.ctx_mut(), |ui| {
+                // Small dark background
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                ui.painter().rect_filled(rect, 2.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180));
+
+                // HP number in white
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{}", hp_display),
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::WHITE,
+                );
+            });
+    }
+}
+
 // ============================================================================
 // UNIT TOOLTIP
 // ============================================================================
@@ -1220,6 +1341,182 @@ fn track_hovered_unit(
     }
 }
 
+/// Track hovered tile for terrain info panel (only when not hovering a unit)
+fn track_hovered_tile(
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    map: Res<GameMap>,
+    hovered_unit: Res<HoveredUnit>,
+    mut selected_tile: ResMut<SelectedTile>,
+    fog: Res<FogOfWar>,
+) {
+    // Don't track tile if hovering a unit (unit tooltip takes priority)
+    if hovered_unit.entity.is_some() {
+        selected_tile.position = None;
+        return;
+    }
+
+    let Ok(window) = windows.get_single() else { return };
+    let Ok((camera, camera_transform)) = cameras.get_single() else { return };
+
+    let Some(cursor_pos) = window.cursor_position() else {
+        selected_tile.position = None;
+        return;
+    };
+
+    // Convert screen position to grid coordinates
+    let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+        selected_tile.position = None;
+        return;
+    };
+
+    // Check fog of war - only show for visible/explored tiles
+    if fog.enabled {
+        let visibility = fog.get_visibility(grid_pos.x, grid_pos.y);
+        if visibility == crate::game::TileVisibility::Unexplored {
+            selected_tile.position = None;
+            return;
+        }
+    }
+
+    selected_tile.position = Some(grid_pos);
+    selected_tile.screen_pos = (cursor_pos.x, cursor_pos.y);
+}
+
+/// Draw terrain info panel when hovering terrain (no unit)
+fn draw_terrain_info_panel(
+    mut contexts: EguiContexts,
+    selected_tile: Res<SelectedTile>,
+    map: Res<GameMap>,
+    tiles: Query<&Tile>,
+    fog: Res<FogOfWar>,
+) {
+    let Some(pos) = selected_tile.position else { return };
+
+    // Get terrain at position
+    let Some(terrain) = map.get(pos.x, pos.y) else { return };
+
+    // Find tile entity for owner info
+    let mut tile_owner: Option<Faction> = None;
+    for tile in tiles.iter() {
+        if tile.position.x == pos.x && tile.position.y == pos.y {
+            tile_owner = tile.owner;
+            break;
+        }
+    }
+
+    // Check if fogged (show limited info)
+    let is_fogged = fog.enabled && fog.get_visibility(pos.x, pos.y) == crate::game::TileVisibility::Fogged;
+
+    egui::Window::new("terrain_info")
+        .title_bar(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::LEFT_BOTTOM, [10.0, -10.0])
+        .frame(egui::Frame::popup(&contexts.ctx_mut().style()))
+        .show(contexts.ctx_mut(), |ui| {
+            ui.set_min_width(150.0);
+
+            // Terrain name
+            let terrain_color = terrain.color().to_srgba();
+            let color = egui::Color32::from_rgb(
+                (terrain_color.red * 255.0).min(255.0) as u8,
+                (terrain_color.green * 255.0).min(255.0) as u8,
+                (terrain_color.blue * 255.0).min(255.0) as u8,
+            );
+            ui.label(egui::RichText::new(terrain.name())
+                .size(14.0)
+                .strong()
+                .color(color));
+
+            ui.separator();
+
+            // Stats
+            egui::Grid::new("terrain_stats")
+                .num_columns(2)
+                .spacing([20.0, 2.0])
+                .show(ui, |ui| {
+                    // Defense bonus
+                    let def_bonus = terrain.defense_bonus();
+                    ui.label("Defense:");
+                    if def_bonus > 0 {
+                        ui.label(egui::RichText::new(format!("+{}★", def_bonus))
+                            .color(egui::Color32::from_rgb(120, 180, 255)));
+                    } else {
+                        ui.label("--");
+                    }
+                    ui.end_row();
+
+                    // Movement cost
+                    ui.label("Move cost:");
+                    let base_cost = terrain.movement_cost();
+                    if base_cost >= 99 {
+                        ui.label(egui::RichText::new("Impassable")
+                            .color(egui::Color32::from_rgb(180, 80, 80)));
+                    } else {
+                        ui.label(format!("{}", base_cost));
+                    }
+                    ui.end_row();
+
+                    // Owner (for capturable terrain)
+                    if terrain.is_capturable() && !is_fogged {
+                        ui.label("Owner:");
+                        if let Some(owner) = tile_owner {
+                            let owner_color = owner.color().to_srgba();
+                            ui.label(egui::RichText::new(owner.name())
+                                .color(egui::Color32::from_rgb(
+                                    (owner_color.red * 255.0) as u8,
+                                    (owner_color.green * 255.0) as u8,
+                                    (owner_color.blue * 255.0) as u8,
+                                )));
+                        } else {
+                            ui.label(egui::RichText::new("Neutral")
+                                .color(egui::Color32::GRAY));
+                        }
+                        ui.end_row();
+                    }
+
+                    // Income (for property tiles)
+                    if terrain.is_capturable() {
+                        ui.label("Income:");
+                        let income = terrain.income_value();
+                        if income > 0 {
+                            ui.label(egui::RichText::new(format!("+{}", income))
+                                .color(egui::Color32::from_rgb(255, 200, 80)));
+                        } else {
+                            ui.label("--");
+                        }
+                        ui.end_row();
+                    }
+
+                    // Can produce units (Base)
+                    if terrain == Terrain::Base {
+                        ui.label("Production:");
+                        ui.label(egui::RichText::new("Yes")
+                            .color(egui::Color32::from_rgb(80, 200, 80)));
+                        ui.end_row();
+                    }
+                });
+
+            // Position
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("({}, {})", pos.x, pos.y))
+                    .size(10.0)
+                    .weak());
+            });
+
+            // Fogged indicator
+            if is_fogged {
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new("(Last seen)")
+                    .size(10.0)
+                    .weak()
+                    .italics());
+            }
+        });
+}
+
 /// Draw tooltip for hovered unit
 fn draw_unit_tooltip(
     mut contexts: EguiContexts,
@@ -1256,15 +1553,11 @@ fn draw_unit_tooltip(
         (faction_color.blue * 255.0) as u8,
     );
 
-    // Position tooltip near cursor but ensure it stays on screen
-    let tooltip_x = hovered.screen_pos.0 + 15.0;
-    let tooltip_y = hovered.screen_pos.1 + 15.0;
-
     egui::Window::new("unit_tooltip")
         .title_bar(false)
         .resizable(false)
         .collapsible(false)
-        .fixed_pos(egui::pos2(tooltip_x, tooltip_y))
+        .anchor(egui::Align2::LEFT_BOTTOM, [10.0, -10.0])
         .frame(egui::Frame::popup(&contexts.ctx_mut().style()))
         .show(contexts.ctx_mut(), |ui| {
             ui.set_min_width(180.0);
@@ -1297,6 +1590,42 @@ fn draw_unit_tooltip(
                     .fill(hp_color)
                     .text(format!("{}/{}", unit.hp, stats.max_hp)));
             });
+
+            // Stamina bar
+            if stats.max_stamina > 0 {
+                let stamina_ratio = unit.stamina as f32 / stats.max_stamina as f32;
+                let stamina_color = if stamina_ratio > 0.5 {
+                    egui::Color32::from_rgb(80, 180, 220)
+                } else if stamina_ratio > 0.25 {
+                    egui::Color32::from_rgb(220, 180, 50)
+                } else {
+                    egui::Color32::from_rgb(220, 80, 80)
+                };
+                ui.horizontal(|ui| {
+                    ui.label("Stamina:");
+                    ui.add(egui::ProgressBar::new(stamina_ratio)
+                        .fill(stamina_color)
+                        .text(format!("{}/{}", unit.stamina, stats.max_stamina)));
+                });
+            }
+
+            // Ammo bar (only show if unit has ammo)
+            if stats.max_ammo > 0 {
+                let ammo_ratio = unit.ammo as f32 / stats.max_ammo as f32;
+                let ammo_color = if ammo_ratio > 0.5 {
+                    egui::Color32::from_rgb(200, 160, 80)
+                } else if ammo_ratio > 0.25 {
+                    egui::Color32::from_rgb(220, 120, 50)
+                } else {
+                    egui::Color32::from_rgb(220, 80, 80)
+                };
+                ui.horizontal(|ui| {
+                    ui.label("Ammo:");
+                    ui.add(egui::ProgressBar::new(ammo_ratio)
+                        .fill(ammo_color)
+                        .text(format!("{}/{}", unit.ammo, stats.max_ammo)));
+                });
+            }
 
             ui.add_space(4.0);
 
