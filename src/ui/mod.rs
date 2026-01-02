@@ -4,7 +4,7 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
-    MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent,
+    MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent, ResupplyEvent,
     TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit,
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
@@ -698,6 +698,7 @@ fn draw_action_menu(
     mut attack_events: EventWriter<AttackEvent>,
     mut capture_events: EventWriter<CaptureEvent>,
     mut join_events: EventWriter<JoinEvent>,
+    mut resupply_events: EventWriter<ResupplyEvent>,
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
@@ -779,7 +780,11 @@ fn draw_action_menu(
     let mut attack_target: Option<Entity> = None;
     let mut capture_clicked = false;
     let mut join_clicked = false;
+    let mut resupply_clicked = false;
     let mut wait_clicked = false;
+
+    // Check if this is a Supplier unit that can resupply
+    let is_supplier = attacker_unit.unit_type == UnitType::Supplier;
 
     // Get capture info if applicable
     let capture_info = if pending_action.can_capture {
@@ -880,6 +885,24 @@ fn draw_action_menu(
                 ui.separator();
             }
 
+            // Show resupply option for Supplier units
+            if is_supplier {
+                ui.heading("Resupply");
+                ui.separator();
+
+                ui.label("Resupply adjacent friendly units");
+                ui.label(egui::RichText::new("Restores Stamina & Ammo to max")
+                    .color(egui::Color32::from_rgb(150, 200, 255)));
+
+                if ui.add(egui::Button::new(egui::RichText::new("Resupply").size(14.0))
+                    .min_size(egui::vec2(180.0, 28.0))).clicked()
+                {
+                    resupply_clicked = true;
+                }
+
+                ui.separator();
+            }
+
             // Wait button
             if ui.add(egui::Button::new(egui::RichText::new("Wait").size(16.0))
                 .min_size(egui::vec2(180.0, 35.0))).clicked()
@@ -943,6 +966,19 @@ fn draw_action_menu(
             pending_action.join_target = None;
             turn_state.phase = TurnPhase::Select;
         }
+    } else if resupply_clicked {
+        // Send resupply event - the system will handle finding and resupplying adjacent units
+        resupply_events.send(ResupplyEvent {
+            supplier: acting_entity,
+        });
+
+        pending_action.unit = None;
+        pending_action.targets.clear();
+        pending_action.can_capture = false;
+        pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
+        turn_state.phase = TurnPhase::Select;
     } else if wait_clicked {
         pending_action.unit = None;
         pending_action.targets.clear();
@@ -1625,6 +1661,45 @@ fn draw_unit_tooltip(
                         .fill(ammo_color)
                         .text(format!("{}/{}", unit.ammo, stats.max_ammo)));
                 });
+            }
+
+            // Low resource warnings
+            let low_stamina = stats.max_stamina > 0 && unit.stamina <= stats.max_stamina / 3;
+            let low_ammo = stats.max_ammo > 0 && unit.ammo <= stats.max_ammo / 3;
+            let no_ammo = stats.max_ammo > 0 && unit.ammo == 0;
+
+            if low_stamina || low_ammo || no_ammo {
+                ui.add_space(4.0);
+                ui.separator();
+                let warning_color = egui::Color32::from_rgb(255, 180, 60);
+                let critical_color = egui::Color32::from_rgb(255, 80, 80);
+
+                if no_ammo {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("! NO AMMO !").color(critical_color).strong());
+                    });
+                    ui.label(egui::RichText::new("Cannot attack").color(critical_color).small());
+                } else if low_ammo {
+                    ui.label(egui::RichText::new("! Low Ammo").color(warning_color).strong());
+                }
+
+                if low_stamina {
+                    let stamina_warning = if unit.stamina == 0 {
+                        ui.label(egui::RichText::new("! EXHAUSTED !").color(critical_color).strong());
+                        "Cannot move"
+                    } else {
+                        ui.label(egui::RichText::new("! Low Stamina").color(warning_color).strong());
+                        "Limited movement"
+                    };
+                    ui.label(egui::RichText::new(stamina_warning).color(warning_color).small());
+                }
+
+                // Suggest resupply
+                if (low_stamina || low_ammo) && !no_ammo {
+                    ui.add_space(2.0);
+                    ui.label(egui::RichText::new("Move to Base/Storehouse to resupply")
+                        .color(egui::Color32::from_rgb(150, 200, 255)).small().italics());
+                }
             }
 
             ui.add_space(4.0);

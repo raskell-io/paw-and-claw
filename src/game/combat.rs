@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather};
+use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType};
 
 pub struct CombatPlugin;
 
@@ -9,7 +9,8 @@ impl Plugin for CombatPlugin {
         app.add_event::<AttackEvent>()
             .add_event::<CaptureEvent>()
             .add_event::<JoinEvent>()
-            .add_systems(Update, (process_attacks, process_captures, process_joins));
+            .add_event::<ResupplyEvent>()
+            .add_systems(Update, (process_attacks, process_captures, process_joins, process_resupply));
     }
 }
 
@@ -32,6 +33,12 @@ pub struct CaptureEvent {
 pub struct JoinEvent {
     pub source: Entity,  // Unit that moved (will be despawned)
     pub target: Entity,  // Unit being joined into (will receive HP/ammo/stamina)
+}
+
+/// Event fired when a Supplier unit resupplies adjacent friendly units
+#[derive(Event)]
+pub struct ResupplyEvent {
+    pub supplier: Entity,  // The Supplier unit performing resupply
 }
 
 /// Calculate damage based on Advance Wars-like formula
@@ -337,5 +344,83 @@ fn process_joins(
 
         // Despawn source unit
         commands.entity(event.source).despawn();
+    }
+}
+
+/// Process Supplier resupply action - resupplies all adjacent friendly units
+fn process_resupply(
+    mut events: EventReader<ResupplyEvent>,
+    mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
+) {
+    for event in events.read() {
+        // Get supplier info first
+        let (supplier_pos, supplier_faction) = {
+            let Ok((supplier_unit, pos, faction)) = units.get(event.supplier) else {
+                warn!("Failed to get supplier unit!");
+                continue;
+            };
+
+            // Verify this is actually a Supplier unit
+            if supplier_unit.unit_type != UnitType::Supplier {
+                warn!("Resupply event on non-Supplier unit!");
+                continue;
+            }
+
+            (GridPosition::new(pos.x, pos.y), faction.faction)
+        };
+
+        // Find all adjacent friendly units and resupply them
+        let adjacent_positions = [
+            (supplier_pos.x - 1, supplier_pos.y),
+            (supplier_pos.x + 1, supplier_pos.y),
+            (supplier_pos.x, supplier_pos.y - 1),
+            (supplier_pos.x, supplier_pos.y + 1),
+        ];
+
+        let mut resupplied_count = 0;
+
+        for (mut unit, pos, faction) in units.iter_mut() {
+            // Skip if not adjacent
+            if !adjacent_positions.contains(&(pos.x, pos.y)) {
+                continue;
+            }
+
+            // Skip if not same faction
+            if faction.faction != supplier_faction {
+                continue;
+            }
+
+            let stats = unit.unit_type.stats();
+            let old_stamina = unit.stamina;
+            let old_ammo = unit.ammo;
+
+            // Restore stamina and ammo to max
+            unit.stamina = stats.max_stamina;
+            unit.ammo = stats.max_ammo;
+
+            // Log if anything was resupplied
+            if old_stamina < stats.max_stamina || old_ammo < stats.max_ammo {
+                info!(
+                    "Supplier resupplied {}: stamina {}->{}, ammo {}->{}",
+                    unit.unit_type.name(),
+                    old_stamina,
+                    unit.stamina,
+                    old_ammo,
+                    unit.ammo
+                );
+                resupplied_count += 1;
+            }
+        }
+
+        if resupplied_count > 0 {
+            info!("Supplier resupplied {} adjacent units!", resupplied_count);
+        } else {
+            info!("No units nearby to resupply.");
+        }
+
+        // Mark the supplier as having acted
+        if let Ok((mut supplier_unit, _, _)) = units.get_mut(event.supplier) {
+            supplier_unit.attacked = true;  // Using attacked flag to indicate action taken
+        }
     }
 }

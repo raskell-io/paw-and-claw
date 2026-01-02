@@ -6,7 +6,7 @@ use super::{
     TurnState, TurnPhase, FactionFunds, AttackEvent, CaptureEvent, GameResult,
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
     Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssets, SpriteAssetsParam,
-    UnitAnimation,
+    UnitAnimation, effective_movement,
 };
 
 pub struct AiPlugin;
@@ -259,10 +259,16 @@ fn build_influence_maps(
             continue;
         }
 
-        // Calculate all positions this enemy could attack from
+        // Skip enemies with no ammo if they need it
+        if stats.max_ammo > 0 && enemy.unit.ammo == 0 {
+            continue; // No threat without ammo
+        }
+
+        // Calculate all positions this enemy could attack from (limited by stamina)
+        let actual_movement = effective_movement(stats.movement, enemy.unit.stamina);
         let moves = calculate_movement_range(
             &enemy.pos,
-            stats.movement,
+            actual_movement,
             map,
             &analysis.unit_positions,
         );
@@ -703,10 +709,11 @@ fn predict_enemy_actions(
     for enemy in &analysis.enemy_units {
         let stats = enemy.unit.unit_type.stats();
 
-        // Calculate possible moves
+        // Calculate possible moves (limited by stamina)
+        let actual_movement = effective_movement(stats.movement, enemy.unit.stamina);
         let moves = calculate_movement_range(
             &enemy.pos,
-            stats.movement,
+            actual_movement,
             map,
             &analysis.unit_positions,
         );
@@ -720,11 +727,14 @@ fn predict_enemy_actions(
             confidence: 0.5,
         };
 
+        // Check if enemy has ammo (if they need it)
+        let can_attack = stats.attack > 0 && (stats.max_ammo == 0 || enemy.unit.ammo > 0);
+
         for (mx, my) in &moves {
             let mut score = 0.0;
 
             // Check if they can attack one of our units from here
-            if stats.attack > 0 {
+            if can_attack {
                 for ai_unit in &analysis.ai_units {
                     let dist = ((mx - ai_unit.pos.x).abs() + (my - ai_unit.pos.y).abs()) as u32;
                     let (min_r, max_r) = stats.attack_range;
@@ -981,6 +991,12 @@ fn score_attack_action(
         Some(u) => u,
         None => return -1000.0,
     };
+
+    // Check ammo - can't attack without ammo if unit uses ammo
+    let attacker_stats = attacker.unit.unit_type.stats();
+    if attacker_stats.max_ammo > 0 && attacker.unit.ammo == 0 {
+        return -1000.0; // No ammo, can't attack
+    }
 
     // Use neutral bonuses for AI prediction (actual combat uses real CO bonuses)
     let no_bonus = CoBonuses::none();
@@ -1335,6 +1351,31 @@ fn score_move_action(
         score += UtilityCurves::position_safety(threat, unit.unit.hp) * 0.5 * config.risk_tolerance();
     }
 
+    // === RESUPPLY SEEKING ===
+    // If low on stamina or ammo, seek friendly supply buildings
+    let stats = unit.unit.unit_type.stats();
+    let low_stamina = unit.unit.stamina <= stats.max_stamina / 3;
+    let low_ammo = stats.max_ammo > 0 && unit.unit.ammo <= stats.max_ammo / 3;
+
+    if low_stamina || low_ammo {
+        // Find distance to nearest friendly resupply building (Base or Storehouse)
+        let dist_to_supply = analysis.our_properties.iter()
+            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Storehouse))
+            .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
+            .min_by(|a, b| a.partial_cmp(b).unwrap());
+
+        if let Some(dist) = dist_to_supply {
+            // Strong bonus for moving toward supply when resources are low
+            let urgency = if low_stamina && low_ammo { 2.0 } else { 1.0 };
+            score += (40.0 - dist * 4.0) * urgency;
+
+            // Huge bonus for actually being on a supply building
+            if dist == 0.0 {
+                score += 50.0 * urgency;
+            }
+        }
+    }
+
     score
 }
 
@@ -1383,9 +1424,11 @@ fn plan_turn_advanced(
         }
 
         let stats = ai_unit.unit.unit_type.stats();
+        // Use effective movement (limited by stamina)
+        let actual_movement = effective_movement(stats.movement, ai_unit.unit.stamina);
         let moves = calculate_movement_range(
             &ai_unit.pos,
-            stats.movement,
+            actual_movement,
             map,
             &analysis.unit_positions,
         );

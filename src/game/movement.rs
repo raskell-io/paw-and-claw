@@ -62,6 +62,7 @@ impl Plugin for MovementPlugin {
                 update_movement_highlights,
                 draw_grid_cursor,
                 draw_action_targets,
+                draw_resource_warnings,
             ).run_if(in_state(GameState::Battle)));
     }
 }
@@ -1199,6 +1200,92 @@ fn draw_action_targets(
                 Isometry3d::new(Vec3::new(world_x, 0.12, world_z), flat_rotation),
                 Vec2::splat(TILE_SIZE - 10.0),
                 Color::srgba(1.0, 0.4, 0.4, 0.5),
+            );
+        }
+    }
+}
+
+/// Draw warning indicators on units with low stamina/ammo
+fn draw_resource_warnings(
+    mut gizmos: Gizmos,
+    map: Res<GameMap>,
+    turn_state: Res<TurnState>,
+    units: Query<(&Unit, &GridPosition, &FactionMember)>,
+    time: Res<Time>,
+) {
+    // Only show warnings for current player's units
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Pulse effect for warnings
+    let pulse = (time.elapsed_secs() * 3.0).sin() * 0.3 + 0.7;
+
+    for (unit, pos, faction) in units.iter() {
+        // Only show for current faction's unmoved units
+        if faction.faction != turn_state.current_faction || unit.moved {
+            continue;
+        }
+
+        let stats = unit.unit_type.stats();
+        let low_stamina = stats.max_stamina > 0 && unit.stamina <= stats.max_stamina / 3;
+        let low_ammo = stats.max_ammo > 0 && unit.ammo <= stats.max_ammo / 3;
+        let no_ammo = stats.max_ammo > 0 && unit.ammo == 0;
+        let exhausted = stats.max_stamina > 0 && unit.stamina == 0;
+
+        if !low_stamina && !low_ammo {
+            continue;
+        }
+
+        let world_x = pos.x as f32 * TILE_SIZE + offset_x;
+        let world_z = pos.y as f32 * TILE_SIZE + offset_z;
+
+        // Determine warning color and intensity
+        let (color, size) = if exhausted || no_ammo {
+            // Critical - red pulsing
+            (Color::srgba(1.0, 0.2, 0.2, pulse * 0.8), 8.0)
+        } else {
+            // Warning - orange pulsing
+            (Color::srgba(1.0, 0.6, 0.1, pulse * 0.6), 6.0)
+        };
+
+        // Draw warning diamond above unit
+        let y_offset = 20.0; // Above the unit sprite
+        let center = Vec3::new(world_x, y_offset, world_z);
+
+        // Draw a diamond shape (rotated square)
+        let half = size / 2.0;
+        gizmos.line(
+            center + Vec3::new(0.0, 0.0, -half),
+            center + Vec3::new(half, 0.0, 0.0),
+            color,
+        );
+        gizmos.line(
+            center + Vec3::new(half, 0.0, 0.0),
+            center + Vec3::new(0.0, 0.0, half),
+            color,
+        );
+        gizmos.line(
+            center + Vec3::new(0.0, 0.0, half),
+            center + Vec3::new(-half, 0.0, 0.0),
+            color,
+        );
+        gizmos.line(
+            center + Vec3::new(-half, 0.0, 0.0),
+            center + Vec3::new(0.0, 0.0, -half),
+            color,
+        );
+
+        // Draw exclamation mark inside for critical
+        if exhausted || no_ammo {
+            gizmos.line(
+                center + Vec3::new(0.0, 0.0, -half + 2.0),
+                center + Vec3::new(0.0, 0.0, half - 3.0),
+                color,
+            );
+            gizmos.sphere(
+                Isometry3d::from_translation(center + Vec3::new(0.0, 0.0, half - 1.5)),
+                1.0,
+                color,
             );
         }
     }
