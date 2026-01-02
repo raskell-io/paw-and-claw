@@ -6,15 +6,60 @@ use crate::game::{
     MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent,
     TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit,
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
-    PowerActivatedEvent, CommanderId,
+    PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
+    spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
+    TILE_SIZE,
 };
 use crate::states::GameState;
 
-/// Resource to track if CO selection is pending
+/// Resource to track battle setup (CO + Map selection)
 #[derive(Resource, Default)]
-pub struct CoSelectionState {
-    pub needs_selection: bool,
-    pub player_selected: Option<CommanderId>,
+pub struct BattleSetupState {
+    pub needs_setup: bool,
+    pub player_co: Option<CommanderId>,
+    pub selected_map: MapId,
+}
+
+/// Edit mode for map editor
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EditorMode {
+    #[default]
+    Terrain,
+    Units,
+    Properties,
+}
+
+/// Resource to track map editor state
+#[derive(Resource)]
+pub struct EditorState {
+    /// The map being edited
+    pub map: MapData,
+    /// Current edit mode
+    pub mode: EditorMode,
+    /// Selected terrain brush
+    pub selected_terrain: Terrain,
+    /// Selected unit type for placement
+    pub selected_unit: UnitType,
+    /// Selected faction for units/properties
+    pub selected_faction: Faction,
+    /// Map name for saving
+    pub map_name: String,
+    /// Status message
+    pub status: String,
+}
+
+impl Default for EditorState {
+    fn default() -> Self {
+        Self {
+            map: MapData::new("New Map", 12, 8),
+            mode: EditorMode::Terrain,
+            selected_terrain: Terrain::Grass,
+            selected_unit: UnitType::Scout,
+            selected_faction: Faction::Eastern,
+            map_name: "custom_map".to_string(),
+            status: String::new(),
+        }
+    }
 }
 
 pub struct UiPlugin;
@@ -22,25 +67,31 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin)
-            .init_resource::<CoSelectionState>()
+            .init_resource::<BattleSetupState>()
+            .init_resource::<EditorState>()
             .add_systems(Update, (
                 draw_main_menu.run_if(in_state(GameState::Menu)),
-                draw_co_selection.run_if(in_state(GameState::Battle)),
+                draw_battle_setup.run_if(in_state(GameState::Battle)),
                 draw_battle_ui.run_if(in_state(GameState::Battle)),
                 draw_action_menu.run_if(in_state(GameState::Battle)),
                 draw_production_menu.run_if(in_state(GameState::Battle)),
                 draw_victory_screen.run_if(in_state(GameState::Battle)),
                 handle_fog_toggle.run_if(in_state(GameState::Battle)),
+                draw_editor.run_if(in_state(GameState::Editor)),
+                editor_paint.run_if(in_state(GameState::Editor)),
             ))
             .add_systems(Startup, start_battle_for_testing)
-            .add_systems(OnEnter(GameState::Battle), trigger_co_selection);
+            .add_systems(OnEnter(GameState::Battle), trigger_battle_setup)
+            .add_systems(OnEnter(GameState::Editor), setup_editor)
+            .add_systems(OnExit(GameState::Editor), cleanup_editor);
     }
 }
 
-/// Trigger CO selection when entering battle
-fn trigger_co_selection(mut selection_state: ResMut<CoSelectionState>) {
-    selection_state.needs_selection = true;
-    selection_state.player_selected = None;
+/// Trigger battle setup when entering battle state
+fn trigger_battle_setup(mut setup_state: ResMut<BattleSetupState>) {
+    setup_state.needs_setup = true;
+    setup_state.player_co = None;
+    setup_state.selected_map = MapId::Woodland;
 }
 
 // Temporary: skip menu and go straight to battle for testing
@@ -84,120 +135,145 @@ fn draw_main_menu(
     });
 }
 
-/// Draw CO selection screen at battle start
-fn draw_co_selection(
+/// Draw battle setup screen (CO + Map selection)
+fn draw_battle_setup(
     mut contexts: EguiContexts,
-    mut selection_state: ResMut<CoSelectionState>,
+    mut setup_state: ResMut<BattleSetupState>,
     mut commanders: ResMut<Commanders>,
+    mut commands: Commands,
+    mut game_map: ResMut<GameMap>,
 ) {
-    if !selection_state.needs_selection {
+    if !setup_state.needs_setup {
         return;
     }
 
-    // Dim background
-    egui::Area::new(egui::Id::new("co_select_bg"))
-        .fixed_pos(egui::pos2(0.0, 0.0))
-        .show(contexts.ctx_mut(), |ui| {
-            ui.add(egui::Label::new("").sense(egui::Sense::click()));
-        });
-
-    egui::Window::new("Select Your Commander")
+    egui::Window::new("Battle Setup")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(contexts.ctx_mut(), |ui| {
-            ui.set_min_width(500.0);
+            ui.set_min_width(600.0);
 
-            ui.label(egui::RichText::new("Choose your Commanding Officer for this battle")
-                .size(14.0));
-            ui.add_space(10.0);
-            ui.separator();
-            ui.add_space(10.0);
+            // Two columns: Map selection on left, CO selection on right
+            ui.horizontal(|ui| {
+                // === MAP SELECTION ===
+                ui.vertical(|ui| {
+                    ui.set_min_width(280.0);
+                    ui.label(egui::RichText::new("Select Map").size(18.0).strong());
+                    ui.add_space(5.0);
 
-            // Eastern Empire COs
-            ui.label(egui::RichText::new("Eastern Empire").size(16.0).strong()
-                .color(egui::Color32::from_rgb(100, 150, 255)));
-            ui.add_space(5.0);
+                    for map_id in MapId::all_builtin() {
+                        let map_data = get_builtin_map(map_id);
+                        let is_selected = setup_state.selected_map == map_id;
 
-            let eastern_cos = CommanderId::for_faction(Faction::Eastern);
-            for co_id in eastern_cos {
-                let co = co_id.get_commander();
-                let is_selected = selection_state.player_selected == Some(co_id);
+                        let button_color = if is_selected {
+                            egui::Color32::from_rgb(80, 120, 180)
+                        } else {
+                            egui::Color32::from_rgb(60, 60, 60)
+                        };
 
-                ui.horizontal(|ui| {
-                    // Selection button
-                    let button_text = if is_selected { "Selected" } else { "Select" };
-                    let button_color = if is_selected {
-                        egui::Color32::from_rgb(100, 200, 100)
-                    } else {
-                        egui::Color32::from_rgb(80, 80, 80)
-                    };
-
-                    if ui.add(egui::Button::new(egui::RichText::new(button_text).color(egui::Color32::WHITE))
-                        .fill(button_color)
-                        .min_size(egui::vec2(80.0, 30.0))).clicked()
-                    {
-                        selection_state.player_selected = Some(co_id);
-                    }
-
-                    ui.add_space(10.0);
-
-                    // CO info
-                    ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(co.name).size(14.0).strong());
-                            ui.label(egui::RichText::new(format!(" - {}", co.power.name))
-                                .size(12.0)
-                                .color(egui::Color32::from_rgb(255, 200, 50)));
+                            if ui.add(egui::Button::new(
+                                egui::RichText::new(if is_selected { "▶" } else { "  " })
+                            ).fill(button_color).min_size(egui::vec2(24.0, 24.0))).clicked() {
+                                setup_state.selected_map = map_id;
+                            }
+
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new(map_id.name()).size(13.0).strong());
+                                ui.label(egui::RichText::new(format!("{}x{}", map_data.width, map_data.height))
+                                    .size(10.0).weak());
+                            });
                         });
 
-                        // Show passive bonuses
-                        let mut bonuses = Vec::new();
-                        if co.attack_bonus > 1.0 {
-                            bonuses.push(format!("+{:.0}% ATK", (co.attack_bonus - 1.0) * 100.0));
+                        if is_selected {
+                            ui.indent("map_desc", |ui| {
+                                ui.label(egui::RichText::new(&map_data.description)
+                                    .size(10.0).weak().italics());
+                            });
                         }
-                        if co.defense_bonus > 1.0 {
-                            bonuses.push(format!("+{:.0}% DEF", (co.defense_bonus - 1.0) * 100.0));
-                        }
-                        if co.movement_bonus > 0 {
-                            bonuses.push(format!("+{} MOV", co.movement_bonus));
-                        }
-                        if co.income_bonus > 1.0 {
-                            bonuses.push(format!("+{:.0}% Income", (co.income_bonus - 1.0) * 100.0));
-                        }
-                        if co.vision_bonus > 0 {
-                            bonuses.push(format!("+{} Vision", co.vision_bonus));
-                        }
-                        if co.cost_modifier < 1.0 {
-                            bonuses.push(format!("-{:.0}% Cost", (1.0 - co.cost_modifier) * 100.0));
-                        }
-
-                        ui.label(egui::RichText::new(bonuses.join(" | "))
-                            .size(11.0)
-                            .color(egui::Color32::from_rgb(150, 200, 150)));
-
-                        ui.label(egui::RichText::new(co.description)
-                            .size(10.0)
-                            .weak());
-                    });
+                        ui.add_space(4.0);
+                    }
                 });
 
-                ui.add_space(8.0);
-            }
+                ui.separator();
 
-            ui.add_space(10.0);
+                // === CO SELECTION ===
+                ui.vertical(|ui| {
+                    ui.set_min_width(280.0);
+                    ui.label(egui::RichText::new("Select Commander").size(18.0).strong());
+                    ui.add_space(5.0);
+
+                    let eastern_cos = CommanderId::for_faction(Faction::Eastern);
+                    for co_id in eastern_cos {
+                        let co = co_id.get_commander();
+                        let is_selected = setup_state.player_co == Some(co_id);
+
+                        let button_color = if is_selected {
+                            egui::Color32::from_rgb(100, 200, 100)
+                        } else {
+                            egui::Color32::from_rgb(60, 60, 60)
+                        };
+
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new(
+                                egui::RichText::new(if is_selected { "▶" } else { "  " })
+                            ).fill(button_color).min_size(egui::vec2(24.0, 24.0))).clicked() {
+                                setup_state.player_co = Some(co_id);
+                            }
+
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(co.name).size(13.0).strong());
+                                    ui.label(egui::RichText::new(format!("- {}", co.power.name))
+                                        .size(11.0).color(egui::Color32::from_rgb(255, 200, 50)));
+                                });
+
+                                // Passive bonuses
+                                let mut bonuses = Vec::new();
+                                if co.attack_bonus > 1.0 {
+                                    bonuses.push(format!("+{:.0}% ATK", (co.attack_bonus - 1.0) * 100.0));
+                                }
+                                if co.defense_bonus > 1.0 {
+                                    bonuses.push(format!("+{:.0}% DEF", (co.defense_bonus - 1.0) * 100.0));
+                                }
+                                if co.movement_bonus > 0 {
+                                    bonuses.push(format!("+{} MOV", co.movement_bonus));
+                                }
+                                if co.income_bonus > 1.0 {
+                                    bonuses.push(format!("+{:.0}% $", (co.income_bonus - 1.0) * 100.0));
+                                }
+                                if co.vision_bonus > 0 {
+                                    bonuses.push(format!("+{} VIS", co.vision_bonus));
+                                }
+                                if co.cost_modifier < 1.0 {
+                                    bonuses.push(format!("-{:.0}% Cost", (1.0 - co.cost_modifier) * 100.0));
+                                }
+
+                                if !bonuses.is_empty() {
+                                    ui.label(egui::RichText::new(bonuses.join(" | "))
+                                        .size(10.0).color(egui::Color32::from_rgb(150, 200, 150)));
+                                }
+                            });
+                        });
+                        ui.add_space(4.0);
+                    }
+                });
+            });
+
+            ui.add_space(15.0);
             ui.separator();
             ui.add_space(10.0);
 
-            // Start battle button
+            // Start button
             ui.horizontal(|ui| {
-                let can_start = selection_state.player_selected.is_some();
+                let can_start = setup_state.player_co.is_some();
 
                 ui.add_enabled_ui(can_start, |ui| {
-                    if ui.add(egui::Button::new(egui::RichText::new("Start Battle!").size(16.0).strong())
-                        .min_size(egui::vec2(200.0, 40.0))).clicked()
+                    if ui.add(egui::Button::new(egui::RichText::new("Start Battle!").size(18.0).strong())
+                        .min_size(egui::vec2(200.0, 45.0))).clicked()
                     {
-                        if let Some(player_co) = selection_state.player_selected {
+                        if let Some(player_co) = setup_state.player_co {
                             // Set player CO
                             commanders.set_commander(Faction::Eastern, player_co);
 
@@ -206,17 +282,22 @@ fn draw_co_selection(
                             let ai_co = ai_cos[rand::random::<usize>() % ai_cos.len()];
                             commanders.set_commander(Faction::Northern, ai_co);
 
-                            info!("Player selected: {:?}, AI assigned: {:?}", player_co, ai_co);
+                            // Load and spawn the selected map
+                            let map_data = get_builtin_map(setup_state.selected_map);
+                            spawn_map_from_data(&mut commands, &mut game_map, &map_data);
+                            spawn_units_from_data(&mut commands, &game_map, &map_data);
 
-                            selection_state.needs_selection = false;
+                            info!("Battle started! Map: {}, Player CO: {:?}, AI CO: {:?}",
+                                setup_state.selected_map.name(), player_co, ai_co);
+
+                            setup_state.needs_setup = false;
                         }
                     }
                 });
 
                 if !can_start {
-                    ui.label(egui::RichText::new("Select a commander to continue")
-                        .size(12.0)
-                        .weak());
+                    ui.label(egui::RichText::new("Select a commander to start")
+                        .size(12.0).weak());
                 }
             });
         });
@@ -236,15 +317,15 @@ fn draw_battle_ui(
     mut fog: ResMut<FogOfWar>,
     mut commanders: ResMut<Commanders>,
     mut power_events: EventWriter<PowerActivatedEvent>,
-    selection_state: Res<CoSelectionState>,
+    selection_state: Res<BattleSetupState>,
 ) {
     // Don't show battle UI controls if game is over (victory screen handles it)
     if game_result.game_over {
         return;
     }
 
-    // Don't show if CO selection is pending
-    if selection_state.needs_selection {
+    // Don't show if battle setup is pending
+    if selection_state.needs_setup {
         return;
     }
 
@@ -968,5 +1049,374 @@ fn handle_fog_toggle(
     if keyboard.just_pressed(KeyCode::KeyF) {
         fog.enabled = !fog.enabled;
         info!("Fog of war: {}", if fog.enabled { "ON" } else { "OFF" });
+    }
+}
+
+// ============================================================================
+// MAP EDITOR
+// ============================================================================
+
+/// Marker component for editor tile sprites
+#[derive(Component)]
+struct EditorTile {
+    x: i32,
+    y: i32,
+}
+
+/// Marker component for editor unit sprites
+#[derive(Component)]
+struct EditorUnit;
+
+/// Setup editor when entering editor state
+fn setup_editor(
+    mut commands: Commands,
+    mut editor_state: ResMut<EditorState>,
+) {
+    // Reset to a fresh map
+    *editor_state = EditorState::default();
+    spawn_editor_tiles(&mut commands, &editor_state.map);
+}
+
+/// Cleanup editor entities when leaving
+fn cleanup_editor(
+    mut commands: Commands,
+    tiles: Query<Entity, With<EditorTile>>,
+    units: Query<Entity, With<EditorUnit>>,
+) {
+    for entity in tiles.iter() {
+        commands.entity(entity).despawn();
+    }
+    for entity in units.iter() {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Spawn editor tile sprites
+fn spawn_editor_tiles(commands: &mut Commands, map: &MapData) {
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_y = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let terrain = map.terrain[y as usize][x as usize];
+            let world_x = x as f32 * TILE_SIZE + offset_x;
+            let world_y = y as f32 * TILE_SIZE + offset_y;
+
+            commands.spawn((
+                Sprite {
+                    color: terrain.color(),
+                    custom_size: Some(Vec2::splat(TILE_SIZE - 2.0)),
+                    ..default()
+                },
+                Transform::from_xyz(world_x, world_y, 0.0),
+                EditorTile { x: x as i32, y: y as i32 },
+            ));
+        }
+    }
+}
+
+/// Draw the editor UI
+fn draw_editor(
+    mut contexts: EguiContexts,
+    mut editor_state: ResMut<EditorState>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+    tiles: Query<Entity, With<EditorTile>>,
+    units: Query<Entity, With<EditorUnit>>,
+) {
+    let mut should_respawn = false;
+    let mut should_save = false;
+
+    // Left panel - Tools
+    egui::SidePanel::left("editor_tools").min_width(200.0).show(contexts.ctx_mut(), |ui| {
+        ui.heading("Map Editor");
+        ui.separator();
+
+        // Map name
+        ui.label("Map Name:");
+        ui.text_edit_singleline(&mut editor_state.map.name);
+        ui.add_space(5.0);
+
+        // Map dimensions
+        ui.label("Dimensions:");
+        ui.horizontal(|ui| {
+            ui.label("W:");
+            let mut width = editor_state.map.width;
+            if ui.add(egui::DragValue::new(&mut width).range(8..=20)).changed() {
+                if width != editor_state.map.width {
+                    editor_state.map = MapData::new(&editor_state.map.name, width, editor_state.map.height);
+                    should_respawn = true;
+                }
+            }
+            ui.label("H:");
+            let mut height = editor_state.map.height;
+            if ui.add(egui::DragValue::new(&mut height).range(6..=16)).changed() {
+                if height != editor_state.map.height {
+                    editor_state.map = MapData::new(&editor_state.map.name, editor_state.map.width, height);
+                    should_respawn = true;
+                }
+            }
+        });
+        ui.add_space(10.0);
+
+        ui.separator();
+
+        // Edit mode selection
+        ui.label("Edit Mode:");
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut editor_state.mode, EditorMode::Terrain, "Terrain");
+            ui.selectable_value(&mut editor_state.mode, EditorMode::Units, "Units");
+            ui.selectable_value(&mut editor_state.mode, EditorMode::Properties, "Properties");
+        });
+        ui.add_space(10.0);
+
+        ui.separator();
+
+        // Mode-specific options
+        match editor_state.mode {
+            EditorMode::Terrain => {
+                ui.label("Terrain Brush:");
+                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    let terrains = [
+                        Terrain::Grass, Terrain::TallGrass, Terrain::Thicket,
+                        Terrain::Brambles, Terrain::Log, Terrain::Boulder,
+                        Terrain::Hollow, Terrain::Creek, Terrain::Pond,
+                        Terrain::Shore, Terrain::Base, Terrain::Outpost,
+                        Terrain::Storehouse,
+                    ];
+                    for terrain in terrains {
+                        let color = terrain.color().to_srgba();
+                        let egui_color = egui::Color32::from_rgb(
+                            (color.red * 255.0) as u8,
+                            (color.green * 255.0) as u8,
+                            (color.blue * 255.0) as u8,
+                        );
+                        let selected = editor_state.selected_terrain == terrain;
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Button::new("").fill(egui_color).min_size(egui::vec2(20.0, 20.0)));
+                            if ui.selectable_label(selected, terrain.name()).clicked() {
+                                editor_state.selected_terrain = terrain;
+                            }
+                        });
+                    }
+                });
+            }
+            EditorMode::Units => {
+                ui.label("Faction:");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut editor_state.selected_faction, Faction::Eastern, "Eastern");
+                    ui.selectable_value(&mut editor_state.selected_faction, Faction::Northern, "Northern");
+                });
+                ui.add_space(5.0);
+                ui.label("Unit Type:");
+                let unit_types = [
+                    UnitType::Scout, UnitType::Shocktrooper, UnitType::Recon,
+                    UnitType::Ironclad, UnitType::Siege,
+                ];
+                for unit_type in unit_types {
+                    let selected = editor_state.selected_unit == unit_type;
+                    if ui.selectable_label(selected, unit_type.name()).clicked() {
+                        editor_state.selected_unit = unit_type;
+                    }
+                }
+                ui.add_space(5.0);
+                ui.label(format!("Units placed: {}", editor_state.map.units.len()));
+            }
+            EditorMode::Properties => {
+                ui.label("Property Owner:");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut editor_state.selected_faction, Faction::Eastern, "Eastern");
+                    ui.selectable_value(&mut editor_state.selected_faction, Faction::Northern, "Northern");
+                });
+                ui.add_space(5.0);
+                ui.label("Click on Base/Outpost/Storehouse to set owner");
+                ui.add_space(5.0);
+                ui.label(format!("Properties set: {}", editor_state.map.properties.len()));
+            }
+        }
+
+        ui.add_space(20.0);
+        ui.separator();
+
+        // File operations
+        ui.label("File Name:");
+        ui.text_edit_singleline(&mut editor_state.map_name);
+
+        ui.add_space(5.0);
+
+        if ui.button("Save Map").clicked() {
+            should_save = true;
+        }
+
+        ui.add_space(5.0);
+
+        if ui.button("Clear Map").clicked() {
+            let name = editor_state.map.name.clone();
+            let width = editor_state.map.width;
+            let height = editor_state.map.height;
+            editor_state.map = MapData::new(&name, width, height);
+            should_respawn = true;
+        }
+
+        ui.add_space(20.0);
+
+        if ui.button("Back to Menu").clicked() {
+            next_state.set(GameState::Menu);
+        }
+
+        // Status message
+        if !editor_state.status.is_empty() {
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(&editor_state.status).color(egui::Color32::YELLOW));
+        }
+    });
+
+    // Right panel - Info
+    egui::SidePanel::right("editor_info").min_width(150.0).show(contexts.ctx_mut(), |ui| {
+        ui.heading("Info");
+        ui.separator();
+
+        ui.label(format!("Size: {}x{}", editor_state.map.width, editor_state.map.height));
+        ui.add_space(5.0);
+
+        ui.label("Controls:");
+        ui.label("- Left click: Paint");
+        ui.label("- Right click: Erase");
+        ui.add_space(10.0);
+
+        ui.separator();
+        ui.label("Units:");
+        let eastern_units = editor_state.map.units.iter().filter(|u| u.faction == Faction::Eastern).count();
+        let northern_units = editor_state.map.units.iter().filter(|u| u.faction == Faction::Northern).count();
+        ui.label(format!("  Eastern: {}", eastern_units));
+        ui.label(format!("  Northern: {}", northern_units));
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label("Properties:");
+        let eastern_props = editor_state.map.properties.iter().filter(|p| p.owner == Faction::Eastern).count();
+        let northern_props = editor_state.map.properties.iter().filter(|p| p.owner == Faction::Northern).count();
+        ui.label(format!("  Eastern: {}", eastern_props));
+        ui.label(format!("  Northern: {}", northern_props));
+    });
+
+    // Handle respawn
+    if should_respawn {
+        for entity in tiles.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in units.iter() {
+            commands.entity(entity).despawn();
+        }
+        spawn_editor_tiles(&mut commands, &editor_state.map);
+    }
+
+    // Handle save
+    if should_save {
+        let path = std::path::Path::new(&editor_state.map_name).with_extension("json");
+        match editor_state.map.save_to_file(&path) {
+            Ok(()) => {
+                editor_state.status = format!("Saved to {}", path.display());
+                info!("Map saved to {}", path.display());
+            }
+            Err(e) => {
+                editor_state.status = format!("Save failed: {}", e);
+                error!("Failed to save map: {}", e);
+            }
+        }
+    }
+}
+
+/// Handle painting in the editor
+fn editor_paint(
+    mut editor_state: ResMut<EditorState>,
+    mut tiles: Query<(&EditorTile, &mut Sprite)>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+) {
+    // Get mouse position in world coordinates
+    let Ok(window) = windows.get_single() else { return };
+    let Ok((camera, camera_transform)) = camera.get_single() else { return };
+
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else { return };
+
+    // Convert to tile coordinates
+    let offset_x = -(editor_state.map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_y = -(editor_state.map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    let tile_x = ((world_pos.x - offset_x + TILE_SIZE / 2.0) / TILE_SIZE).floor() as i32;
+    let tile_y = ((world_pos.y - offset_y + TILE_SIZE / 2.0) / TILE_SIZE).floor() as i32;
+
+    // Check bounds
+    if tile_x < 0 || tile_y < 0 || tile_x >= editor_state.map.width as i32 || tile_y >= editor_state.map.height as i32 {
+        return;
+    }
+
+    let left_pressed = mouse_button.pressed(MouseButton::Left);
+    let right_pressed = mouse_button.pressed(MouseButton::Right);
+
+    if !left_pressed && !right_pressed {
+        return;
+    }
+
+    match editor_state.mode {
+        EditorMode::Terrain => {
+            let terrain = if left_pressed {
+                editor_state.selected_terrain
+            } else {
+                Terrain::Grass
+            };
+
+            // Update map data
+            editor_state.map.set_terrain(tile_x, tile_y, terrain);
+
+            // Update tile sprite color
+            for (tile, mut sprite) in tiles.iter_mut() {
+                if tile.x == tile_x && tile.y == tile_y {
+                    sprite.color = terrain.color();
+                }
+            }
+        }
+        EditorMode::Units => {
+            if left_pressed && mouse_button.just_pressed(MouseButton::Left) {
+                let unit_type = editor_state.selected_unit;
+                let faction = editor_state.selected_faction;
+                // Remove existing unit at this position
+                editor_state.map.units.retain(|u| u.x != tile_x || u.y != tile_y);
+                // Add new unit
+                editor_state.map.units.push(UnitPlacement {
+                    unit_type,
+                    faction,
+                    x: tile_x,
+                    y: tile_y,
+                });
+            } else if right_pressed && mouse_button.just_pressed(MouseButton::Right) {
+                // Remove unit at position
+                editor_state.map.units.retain(|u| u.x != tile_x || u.y != tile_y);
+            }
+        }
+        EditorMode::Properties => {
+            let terrain = editor_state.map.get_terrain(tile_x, tile_y);
+            if let Some(t) = terrain {
+                if t.is_capturable() {
+                    if left_pressed && mouse_button.just_pressed(MouseButton::Left) {
+                        let faction = editor_state.selected_faction;
+                        // Remove existing property at this position
+                        editor_state.map.properties.retain(|p| p.x != tile_x || p.y != tile_y);
+                        // Add new property
+                        editor_state.map.properties.push(PropertyOwnership {
+                            x: tile_x,
+                            y: tile_y,
+                            owner: faction,
+                        });
+                    } else if right_pressed && mouse_button.just_pressed(MouseButton::Right) {
+                        // Remove property at position
+                        editor_state.map.properties.retain(|p| p.x != tile_x || p.y != tile_y);
+                    }
+                }
+            }
+        }
     }
 }

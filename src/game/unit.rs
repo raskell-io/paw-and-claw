@@ -7,8 +7,7 @@ pub struct UnitPlugin;
 
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_test_units.after(super::spawn_test_map))
-            .add_systems(Update, update_hp_displays);
+        app.add_systems(Update, update_hp_displays);
     }
 }
 
@@ -515,18 +514,6 @@ pub struct HpDisplay;
 /// Marker for unit type symbol text (child of unit)
 #[derive(Component)]
 pub struct UnitSymbol;
-
-fn spawn_test_units(mut commands: Commands, game_map: Res<GameMap>) {
-    // Spawn Eastern Empire units (red)
-    spawn_unit(&mut commands, &game_map, Faction::Eastern, UnitType::Scout, 1, 1);
-    spawn_unit(&mut commands, &game_map, Faction::Eastern, UnitType::Scout, 2, 1);
-    spawn_unit(&mut commands, &game_map, Faction::Eastern, UnitType::Ironclad, 1, 2);
-
-    // Spawn Northern Realm units (blue)
-    spawn_unit(&mut commands, &game_map, Faction::Northern, UnitType::Scout, 10, 6);
-    spawn_unit(&mut commands, &game_map, Faction::Northern, UnitType::Skywing, 9, 5);
-    spawn_unit(&mut commands, &game_map, Faction::Northern, UnitType::Siege, 10, 5);
-}
 
 pub fn spawn_unit(
     commands: &mut Commands,

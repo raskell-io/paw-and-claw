@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 mod map;
+mod maps;
 mod unit;
 mod faction;
 mod combat;
@@ -11,6 +12,7 @@ mod fog;
 mod commander;
 
 pub use map::*;
+pub use maps::*;
 pub use unit::*;
 pub use faction::*;
 pub use combat::*;

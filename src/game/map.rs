@@ -1,14 +1,99 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::Faction;
+use super::{Faction, spawn_unit};
+use super::maps::{MapData, SelectedMap, get_builtin_map};
 
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameMap>()
-            .add_systems(Startup, spawn_test_map);
+            .init_resource::<SelectedMap>();
+    }
+}
+
+/// Spawn the map based on the selected map ID
+pub fn spawn_map_from_selection(
+    commands: &mut Commands,
+    game_map: &mut ResMut<GameMap>,
+    selected: &SelectedMap,
+) -> MapData {
+    let map_data = get_builtin_map(selected.map_id);
+    spawn_map_from_data(commands, game_map, &map_data);
+    map_data
+}
+
+/// Spawn map entities from MapData
+pub fn spawn_map_from_data(
+    commands: &mut Commands,
+    game_map: &mut ResMut<GameMap>,
+    map_data: &MapData,
+) {
+    // Update GameMap resource
+    game_map.width = map_data.width;
+    game_map.height = map_data.height;
+    game_map.tiles = map_data.terrain.clone();
+
+    let offset_x = -(game_map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_y = -(game_map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Build property ownership lookup
+    let property_owners: std::collections::HashMap<(i32, i32), Faction> = map_data
+        .properties
+        .iter()
+        .map(|p| ((p.x, p.y), p.owner))
+        .collect();
+
+    // Spawn tile entities
+    for y in 0..game_map.height {
+        for x in 0..game_map.width {
+            let terrain = game_map.tiles[y as usize][x as usize];
+            let world_x = x as f32 * TILE_SIZE + offset_x;
+            let world_y = y as f32 * TILE_SIZE + offset_y;
+
+            let owner = property_owners.get(&(x as i32, y as i32)).copied();
+
+            let tile_color = if let Some(faction) = owner {
+                blend_color(terrain.color(), faction.color(), 0.3)
+            } else {
+                terrain.color()
+            };
+
+            commands.spawn((
+                Sprite {
+                    color: tile_color,
+                    custom_size: Some(Vec2::splat(TILE_SIZE - 2.0)),
+                    ..default()
+                },
+                Transform::from_xyz(world_x, world_y, 0.0),
+                Tile {
+                    terrain,
+                    position: IVec2::new(x as i32, y as i32),
+                    owner,
+                    capture_progress: 0,
+                    capturing_faction: None,
+                },
+            ));
+        }
+    }
+}
+
+/// Spawn units from MapData
+pub fn spawn_units_from_data(
+    commands: &mut Commands,
+    game_map: &GameMap,
+    map_data: &MapData,
+) {
+    for placement in &map_data.units {
+        spawn_unit(
+            commands,
+            game_map,
+            placement.faction,
+            placement.unit_type,
+            placement.x,
+            placement.y,
+        );
     }
 }
 
@@ -212,99 +297,6 @@ impl GameMap {
 }
 
 pub const TILE_SIZE: f32 = 48.0;
-
-pub fn spawn_test_map(mut commands: Commands, mut game_map: ResMut<GameMap>) {
-    // Create a small test map
-    *game_map = GameMap::new(12, 8);
-
-    // Add some terrain variety - woodland creature scale
-
-    // Thicket (dense bushes) - left side cover
-    game_map.set(2, 2, Terrain::Thicket);
-    game_map.set(2, 3, Terrain::Thicket);
-    game_map.set(3, 2, Terrain::Thicket);
-    game_map.set(3, 3, Terrain::TallGrass);
-
-    // Boulders - center obstacles
-    game_map.set(5, 3, Terrain::Boulder);
-    game_map.set(5, 4, Terrain::Boulder);
-
-    // Creek running through - water obstacle
-    game_map.set(6, 5, Terrain::Creek);
-    game_map.set(7, 5, Terrain::Creek);
-    game_map.set(8, 5, Terrain::Creek);
-    game_map.set(5, 5, Terrain::Shore);
-    game_map.set(9, 5, Terrain::Shore);
-
-    // Pond - impassable water
-    game_map.set(8, 3, Terrain::Pond);
-    game_map.set(8, 2, Terrain::Shore);
-    game_map.set(9, 3, Terrain::Shore);
-
-    // Fallen log - fast movement path
-    game_map.set(3, 5, Terrain::Log);
-    game_map.set(4, 5, Terrain::Log);
-    game_map.set(5, 6, Terrain::Log);
-
-    // Brambles - defensive position
-    game_map.set(9, 4, Terrain::Brambles);
-    game_map.set(10, 4, Terrain::Brambles);
-
-    // Hollow stump - cover
-    game_map.set(6, 2, Terrain::Hollow);
-
-    // Bases (spawn points)
-    game_map.set(1, 1, Terrain::Base);
-    game_map.set(10, 6, Terrain::Base);
-
-    // Capturable points
-    game_map.set(4, 1, Terrain::Outpost);
-    game_map.set(7, 6, Terrain::Outpost);
-    game_map.set(6, 0, Terrain::Storehouse);
-
-    // Calculate offset to center the map
-    let offset_x = -(game_map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_y = -(game_map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-
-    // Spawn tile entities
-    for y in 0..game_map.height {
-        for x in 0..game_map.width {
-            let terrain = game_map.tiles[y as usize][x as usize];
-            let world_x = x as f32 * TILE_SIZE + offset_x;
-            let world_y = y as f32 * TILE_SIZE + offset_y;
-
-            // Set initial owners for bases
-            let owner = match (x, y) {
-                (1, 1) => Some(Faction::Eastern),   // Eastern base
-                (10, 6) => Some(Faction::Northern), // Northern base
-                _ => None,
-            };
-
-            // Color tile based on owner
-            let tile_color = if let Some(faction) = owner {
-                blend_color(terrain.color(), faction.color(), 0.3)
-            } else {
-                terrain.color()
-            };
-
-            commands.spawn((
-                Sprite {
-                    color: tile_color,
-                    custom_size: Some(Vec2::splat(TILE_SIZE - 2.0)),
-                    ..default()
-                },
-                Transform::from_xyz(world_x, world_y, 0.0),
-                Tile {
-                    terrain,
-                    position: IVec2::new(x as i32, y as i32),
-                    owner,
-                    capture_progress: 0,
-                    capturing_faction: None,
-                },
-            ));
-        }
-    }
-}
 
 /// Blend two colors together
 fn blend_color(base: Color, tint: Color, amount: f32) -> Color {
