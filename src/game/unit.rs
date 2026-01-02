@@ -816,7 +816,8 @@ pub fn spawn_unit(
             cull_mode: None,
             ..default()
         })),
-        Transform::from_xyz(world_pos.x, unit_height, world_pos.z),
+        // Offset units forward (negative Z) so they render in front of terrain features
+        Transform::from_xyz(world_pos.x, unit_height, world_pos.z - 10.0),
         Unit::new(unit_type),
         GridPosition::new(x, y),
         FactionMember { faction },
@@ -900,7 +901,8 @@ pub fn spawn_unit_with_state(
             cull_mode: None,
             ..default()
         })),
-        Transform::from_xyz(world_pos.x, unit_height, world_pos.z),
+        // Offset units forward (negative Z) so they render in front of terrain features
+        Transform::from_xyz(world_pos.x, unit_height, world_pos.z - 10.0),
         unit,  // Use provided unit with existing state
         GridPosition::new(x, y),
         FactionMember { faction },

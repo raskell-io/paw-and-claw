@@ -101,8 +101,9 @@ pub fn spawn_terrain_feature(
     let world_z = y as f32 * TILE_SIZE + offset_z;
     let feature_height = terrain.feature_height();
 
-    // Offset terrain features slightly backward (positive Z) so units render in front
-    let z_offset = 8.0;
+    // Offset terrain features backward (positive Z) so units render in front
+    // Taller features need more offset to avoid occlusion from camera angle
+    let z_offset = (feature_height * 0.4).max(10.0);
 
     // Get color from sprite assets or use procedural fallback
     let feature_color = match sprite_assets.get_terrain_feature_sprite(images, terrain) {
