@@ -46,7 +46,7 @@ pub struct FogOfWar {
 impl Default for FogOfWar {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,  // Disabled by default for easier testing
             visibility: HashSet::new(),
             explored: HashSet::new(),
             width: 0,

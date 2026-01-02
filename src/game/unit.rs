@@ -583,11 +583,16 @@ pub fn spawn_unit(
     let grid_pos = GridPosition::new(x, y);
     let world_pos = grid_pos.to_world(map);
 
-    // Determine Y height based on unit class (air units float higher)
+    // Create a vertical quad mesh for the unit (billboard will rotate it to face camera)
+    let unit_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.6);
+
+    // Determine Y height based on unit class
+    // Position so bottom of sprite is at ground level (sprite is centered on transform)
     let stats = unit_type.stats();
+    let ground_offset = unit_size.y / 2.0 + 1.0;  // Half sprite height + small gap
     let unit_height = match stats.class {
-        UnitClass::Air | UnitClass::AirTransport => 24.0,  // Float above ground
-        _ => 12.0,  // Ground units sit at eye level
+        UnitClass::Air | UnitClass::AirTransport => ground_offset + 20.0,  // Float above ground
+        _ => ground_offset,  // Ground units: bottom at ground level
     };
 
     // Get color from sprite assets or use faction color as fallback
@@ -596,13 +601,11 @@ pub fn spawn_unit(
         super::SpriteSource::Procedural { color, .. } => color,
     };
 
-    // Create a vertical quad mesh for the unit (billboard will rotate it to face camera)
-    let unit_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.6);
     let unit_mesh = meshes.add(Rectangle::new(unit_size.x, unit_size.y));
 
     // Unit as 3D mesh with billboard behavior
     commands.spawn((
-        Mesh3d(unit_mesh),
+        Mesh3d(unit_mesh.clone()),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: unit_color,
             unlit: true,  // No lighting effects, flat color
@@ -617,6 +620,22 @@ pub fn spawn_unit(
         FactionMember { faction },
         Billboard,  // Face the camera
     )).with_children(|parent| {
+        // Dark outline/border around the unit for contrast
+        // Positioned slightly in front so it's visible as a frame
+        let border_mesh = meshes.add(Rectangle::new(unit_size.x + 6.0, unit_size.y + 6.0));
+        parent.spawn((
+            Mesh3d(border_mesh),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.1, 0.1, 0.1, 0.9),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            })),
+            Transform::from_xyz(0.0, 0.0, -1.0),  // Behind the unit mesh
+        ));
+
         // Shadow on the ground (flat oval)
         let shadow_mesh = meshes.add(Ellipse::new(TILE_SIZE * 0.25, TILE_SIZE * 0.08));
         parent.spawn((

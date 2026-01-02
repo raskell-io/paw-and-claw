@@ -26,7 +26,7 @@ impl Default for BattleSetupState {
         Self {
             needs_setup: false,
             player_faction: Faction::Eastern,
-            player_co: None,
+            player_co: Some(CommanderId::Kira),  // Pre-select first CO
             selected_map: MapId::Woodland,
         }
     }
@@ -112,7 +112,7 @@ impl Plugin for UiPlugin {
 /// Trigger battle setup when entering battle state
 fn trigger_battle_setup(mut setup_state: ResMut<BattleSetupState>) {
     setup_state.needs_setup = true;
-    setup_state.player_co = None;
+    setup_state.player_co = Some(CommanderId::Kira);  // Pre-select first CO
     setup_state.selected_map = MapId::Woodland;
 }
 
