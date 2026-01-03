@@ -1441,6 +1441,41 @@ fn handle_keyboard_path_drawing(
     }
 }
 
+/// Create an arrow mesh pointing in the +X direction (triangle)
+fn create_arrow_mesh() -> Mesh {
+    use bevy::render::mesh::PrimitiveTopology;
+
+    // Arrow triangle vertices (pointing in +X direction, lying on XZ plane)
+    let arrow_size = 8.0;
+    let arrow_width = 6.0;
+
+    let positions = vec![
+        [arrow_size, 0.0, 0.0],           // Tip (front)
+        [-arrow_size * 0.3, 0.0, arrow_width],   // Back left
+        [-arrow_size * 0.3, 0.0, -arrow_width],  // Back right
+    ];
+
+    let normals = vec![
+        [0.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ];
+
+    let uvs = vec![
+        [0.5, 0.0],
+        [0.0, 1.0],
+        [1.0, 1.0],
+    ];
+
+    let indices = bevy::render::mesh::Indices::U32(vec![0, 1, 2]);
+
+    Mesh::new(PrimitiveTopology::TriangleList, bevy::render::render_asset::RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(indices)
+}
+
 /// Spawn mesh entities for path indicators
 fn spawn_path_indicator_meshes(
     mut commands: Commands,
@@ -1469,7 +1504,7 @@ fn spawn_path_indicator_meshes(
 
     // Path line material (bright cyan/teal)
     let path_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.0, 0.9, 0.8, 0.8),
+        base_color: Color::srgba(0.0, 0.9, 0.8, 0.85),
         alpha_mode: AlphaMode::Blend,
         unlit: true,
         double_sided: true,
@@ -1477,7 +1512,20 @@ fn spawn_path_indicator_meshes(
         ..default()
     });
 
-    // Draw path segments between tiles
+    // Destination marker material (brighter, slightly different color)
+    let dest_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.2, 1.0, 0.6, 0.9),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    // Create arrow mesh once
+    let arrow_mesh = meshes.add(create_arrow_mesh());
+
+    // Draw path with arrows between tiles
     for i in 0..movement_path.path.len() {
         let pos = movement_path.path[i];
         let world_x = pos.x as f32 * TILE_SIZE + offset_x;
@@ -1487,24 +1535,11 @@ fn spawn_path_indicator_meshes(
             .map(|t| t.tile_height())
             .unwrap_or(4.0);
 
-        // Draw a smaller indicator on each path tile
-        let indicator_size = if i == movement_path.path.len() - 1 {
-            TILE_SIZE * 0.4  // Larger for destination
-        } else {
-            TILE_SIZE * 0.25  // Smaller for path tiles
-        };
+        let is_destination = i == movement_path.path.len() - 1;
+        let is_start = i == 0;
 
-        let indicator_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(indicator_size / 2.0)));
-
-        commands.spawn((
-            Mesh3d(indicator_mesh),
-            MeshMaterial3d(path_material.clone()),
-            Transform::from_xyz(world_x, tile_height + 0.2, world_z),
-            PathIndicatorMesh,
-        ));
-
-        // Draw arrow/line to next tile
-        if i < movement_path.path.len() - 1 {
+        // Draw connecting arrow to next tile (skip for destination)
+        if !is_destination {
             let next_pos = movement_path.path[i + 1];
             let next_world_x = next_pos.x as f32 * TILE_SIZE + offset_x;
             let next_world_z = next_pos.y as f32 * TILE_SIZE + offset_z;
@@ -1512,27 +1547,71 @@ fn spawn_path_indicator_meshes(
                 .map(|t| t.tile_height())
                 .unwrap_or(4.0);
 
-            // Create a connecting line segment
+            // Calculate midpoint for arrow placement
             let mid_x = (world_x + next_world_x) / 2.0;
             let mid_z = (world_z + next_world_z) / 2.0;
-            let mid_y = (tile_height + next_tile_height) / 2.0 + 0.2;
+            let mid_y = (tile_height + next_tile_height) / 2.0 + 0.25;
 
-            // Determine direction for line orientation
+            // Calculate direction and rotation
             let dx = next_world_x - world_x;
             let dz = next_world_z - world_z;
-            let length = (dx * dx + dz * dz).sqrt();
-
-            // Create line mesh (thin rectangle)
-            let line_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(length / 2.0, 3.0)));
-
-            // Calculate rotation to point from current to next
             let angle = dz.atan2(dx);
+
+            // Spawn arrow pointing toward next tile
+            commands.spawn((
+                Mesh3d(arrow_mesh.clone()),
+                MeshMaterial3d(path_material.clone()),
+                Transform::from_xyz(mid_x, mid_y, mid_z)
+                    .with_rotation(Quat::from_rotation_y(-angle + std::f32::consts::FRAC_PI_2)),
+                PathIndicatorMesh,
+            ));
+
+            // Also draw a thin connecting line
+            let length = (dx * dx + dz * dz).sqrt() * 0.3;
+            let line_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(length / 2.0, 2.0)));
 
             commands.spawn((
                 Mesh3d(line_mesh),
                 MeshMaterial3d(path_material.clone()),
-                Transform::from_xyz(mid_x, mid_y, mid_z)
+                Transform::from_xyz(mid_x, mid_y - 0.05, mid_z)
                     .with_rotation(Quat::from_rotation_y(-angle)),
+                PathIndicatorMesh,
+            ));
+        }
+
+        // Draw destination marker (larger, different color)
+        if is_destination {
+            // Destination: larger pulsing-style marker
+            let dest_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.3)));
+            commands.spawn((
+                Mesh3d(dest_mesh),
+                MeshMaterial3d(dest_material.clone()),
+                Transform::from_xyz(world_x, tile_height + 0.3, world_z),
+                PathIndicatorMesh,
+            ));
+
+            // Add a diamond/cross shape for visibility
+            let cross_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(TILE_SIZE * 0.4, 4.0)));
+            commands.spawn((
+                Mesh3d(cross_mesh.clone()),
+                MeshMaterial3d(dest_material.clone()),
+                Transform::from_xyz(world_x, tile_height + 0.32, world_z),
+                PathIndicatorMesh,
+            ));
+            commands.spawn((
+                Mesh3d(cross_mesh),
+                MeshMaterial3d(dest_material.clone()),
+                Transform::from_xyz(world_x, tile_height + 0.32, world_z)
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+                PathIndicatorMesh,
+            ));
+        } else if !is_start {
+            // Small dot for intermediate path tiles
+            let dot_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(3.0)));
+            commands.spawn((
+                Mesh3d(dot_mesh),
+                MeshMaterial3d(path_material.clone()),
+                Transform::from_xyz(world_x, tile_height + 0.22, world_z),
                 PathIndicatorMesh,
             ));
         }
