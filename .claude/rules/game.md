@@ -27,7 +27,7 @@ src/
 ```
 
 ## Key Types
-- `Faction` - Eastern, Northern, Western, Southern, Nether (antagonist)
+- `Faction` - Western (main), Northern, Southern, Eastern, Nether (antagonist)
 - `UnitType` - Scout, Shocktrooper, Recon, Ironclad, etc.
 - `Terrain` - Grass, Thicket, Base, Outpost, etc.
 - `CommanderId` - Kira, Tanuki, Grimjaw, etc.

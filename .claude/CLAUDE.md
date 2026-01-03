@@ -7,10 +7,10 @@ Turn-based tactics game inspired by **Advance Wars**, built with Bevy 0.17 (Rust
 
 ## Factions
 5 factions, mirroring Advance Wars structure:
-- **Eastern Empire** - Disciplined armies (like Orange Star)
+- **Western Frontier** - Cunning survivalists, main protagonist faction (like Orange Star)
 - **Northern Realm** - Stalwart defenders (like Blue Moon)
-- **Western Frontier** - Cunning survivalists (like Green Earth)
-- **Southern Pride** - Mighty beasts (like Yellow Comet)
+- **Southern Pride** - Mighty beasts (like Green Earth)
+- **Eastern Empire** - Disciplined armies (like Yellow Comet)
 - **Nether Dominion** - Antagonist faction, subterranean swarm (like Black Hole)
 
 ## Tech Stack
