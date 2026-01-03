@@ -198,11 +198,21 @@ fn process_attacks(
             info!("{} destroyed!", defender_unit.unit_type.name());
             commands.entity(event.defender).despawn();
         } else {
-            // Counter-attack (if defender has direct attack and attacker is in range)
+            // Counter-attack (if defender can reach attacker)
             let counter_stats = defender_unit.unit_type.stats();
-            // Can only counter if: has attack power, is melee (range 1), and has ammo (if uses ammo)
+            let distance = attacker_pos.distance_to(defender_pos);
+
+            // Can only counter if:
+            // 1. Has attack power
+            // 2. Attacker is within defender's attack range (for counter)
+            // 3. Has ammo (if uses ammo)
+            // Note: Ranged/indirect units (min_range > 1) typically can't counter at all
+            // because they can't fire at adjacent units
+            let (min_range, max_range) = counter_stats.attack_range;
+            let attacker_in_counter_range = distance >= min_range && distance <= max_range;
+
             let can_counter = counter_stats.attack > 0
-                && counter_stats.attack_range.0 == 1
+                && attacker_in_counter_range
                 && (counter_stats.max_ammo == 0 || defender_unit.ammo > 0);
 
             if can_counter {

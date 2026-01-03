@@ -1373,21 +1373,14 @@ fn handle_path_drawing(
 
     // Start dragging on mouse down
     if mouse_button.just_pressed(MouseButton::Left) {
-        info!("Mouse clicked at ({}, {}), path len={}, in_range={}, path_start={:?}",
-              cursor_pos.x, cursor_pos.y, movement_path.path.len(),
-              highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)),
-              movement_path.path.first());
-
         // If path already started (from unit selection), just start dragging
         if !movement_path.path.is_empty() {
             movement_path.dragging = true;
-            info!("Started dragging (path already exists)");
         }
         // Otherwise, check if clicking within movement range to start new path
         else if highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)) {
             movement_path.start(cursor_pos);
             movement_path.dragging = true;
-            info!("Started new path at ({}, {})", cursor_pos.x, cursor_pos.y);
         }
     }
 
@@ -1395,10 +1388,7 @@ fn handle_path_drawing(
     if movement_path.dragging && mouse_button.pressed(MouseButton::Left) {
         if let Some(last_pos) = movement_path.path.last().copied() {
             if cursor_pos != last_pos {
-                let extended = movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs);
-                if extended {
-                    info!("Extended path to ({}, {}), total len={}", cursor_pos.x, cursor_pos.y, movement_path.path.len());
-                }
+                movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs);
             }
         }
     }
@@ -1460,10 +1450,8 @@ fn handle_keyboard_path_drawing(
     }
 
     if dx != 0 || dy != 0 {
-        info!("WASD input: dx={}, dy={}, path_len={}", dx, dy, movement_path.path.len());
         if let Some(last_pos) = movement_path.path.last().copied() {
             let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
-            info!("Trying to extend from ({},{}) to ({},{})", last_pos.x, last_pos.y, new_pos.x, new_pos.y);
 
             // Try to extend path
             if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs) {
@@ -1471,12 +1459,7 @@ fn handle_keyboard_path_drawing(
                 cursor.x = new_pos.x;
                 cursor.y = new_pos.y;
                 cursor.visible = true;
-                info!("Path extended! New length: {}", movement_path.path.len());
-            } else {
-                info!("Failed to extend - tile not in range or not adjacent");
             }
-        } else {
-            info!("No path started yet");
         }
     }
 }
@@ -1531,8 +1514,6 @@ fn spawn_path_indicator_meshes(
         return;
     }
 
-    info!("Path changed: {} positions, drawing={}", movement_path.path.len(), movement_path.drawing);
-
     // Despawn old path meshes
     for entity in existing_path_meshes.iter() {
         commands.entity(entity).despawn_recursive();
@@ -1541,8 +1522,6 @@ fn spawn_path_indicator_meshes(
     if movement_path.path.len() < 2 {
         return;
     }
-
-    info!("Drawing path arrows for {} positions", movement_path.path.len());
 
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
     let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
