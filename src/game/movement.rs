@@ -1355,6 +1355,9 @@ fn handle_path_drawing(
 
     // Start dragging on mouse down
     if mouse_button.just_pressed(MouseButton::Left) {
+        info!("Mouse clicked at ({}, {}), path len={}, in_range={}",
+              cursor_pos.x, cursor_pos.y, movement_path.path.len(),
+              highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)));
         // Check if clicking on the selected unit's position or within movement range
         if highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)) ||
            movement_path.path.first() == Some(&cursor_pos) {
@@ -1362,8 +1365,10 @@ fn handle_path_drawing(
                 // Find unit start position (first tile that was the unit's original pos)
                 // For now, if clicking in range, start path from there
                 movement_path.start(cursor_pos);
+                info!("Started path at ({}, {})", cursor_pos.x, cursor_pos.y);
             }
             movement_path.dragging = true;
+            info!("Started dragging");
         }
     }
 
@@ -1371,7 +1376,10 @@ fn handle_path_drawing(
     if movement_path.dragging && mouse_button.pressed(MouseButton::Left) {
         if let Some(last_pos) = movement_path.path.last().copied() {
             if cursor_pos != last_pos {
-                movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs);
+                let extended = movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs);
+                if extended {
+                    info!("Extended path to ({}, {}), total len={}", cursor_pos.x, cursor_pos.y, movement_path.path.len());
+                }
             }
         }
     }
@@ -1497,6 +1505,8 @@ fn spawn_path_indicator_meshes(
         return;
     }
 
+    info!("Path changed: {} positions, drawing={}", movement_path.path.len(), movement_path.drawing);
+
     // Despawn old path meshes
     for entity in existing_path_meshes.iter() {
         commands.entity(entity).despawn_recursive();
@@ -1505,6 +1515,8 @@ fn spawn_path_indicator_meshes(
     if movement_path.path.len() < 2 {
         return;
     }
+
+    info!("Drawing path arrows for {} positions", movement_path.path.len());
 
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
     let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
