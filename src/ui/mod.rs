@@ -430,7 +430,6 @@ fn draw_battle_ui(
     mut turn_state: ResMut<TurnState>,
     mut highlights: ResMut<MovementHighlights>,
     mut units: Query<(&mut Unit, &FactionMember, &GridPosition)>,
-    mut next_state: ResMut<NextState<GameState>>,
     funds: Res<FactionFunds>,
     tiles: Query<&Tile>,
     mut turn_start_events: EventWriter<TurnStartEvent>,
@@ -454,20 +453,26 @@ fn draw_battle_ui(
 
     let is_ai_turn = ai_state.enabled && turn_state.current_faction == Faction::Northern;
 
-    // Top panel - turn info
-    egui::TopBottomPanel::top("turn_info").show(contexts.ctx_mut(), |ui| {
+    // Top panel - turn info (bigger header with two rows)
+    egui::TopBottomPanel::top("turn_info")
+        .min_height(52.0)
+        .show(contexts.ctx_mut(), |ui| {
+        ui.add_space(6.0);
+
+        // First row: Turn info, Funds, CO Power, Weather
         ui.horizontal(|ui| {
+            ui.add_space(8.0);
             if is_ai_turn {
                 ui.label(egui::RichText::new(format!(
                     "Turn {} - AI Thinking...",
                     turn_state.turn_number
-                )).color(egui::Color32::from_rgb(100, 150, 255)));
+                )).size(15.0).color(egui::Color32::from_rgb(100, 150, 255)));
             } else {
-                ui.label(format!(
+                ui.label(egui::RichText::new(format!(
                     "Turn {} - {}'s Turn",
                     turn_state.turn_number,
                     turn_state.current_faction.name()
-                ));
+                )).size(15.0));
             }
 
             ui.separator();
@@ -476,7 +481,7 @@ fn draw_battle_ui(
             ui.label(egui::RichText::new(format!(
                 "Funds: {}",
                 funds.get(turn_state.current_faction)
-            )).strong());
+            )).size(15.0).strong());
 
             ui.separator();
 
@@ -489,7 +494,7 @@ fn draw_battle_ui(
             let can_activate = commanders.can_activate(player_faction);
             let power_active = commanders.is_power_active(player_faction);
 
-            ui.label(egui::RichText::new(format!("CO: {}", co.name)).strong());
+            ui.label(egui::RichText::new(format!("CO: {}", co.name)).size(15.0).strong());
 
             // Power meter bar
             let progress = charge as f32 / power_cost as f32;
@@ -533,68 +538,80 @@ fn draw_battle_ui(
                 WeatherType::Fog => egui::Color32::from_rgb(150, 150, 160),       // Misty gray
             };
             ui.label(egui::RichText::new(format!("{} {}", weather.current.icon(), weather.current.name()))
+                .size(15.0)
                 .color(weather_color)
                 .strong());
+        });
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Fog of war toggle
-                let fog_text = if fog.enabled { "Fog: ON" } else { "Fog: OFF" };
-                if ui.button(fog_text).clicked() {
-                    fog.enabled = !fog.enabled;
-                }
+        ui.add_space(4.0);
 
-                ui.separator();
+        // Second row: Fog toggle
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
 
-                // Disable End Turn during AI turn
-                ui.add_enabled_ui(!is_ai_turn, |ui| {
-                    if ui.button("End Turn").clicked() {
-                        // Reset all units of current faction
-                        for (mut unit, faction, _) in units.iter_mut() {
-                            if faction.faction == turn_state.current_faction {
-                                unit.moved = false;
-                                unit.attacked = false;
-                            }
+            // Fog of war toggle
+            let fog_text = if fog.enabled { "Fog: ON" } else { "Fog: OFF" };
+            if ui.button(egui::RichText::new(fog_text).size(14.0)).clicked() {
+                fog.enabled = !fog.enabled;
+            }
+
+            ui.add_space(8.0);
+        });
+
+        ui.add_space(4.0);
+    });
+
+    // End Turn button - floating in bottom right corner
+    egui::Area::new(egui::Id::new("end_turn_area"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -20.0))
+        .show(contexts.ctx_mut(), |ui| {
+            ui.add_enabled_ui(!is_ai_turn, |ui| {
+                let button = egui::Button::new(
+                    egui::RichText::new("End Turn").size(22.0).strong()
+                ).min_size(egui::vec2(140.0, 50.0));
+
+                if ui.add(button).clicked() {
+                    // Reset all units of current faction
+                    for (mut unit, faction, _) in units.iter_mut() {
+                        if faction.faction == turn_state.current_faction {
+                            unit.moved = false;
+                            unit.attacked = false;
                         }
-
-                        // Switch to next faction
-                        let old_faction = turn_state.current_faction;
-                        turn_state.current_faction = match turn_state.current_faction {
-                            Faction::Eastern => Faction::Northern,
-                            Faction::Northern => {
-                                turn_state.turn_number += 1;
-                                Faction::Eastern
-                            }
-                            _ => Faction::Eastern,
-                        };
-                        turn_state.phase = TurnPhase::Select;
-
-                        // Clear selection
-                        highlights.selected_unit = None;
-                        highlights.tiles.clear();
-                        highlights.attack_targets.clear();
-
-                        // Calculate income for the new faction and fire event
-                        let income: u32 = tiles.iter()
-                            .filter(|t| t.owner == Some(turn_state.current_faction))
-                            .map(|t| t.terrain.income_value())
-                            .sum();
-
-                        turn_start_events.send(TurnStartEvent {
-                            faction: turn_state.current_faction,
-                            income,
-                        });
-
-                        info!("Turn ended. {} -> {} (+{} income)",
-                            old_faction.name(), turn_state.current_faction.name(), income);
                     }
-                });
 
-                if ui.button("Menu").clicked() {
-                    next_state.set(GameState::Menu);
+                    // Switch to next faction
+                    let old_faction = turn_state.current_faction;
+                    turn_state.current_faction = match turn_state.current_faction {
+                        Faction::Eastern => Faction::Northern,
+                        Faction::Northern => {
+                            turn_state.turn_number += 1;
+                            Faction::Eastern
+                        }
+                        _ => Faction::Eastern,
+                    };
+                    turn_state.phase = TurnPhase::Select;
+
+                    // Clear selection
+                    highlights.selected_unit = None;
+                    highlights.tiles.clear();
+                    highlights.attack_targets.clear();
+
+                    // Calculate income for the new faction and fire event
+                    let income: u32 = tiles.iter()
+                        .filter(|t| t.owner == Some(turn_state.current_faction))
+                        .map(|t| t.terrain.income_value())
+                        .sum();
+
+                    turn_start_events.send(TurnStartEvent {
+                        faction: turn_state.current_faction,
+                        income,
+                    });
+
+                    info!("Turn ended. {} -> {} (+{} income)",
+                        old_faction.name(), turn_state.current_faction.name(), income);
                 }
             });
         });
-    });
 
     // Side panel - unit info when selected
     if let Some(_selected_entity) = highlights.selected_unit {
