@@ -1,10 +1,19 @@
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::render::mesh::Mesh3d;
 use bevy::pbr::MeshMaterial3d;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction};
 use crate::states::GameState;
+
+/// Bundled read-only game state for systems with many parameters
+#[derive(SystemParam)]
+pub struct GameStateContext<'w> {
+    pub game_result: Res<'w, GameResult>,
+    pub commanders: Res<'w, Commanders>,
+    pub weather: Res<'w, Weather>,
+}
 
 /// Marker component for movement highlight mesh entities
 #[derive(Component)]
@@ -180,6 +189,7 @@ impl Plugin for MovementPlugin {
             .init_resource::<CameraAngle>()
             .init_resource::<InputMode>()
             .init_resource::<MovementPath>()
+            // Split systems into smaller groups to avoid tuple size limits
             .add_systems(Update, (
                 handle_keyboard_input,
                 handle_keyboard_path_drawing,
@@ -187,10 +197,14 @@ impl Plugin for MovementPlugin {
                 handle_camera_zoom,
                 handle_camera_angle_toggle,
                 update_camera_angle,
+            ).run_if(in_state(GameState::Battle)))
+            .add_systems(Update, (
                 handle_click_input,
                 handle_path_drawing,
                 spawn_movement_highlight_meshes,
                 spawn_path_indicator_meshes,
+            ).run_if(in_state(GameState::Battle)))
+            .add_systems(Update, (
                 draw_grid_cursor,
                 draw_action_targets,
                 draw_resource_warnings,
@@ -507,6 +521,7 @@ fn handle_keyboard_input(
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
     weather: Res<Weather>,
+    mut movement_path: ResMut<MovementPath>,
 ) {
     // Don't process input if game is over
     if game_result.game_over {
@@ -562,8 +577,9 @@ fn handle_keyboard_input(
     if keyboard.just_pressed(KeyCode::Escape) {
         highlights.selected_unit = None;
         highlights.tiles.clear();
-                highlights.tile_costs.clear();
+        highlights.tile_costs.clear();
         highlights.attack_targets.clear();
+        movement_path.clear();
         cursor.visible = false;
         return;
     }
@@ -594,6 +610,7 @@ fn handle_keyboard_input(
                 highlights.tiles.clear();
                 highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
+                movement_path.clear();
                 return;
             }
 
@@ -617,7 +634,12 @@ fn handle_keyboard_input(
                     let new_pos = GridPosition::new(cursor.x, cursor.y);
 
                     // Get movement cost for stamina deduction
-                    let move_cost = highlights.tile_costs.get(&(cursor.x, cursor.y)).copied().unwrap_or(1);
+                    // Use path total cost if available, otherwise fall back to tile cost
+                    let move_cost = if movement_path.total_cost > 0 {
+                        movement_path.total_cost
+                    } else {
+                        highlights.tile_costs.get(&(cursor.x, cursor.y)).copied().unwrap_or(1)
+                    };
 
                     // Move the unit with animation
                     let faction_copy;
@@ -633,11 +655,11 @@ fn handle_keyboard_input(
                         // Add animation component for smooth movement
                         commands.entity(selected_entity).insert(UnitAnimation::new(start_pos, end_pos));
                         unit.moved = true;
-                        // Deduct stamina based on movement cost
+                        // Deduct stamina based on path cost
                         unit.stamina = unit.stamina.saturating_sub(move_cost);
                         faction_copy = faction.clone();
                         unit_copy = unit.clone();
-                        info!("Moved unit to ({}, {}), stamina {} -> {}", cursor.x, cursor.y, unit.stamina + move_cost, unit.stamina);
+                        info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", cursor.x, cursor.y, unit.stamina + move_cost, unit.stamina, move_cost);
                     } else {
                         return;
                     }
@@ -672,6 +694,7 @@ fn handle_keyboard_input(
                     highlights.tiles.clear();
                     highlights.tile_costs.clear();
                     highlights.attack_targets.clear();
+                    movement_path.clear();
 
                     // Enter Action phase if there are targets, can capture, or can join
                     if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
@@ -898,12 +921,11 @@ fn handle_click_input(
     mut turn_state: ResMut<TurnState>,
     map: Res<GameMap>,
     mut attack_events: EventWriter<AttackEvent>,
-    game_result: Res<GameResult>,
-    commanders: Res<Commanders>,
-    weather: Res<Weather>,
+    game_ctx: GameStateContext,
+    mut movement_path: ResMut<MovementPath>,
 ) {
     // Don't process input if game is over
-    if game_result.game_over {
+    if game_ctx.game_result.game_over {
         return;
     }
 
@@ -987,8 +1009,9 @@ fn handle_click_input(
             }
             highlights.selected_unit = None;
             highlights.tiles.clear();
-                highlights.tile_costs.clear();
+            highlights.tile_costs.clear();
             highlights.attack_targets.clear();
+            movement_path.clear();
             return;
         }
 
@@ -1003,6 +1026,7 @@ fn handle_click_input(
                 highlights.tiles.clear();
                 highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
+                movement_path.clear();
                 return;
             }
 
@@ -1019,9 +1043,9 @@ fn handle_click_input(
                         .map(|(e, p, _, _, _)| ((p.x, p.y), e))
                         .collect();
                     let stats = unit.unit_type.stats();
-                    let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+                    let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
                     let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                    let total_movement = weather.apply_movement(base_movement);
+                    let total_movement = game_ctx.weather.apply_movement(base_movement);
                     let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
 
                     // Calculate attack targets
@@ -1056,8 +1080,12 @@ fn handle_click_input(
             // Move the unit with animation
             let new_pos = GridPosition::new(grid_x, grid_y);
 
-            // Get movement cost for stamina deduction
-            let move_cost = highlights.tile_costs.get(&(grid_x, grid_y)).copied().unwrap_or(1);
+            // Use path total cost if available, otherwise fall back to tile cost
+            let move_cost = if movement_path.total_cost > 0 {
+                movement_path.total_cost
+            } else {
+                highlights.tile_costs.get(&(grid_x, grid_y)).copied().unwrap_or(1)
+            };
 
             let faction_copy;
             let unit_copy;
@@ -1071,11 +1099,11 @@ fn handle_click_input(
                 // Add animation component for smooth movement
                 commands.entity(selected_entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
-                // Deduct stamina based on movement cost
+                // Deduct stamina based on path cost
                 unit.stamina = unit.stamina.saturating_sub(move_cost);
                 faction_copy = faction.clone();
                 unit_copy = unit.clone();
-                info!("Moved unit to ({}, {}), stamina {} -> {}", grid_x, grid_y, unit.stamina + move_cost, unit.stamina);
+                info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", grid_x, grid_y, unit.stamina + move_cost, unit.stamina, move_cost);
             } else {
                 return;
             }
@@ -1110,6 +1138,7 @@ fn handle_click_input(
             highlights.tiles.clear();
             highlights.tile_costs.clear();
             highlights.attack_targets.clear();
+            movement_path.clear();
 
             // Enter Action phase if there are targets, can capture, or can join
             if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
@@ -1134,9 +1163,9 @@ fn handle_click_input(
             && faction.faction == turn_state.current_faction
         {
             let stats = unit.unit_type.stats();
-            let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+            let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
             let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-            let weather_movement = weather.apply_movement(base_movement);
+            let weather_movement = game_ctx.weather.apply_movement(base_movement);
             // Limit movement by stamina
             let total_movement = effective_movement(weather_movement, unit.stamina);
 
@@ -1191,8 +1220,9 @@ fn handle_click_input(
     // Clicked on empty space or enemy unit - deselect
     highlights.selected_unit = None;
     highlights.tiles.clear();
-                highlights.tile_costs.clear();
+    highlights.tile_costs.clear();
     highlights.attack_targets.clear();
+    movement_path.clear();
     production_state.active = false;
 }
 
