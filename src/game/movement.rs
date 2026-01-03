@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy_egui::input::EguiWantsInput;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction};
@@ -934,7 +935,13 @@ fn handle_click_input(
     mut attack_events: MessageWriter<AttackEvent>,
     game_ctx: GameStateContext,
     mut movement_path: ResMut<MovementPath>,
+    egui_wants_input: Res<EguiWantsInput>,
 ) {
+    // Don't process input if egui wants it (UI is being clicked)
+    if egui_wants_input.wants_any_pointer_input() {
+        return;
+    }
+
     // Don't process input if game is over
     if game_ctx.game_result.game_over {
         return;
@@ -1348,7 +1355,13 @@ fn handle_path_drawing(
     highlights: Res<MovementHighlights>,
     mut movement_path: ResMut<MovementPath>,
     input_mode: Res<InputMode>,
+    egui_wants_input: Res<EguiWantsInput>,
 ) {
+    // Don't process input if egui wants it (UI is being clicked)
+    if egui_wants_input.wants_any_pointer_input() {
+        return;
+    }
+
     // Skip if using keyboard mode exclusively
     if *input_mode == InputMode::Keyboard {
         return;

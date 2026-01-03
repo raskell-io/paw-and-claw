@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, input::EguiWantsInput};
 
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
@@ -2419,7 +2419,13 @@ fn editor_paint(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
+    egui_wants_input: Res<EguiWantsInput>,
 ) {
+    // Don't paint if egui wants pointer input (clicking on UI)
+    if egui_wants_input.wants_any_pointer_input() {
+        return;
+    }
+
     // Get mouse position in world coordinates using ray-plane intersection
     let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = camera.single() else { return };
