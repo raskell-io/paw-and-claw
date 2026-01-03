@@ -43,13 +43,5 @@
             animals: ["Mole", "Naked Mole Rat", "Beetle", "Worm", "Ant"],
             asset_folder: "nether",
         ),
-        "wanderer": (
-            name: "The Wanderer",
-            description: "A lone warrior seeking fortune. One blade, many paths.",
-            color: [0.6, 0.5, 0.4],  // Brown
-            unit_cost_modifier: 2.0,  // Very expensive but powerful
-            animals: ["Wolf"],
-            asset_folder: "wanderer",
-        ),
     }
 )

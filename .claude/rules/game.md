@@ -2,6 +2,7 @@
 
 ## Project Overview
 Turn-based tactics game inspired by Advance Wars, built with Bevy (Rust).
+Art style and setting inspired by Root: A Game of Woodland Might and Right.
 
 ## Code Organization
 ```
@@ -26,7 +27,7 @@ src/
 ```
 
 ## Key Types
-- `Faction` - Eastern, Northern, Western, Southern, Nether, Wanderer
+- `Faction` - Eastern, Northern, Western, Southern, Nether (antagonist)
 - `UnitType` - Scout, Shocktrooper, Recon, Ironclad, etc.
 - `Terrain` - Grass, Thicket, Base, Outpost, etc.
 - `CommanderId` - Kira, Tanuki, Grimjaw, etc.

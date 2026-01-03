@@ -402,7 +402,6 @@ impl CommanderId {
             Faction::Western => vec![CommanderId::Bandit, CommanderId::Talon, CommanderId::Dusty],
             Faction::Southern => vec![CommanderId::Lionheart, CommanderId::Tusker, CommanderId::Prowler],
             Faction::Nether => vec![CommanderId::Burrower, CommanderId::Hivemind, CommanderId::Dredge],
-            Faction::Wanderer => vec![], // Lone wolf, no COs
         }
     }
 }
@@ -813,7 +812,6 @@ fn apply_power_effects(
                     Faction::Western => Faction::Southern,
                     Faction::Southern => Faction::Western,
                     Faction::Nether => Faction::Northern,  // Nether antagonizes everyone
-                    Faction::Wanderer => Faction::Northern,
                 };
 
                 let enemy_funds = funds.get(enemy_faction);

@@ -420,7 +420,6 @@ fn draw_battle_setup(
                                 Faction::Western => Faction::Southern,
                                 Faction::Southern => Faction::Western,
                                 Faction::Nether => Faction::Eastern,  // Nether vs everyone
-                                Faction::Wanderer => Faction::Northern,
                             };
 
                             // Assign random CO to AI

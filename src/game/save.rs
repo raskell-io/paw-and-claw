@@ -277,7 +277,7 @@ fn handle_save_game(
                 (Faction::Northern, funds.get(Faction::Northern)),
                 (Faction::Western, funds.get(Faction::Western)),
                 (Faction::Southern, funds.get(Faction::Southern)),
-                (Faction::Wanderer, funds.get(Faction::Wanderer)),
+                (Faction::Nether, funds.get(Faction::Nether)),
             ].into_iter().collect(),
             commanders: SavedCommanders {
                 active: commanders.active.clone(),

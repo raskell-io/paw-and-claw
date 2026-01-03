@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Factions based on geographic animal kingdoms
 /// Each represents animals native to different continents with distinct playstyles
+/// Art style inspired by Root: A Game of Woodland Might and Right
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Faction {
     /// Eastern Empire - Asian animals (tanuki, red panda, crane, kitsune)
@@ -19,10 +20,8 @@ pub enum Faction {
     Southern,
     /// Nether Dominion - Subterranean creatures (moles, naked mole rats, beetles)
     /// Playstyle: Ambush tactics, terrain manipulation, relentless expansion
+    /// Antagonist faction (like Black Hole in Advance Wars)
     Nether,
-    /// The Wanderer - Lone wolf mercenary
-    /// Playstyle: Single powerful agent, diplomacy, versatility
-    Wanderer,
 }
 
 impl Faction {
@@ -33,7 +32,6 @@ impl Faction {
             Faction::Western => "Western Frontier",
             Faction::Southern => "Southern Pride",
             Faction::Nether => "Nether Dominion",
-            Faction::Wanderer => "The Wanderer",
         }
     }
 
@@ -45,7 +43,6 @@ impl Faction {
             Faction::Western => "Cunning survivalists of the wild frontier. Strike and fade.",
             Faction::Southern => "Mighty beasts of the savanna. Power and endurance.",
             Faction::Nether => "Relentless swarm from below. They emerge without warning.",
-            Faction::Wanderer => "A lone warrior seeking fortune. One blade, many paths.",
         }
     }
 
@@ -56,7 +53,6 @@ impl Faction {
             Faction::Western => Color::srgb(0.4, 0.7, 0.3),   // Green (American wilderness)
             Faction::Southern => Color::srgb(0.9, 0.7, 0.2),  // Gold (African savanna)
             Faction::Nether => Color::srgb(0.5, 0.2, 0.6),    // Purple (underground menace)
-            Faction::Wanderer => Color::srgb(0.6, 0.5, 0.4),  // Brown (neutral)
         }
     }
 
@@ -68,7 +64,6 @@ impl Faction {
             Faction::Western => 0.95,   // Slightly cheaper, hit and run
             Faction::Southern => 1.1,   // More expensive but powerful units
             Faction::Nether => 0.9,     // Cheap expendable units, endless horde
-            Faction::Wanderer => 2.0,   // Very expensive but powerful
         }
     }
 
@@ -81,7 +76,6 @@ impl Faction {
             Faction::Western => &["Raccoon", "Opossum", "Coyote", "Hawk", "Armadillo"],
             Faction::Southern => &["Lion", "Elephant", "Rhino", "Hyena", "Cheetah"],
             Faction::Nether => &["Mole", "Naked Mole Rat", "Beetle", "Worm", "Ant"],
-            Faction::Wanderer => &["Wolf"],
         }
     }
 
@@ -93,7 +87,6 @@ impl Faction {
             Faction::Western => "western",
             Faction::Southern => "southern",
             Faction::Nether => "nether",
-            Faction::Wanderer => "wanderer",
         }
     }
 
@@ -105,7 +98,6 @@ impl Faction {
             Faction::Western,
             Faction::Southern,
             Faction::Nether,
-            Faction::Wanderer,
         ]
     }
 }

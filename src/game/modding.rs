@@ -409,7 +409,6 @@ fn faction_to_key(faction: Faction) -> &'static str {
         Faction::Western => "western",
         Faction::Southern => "southern",
         Faction::Nether => "nether",
-        Faction::Wanderer => "wanderer",
     }
 }
 

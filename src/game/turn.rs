@@ -52,7 +52,7 @@ impl Default for FactionFunds {
         funds.insert(Faction::Northern, 100);
         funds.insert(Faction::Western, 0);
         funds.insert(Faction::Southern, 0);
-        funds.insert(Faction::Wanderer, 0);
+        funds.insert(Faction::Nether, 0);
         Self { funds }
     }
 }

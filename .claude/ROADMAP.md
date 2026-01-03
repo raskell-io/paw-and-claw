@@ -4,7 +4,7 @@
 
 ### Core Gameplay ✅
 - Turn-based tactics combat
-- 6 factions with unique themes
+- 5 factions (4 main + Nether antagonist)
 - 20 unit types (foot, vehicle, air, naval)
 - 15 commanders with CO powers
 - Fog of war

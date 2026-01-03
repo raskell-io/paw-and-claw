@@ -1,7 +1,17 @@
 # Paw & Claw - Project Context
 
 ## Overview
-Turn-based tactics game inspired by Advance Wars, built with Bevy 0.17 (Rust).
+Turn-based tactics game inspired by **Advance Wars**, built with Bevy 0.17 (Rust).
+
+**Art style and setting** inspired by **Root: A Game of Woodland Might and Right** - anthropomorphic woodland creatures in a territorial conflict.
+
+## Factions
+5 factions, mirroring Advance Wars structure:
+- **Eastern Empire** - Disciplined armies (like Orange Star)
+- **Northern Realm** - Stalwart defenders (like Blue Moon)
+- **Western Frontier** - Cunning survivalists (like Green Earth)
+- **Southern Pride** - Mighty beasts (like Yellow Comet)
+- **Nether Dominion** - Antagonist faction, subterranean swarm (like Black Hole)
 
 ## Tech Stack
 - **Engine**: Bevy 0.17
@@ -18,7 +28,7 @@ Turn-based tactics game inspired by Advance Wars, built with Bevy 0.17 (Rust).
 The game uses RON files for moddable content. For WASM builds, data is embedded at compile time. For native builds, mods can override data from `mods/` directory.
 
 ### Data Files (assets/data/)
-- `factions.ron` - 6 factions with names, colors, cost modifiers
+- `factions.ron` - 5 factions with names, colors, cost modifiers
 - `units.ron` - 20 unit types with full stats
 - `terrain.ron` - 13 terrain types with properties
 - `commanders.ron` - 15 commanders with CO powers
@@ -35,7 +45,7 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 - Refactor game systems to use `GameData` lookups instead of hardcoded enum methods
 - Currently `Faction::name()`, `UnitType::cost()` etc. are still hardcoded
 
-See `.claude/modding.md` for detailed documentation.
+See `modding.md` for detailed documentation.
 
 ---
 
@@ -45,7 +55,7 @@ Keep codebase clean and platform-agnostic. Console (Switch) is a future possibil
 
 **Current focus**: Write portable code now, worry about console later.
 
-See `.claude/portability.md` for guidelines.
+See `portability.md` for guidelines.
 
 ### Key Principles
 1. **Gamepad-first UX** - All gameplay works with controller

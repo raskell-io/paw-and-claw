@@ -7,7 +7,7 @@ Goal: All game content moddable without recompiling Rust code.
 ### Completed ✅
 
 **Data Files Created:**
-- `assets/data/factions.ron` - 6 factions (Eastern, Northern, Western, Southern, Nether, Wanderer)
+- `assets/data/factions.ron` - 5 factions (Eastern, Northern, Western, Southern, Nether)
 - `assets/data/units.ron` - 20 unit types with full stats
 - `assets/data/terrain.ron` - 13 terrain types with properties
 - `assets/data/commanders.ron` - 15 commanders with CO powers
