@@ -14,6 +14,7 @@ mod weather;
 mod sprites;
 mod assets;
 mod save;
+mod modding;
 
 pub use map::*;
 pub use maps::*;
@@ -29,6 +30,7 @@ pub use weather::*;
 pub use sprites::*;
 pub use assets::*;
 pub use save::*;
+pub use modding::*;
 
 // Future: use crate::states::GameState;
 
@@ -36,7 +38,8 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(AssetPlugin)
+        app.add_plugins(ModdingPlugin)  // Load game data first
+            .add_plugins(AssetPlugin)
             .add_plugins(MapPlugin)
             .add_plugins(UnitPlugin)
             .add_plugins(TurnPlugin)

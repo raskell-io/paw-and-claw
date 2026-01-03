@@ -1,0 +1,181 @@
+// Paw & Claw - Terrain Definitions
+// Modify this file to customize terrain names, properties, and colors
+
+(
+    terrain: {
+        // ========== GROUND TERRAIN ==========
+        "grass": (
+            name: "Grass",
+            description: "Open grass - easy movement, no cover",
+            defense: 1,
+            movement_cost: 1,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.35, 0.55, 0.25],  // Green
+            feature_height: 0.0,
+            tile_height: 0.0,
+            asset_name: "grass",
+        ),
+        "tall_grass": (
+            name: "Tall Grass",
+            description: "Some concealment, slightly slower",
+            defense: 2,
+            movement_cost: 1,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.3, 0.5, 0.2],  // Darker green
+            feature_height: 0.0,
+            tile_height: 0.0,
+            asset_name: "tall_grass",
+        ),
+        "thicket": (
+            name: "Thicket",
+            description: "Dense shrubs and bushes - good cover, slow movement",
+            defense: 3,
+            movement_cost: 2,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.2, 0.4, 0.15],  // Forest green
+            feature_height: 32.0,
+            tile_height: 2.0,
+            asset_name: "thicket",
+        ),
+        "brambles": (
+            name: "Brambles",
+            description: "Thorny brambles - excellent defense, very slow",
+            defense: 4,
+            movement_cost: 3,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.25, 0.35, 0.18],  // Thorny green-brown
+            feature_height: 24.0,
+            tile_height: 1.5,
+            asset_name: "brambles",
+        ),
+        "log": (
+            name: "Log",
+            description: "Fallen log - like a road, fast movement along it",
+            defense: 0,
+            movement_cost: 1,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.45, 0.35, 0.25],  // Brown
+            feature_height: 16.0,
+            tile_height: 1.0,
+            asset_name: "log",
+        ),
+        "boulder": (
+            name: "Boulder",
+            description: "Large boulder - high defense, hard to traverse",
+            defense: 4,
+            movement_cost: 3,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.5, 0.5, 0.55],  // Grey
+            feature_height: 28.0,
+            tile_height: 3.0,
+            asset_name: "boulder",
+        ),
+        "hollow": (
+            name: "Hollow",
+            description: "Hollow stump or log - provides shelter and cover",
+            defense: 3,
+            movement_cost: 1,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.4, 0.3, 0.2],  // Dark brown
+            feature_height: 36.0,
+            tile_height: 2.5,
+            asset_name: "hollow",
+        ),
+
+        // ========== WATER TERRAIN ==========
+        "creek": (
+            name: "Creek",
+            description: "Shallow creek - slows ground units",
+            defense: 0,
+            movement_cost: 2,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.3, 0.5, 0.7],  // Light blue
+            feature_height: 0.0,
+            tile_height: -1.0,
+            asset_name: "creek",
+        ),
+        "pond": (
+            name: "Pond",
+            description: "Deep pond - impassable for ground, naval units only",
+            defense: 0,
+            movement_cost: 99,  // Impassable for ground
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.2, 0.4, 0.65],  // Deep blue
+            feature_height: 0.0,
+            tile_height: -2.0,
+            asset_name: "pond",
+        ),
+        "shore": (
+            name: "Shore",
+            description: "Muddy shore/bank - slow movement, no defense",
+            defense: 0,
+            movement_cost: 2,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: [0.55, 0.5, 0.35],  // Sandy brown
+            feature_height: 0.0,
+            tile_height: -0.5,
+            asset_name: "shore",
+        ),
+
+        // ========== SPECIAL TERRAIN ==========
+        "base": (
+            name: "Base",
+            description: "Fortified base - spawn point, high defense",
+            defense: 4,
+            movement_cost: 1,
+            capturable: true,
+            capture_points: 20,
+            income: 1000,
+            color: [0.5, 0.45, 0.4],  // Stone grey
+            feature_height: 48.0,
+            tile_height: 3.0,
+            asset_name: "base",
+        ),
+        "outpost": (
+            name: "Outpost",
+            description: "Small fortified outpost - can be captured for income",
+            defense: 3,
+            movement_cost: 1,
+            capturable: true,
+            capture_points: 20,
+            income: 1000,
+            color: [0.55, 0.5, 0.45],  // Light stone
+            feature_height: 40.0,
+            tile_height: 2.0,
+            asset_name: "outpost",
+        ),
+        "storehouse": (
+            name: "Storehouse",
+            description: "Supply cache - can be captured for resources",
+            defense: 2,
+            movement_cost: 1,
+            capturable: true,
+            capture_points: 20,
+            income: 500,
+            color: [0.48, 0.42, 0.35],  // Wood brown
+            feature_height: 32.0,
+            tile_height: 1.5,
+            asset_name: "storehouse",
+        ),
+    }
+)

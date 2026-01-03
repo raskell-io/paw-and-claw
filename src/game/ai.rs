@@ -25,7 +25,7 @@ impl Plugin for AiPlugin {
 // ============================================================================
 
 /// AI personality types - affects HOW the AI plays (risk tolerance, aggression)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum AiPersonality {
     #[default]
     Aggressive,  // High risk tolerance, always pushes forward

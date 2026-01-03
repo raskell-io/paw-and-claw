@@ -1,17 +1,41 @@
 # Paw & Claw - Project Context
 
 ## Overview
-Turn-based tactics game inspired by Advance Wars, built with Bevy 0.15 (Rust).
+Turn-based tactics game inspired by Advance Wars, built with Bevy 0.17 (Rust).
 
 ## Tech Stack
-- **Engine**: Bevy 0.15
+- **Engine**: Bevy 0.17
 - **Renderer**: wgpu (default, WebGPU-based)
 - **Platforms**: Windows, macOS, Linux (Web planned)
 
 ## Architecture
 - 3D board with 2D billboarded sprites (Advance Wars: Dual Strike style)
 - ECS-based game logic
-- Procedural graphics (no external sprite assets yet)
+- **Data-driven design** for moddability
+
+## Modding System (Implemented)
+
+The game uses RON files for moddable content. For WASM builds, data is embedded at compile time. For native builds, mods can override data from `mods/` directory.
+
+### Data Files (assets/data/)
+- `factions.ron` - 6 factions with names, colors, cost modifiers
+- `units.ron` - 20 unit types with full stats
+- `terrain.ron` - 13 terrain types with properties
+- `commanders.ron` - 15 commanders with CO powers
+
+### Core Module
+- `src/game/modding.rs` - Data structures and loading system
+- `GameData` resource provides lookup methods
+
+### Build Targets
+- **WASM**: All RON embedded via `include_str!` - single artifact
+- **Native**: Embedded defaults + mod override support
+
+### Pending Work
+- Refactor game systems to use `GameData` lookups instead of hardcoded enum methods
+- Currently `Faction::name()`, `UnitType::cost()` etc. are still hardcoded
+
+See `.claude/modding.md` for detailed documentation.
 
 ---
 
