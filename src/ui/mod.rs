@@ -10,6 +10,7 @@ use crate::game::{
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
     TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
+    InputMode, MovementPath,
 };
 use crate::states::GameState;
 
@@ -754,6 +755,7 @@ fn draw_ingame_menu(
     mut menu_state: ResMut<InGameMenuState>,
     mut next_state: ResMut<NextState<GameState>>,
     mut fog: ResMut<FogOfWar>,
+    mut input_mode: ResMut<InputMode>,
     setup_state: Res<BattleSetupState>,
     game_result: Res<GameResult>,
 ) {
@@ -806,16 +808,17 @@ fn draw_ingame_menu(
 
                 ui.add_space(8.0);
 
-                // Unit Guide (placeholder)
-                if ui.add(egui::Button::new(egui::RichText::new("Unit Guide").size(18.0)).min_size(button_size)).clicked() {
-                    // TODO: Show unit guide
+                // Input Mode toggle
+                let input_text = format!("Controls: {}", input_mode.name());
+                if ui.add(egui::Button::new(egui::RichText::new(input_text).size(18.0)).min_size(button_size)).clicked() {
+                    *input_mode = input_mode.cycle();
                 }
 
                 ui.add_space(8.0);
 
-                // Options (placeholder)
-                if ui.add(egui::Button::new(egui::RichText::new("Options").size(18.0)).min_size(button_size)).clicked() {
-                    // TODO: Show options menu
+                // Unit Guide (placeholder)
+                if ui.add(egui::Button::new(egui::RichText::new("Unit Guide").size(18.0)).min_size(button_size)).clicked() {
+                    // TODO: Show unit guide
                 }
 
                 ui.add_space(16.0);

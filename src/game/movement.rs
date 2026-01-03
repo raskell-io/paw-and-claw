@@ -14,6 +14,122 @@ pub struct MovementHighlightMesh;
 #[derive(Component)]
 pub struct AttackHighlightMesh;
 
+/// Marker component for path indicator mesh entities
+#[derive(Component)]
+pub struct PathIndicatorMesh;
+
+/// Input mode for controlling units
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Resource)]
+pub enum InputMode {
+    #[default]
+    Auto,       // Automatically detect based on last input
+    Mouse,      // Mouse/pointer based controls
+    Keyboard,   // WASD/Arrow key controls
+    Touch,      // Touch screen controls (for mobile/tablet)
+}
+
+impl InputMode {
+    pub fn name(&self) -> &'static str {
+        match self {
+            InputMode::Auto => "Auto-Detect",
+            InputMode::Mouse => "Mouse",
+            InputMode::Keyboard => "Keyboard",
+            InputMode::Touch => "Touch",
+        }
+    }
+
+    pub fn cycle(&self) -> InputMode {
+        match self {
+            InputMode::Auto => InputMode::Mouse,
+            InputMode::Mouse => InputMode::Keyboard,
+            InputMode::Keyboard => InputMode::Touch,
+            InputMode::Touch => InputMode::Auto,
+        }
+    }
+}
+
+/// Resource to track the movement path being drawn
+#[derive(Resource, Default)]
+pub struct MovementPath {
+    /// The path as a list of grid positions (starting from unit position)
+    pub path: Vec<IVec2>,
+    /// Whether the player is currently drawing a path
+    pub drawing: bool,
+    /// Total movement cost of the current path
+    pub total_cost: u32,
+    /// Whether mouse/touch is currently held down for dragging
+    pub dragging: bool,
+}
+
+impl MovementPath {
+    pub fn clear(&mut self) {
+        self.path.clear();
+        self.drawing = false;
+        self.total_cost = 0;
+        self.dragging = false;
+    }
+
+    pub fn start(&mut self, start_pos: IVec2) {
+        self.path.clear();
+        self.path.push(start_pos);
+        self.drawing = true;
+        self.total_cost = 0;
+    }
+
+    /// Try to extend the path to the given position
+    /// Returns true if successful, false if invalid move
+    pub fn try_extend(&mut self, pos: IVec2, map: &GameMap, valid_tiles: &HashSet<(i32, i32)>, tile_costs: &HashMap<(i32, i32), u32>) -> bool {
+        if self.path.is_empty() {
+            return false;
+        }
+
+        // Check if position is in valid movement range
+        if !valid_tiles.contains(&(pos.x, pos.y)) {
+            return false;
+        }
+
+        // Check if already in path (backtracking)
+        if let Some(idx) = self.path.iter().position(|&p| p == pos) {
+            // Truncate path to this position (backtrack)
+            self.path.truncate(idx + 1);
+            self.recalculate_cost(map);
+            return true;
+        }
+
+        // Check if adjacent to last position
+        let last = *self.path.last().unwrap();
+        let dx = (pos.x - last.x).abs();
+        let dy = (pos.y - last.y).abs();
+
+        if (dx == 1 && dy == 0) || (dx == 0 && dy == 1) {
+            // Adjacent - add to path
+            self.path.push(pos);
+            self.total_cost += tile_costs.get(&(pos.x, pos.y)).copied().unwrap_or(1);
+            return true;
+        }
+
+        false
+    }
+
+    fn recalculate_cost(&mut self, map: &GameMap) {
+        self.total_cost = 0;
+        for pos in self.path.iter().skip(1) {  // Skip starting position
+            let terrain = map.get(pos.x, pos.y).unwrap_or(Terrain::Grass);
+            self.total_cost += terrain.movement_cost();
+        }
+    }
+
+    /// Get the final destination of the path
+    pub fn destination(&self) -> Option<IVec2> {
+        self.path.last().copied()
+    }
+
+    /// Check if path has more than just the starting position
+    pub fn has_movement(&self) -> bool {
+        self.path.len() > 1
+    }
+}
+
 /// Convert screen position to grid coordinates using ray-plane intersection
 /// Returns None if the ray doesn't hit the ground plane or is outside the map
 pub fn screen_to_grid(
@@ -62,14 +178,19 @@ impl Plugin for MovementPlugin {
             .init_resource::<ProductionState>()
             .init_resource::<CameraZoom>()
             .init_resource::<CameraAngle>()
+            .init_resource::<InputMode>()
+            .init_resource::<MovementPath>()
             .add_systems(Update, (
                 handle_keyboard_input,
+                handle_keyboard_path_drawing,
                 handle_camera_movement,
                 handle_camera_zoom,
                 handle_camera_angle_toggle,
                 update_camera_angle,
                 handle_click_input,
+                handle_path_drawing,
                 spawn_movement_highlight_meshes,
+                spawn_path_indicator_meshes,
                 draw_grid_cursor,
                 draw_action_targets,
                 draw_resource_warnings,
@@ -1161,6 +1282,228 @@ fn spawn_movement_highlight_meshes(
                 MeshMaterial3d(attack_material.clone()),
                 Transform::from_xyz(world_x, tile_height + 0.15, world_z),
                 AttackHighlightMesh,
+            ));
+        }
+    }
+}
+
+/// Handle mouse/touch path drawing
+fn handle_path_drawing(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    map: Res<GameMap>,
+    highlights: Res<MovementHighlights>,
+    mut movement_path: ResMut<MovementPath>,
+    input_mode: Res<InputMode>,
+) {
+    // Skip if using keyboard mode exclusively
+    if *input_mode == InputMode::Keyboard {
+        return;
+    }
+
+    // Only handle path drawing when a unit is selected
+    if highlights.selected_unit.is_none() || highlights.tiles.is_empty() {
+        if movement_path.drawing {
+            movement_path.clear();
+        }
+        return;
+    }
+
+    let Ok(window) = windows.get_single() else { return };
+    let Ok((camera, camera_transform)) = camera_query.get_single() else { return };
+
+    let Some(cursor_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+        return;
+    };
+
+    // Start dragging on mouse down
+    if mouse_button.just_pressed(MouseButton::Left) {
+        // Check if clicking on the selected unit's position or within movement range
+        if highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)) ||
+           movement_path.path.first() == Some(&cursor_pos) {
+            if movement_path.path.is_empty() {
+                // Find unit start position (first tile that was the unit's original pos)
+                // For now, if clicking in range, start path from there
+                movement_path.start(cursor_pos);
+            }
+            movement_path.dragging = true;
+        }
+    }
+
+    // Extend path while dragging
+    if movement_path.dragging && mouse_button.pressed(MouseButton::Left) {
+        if let Some(last_pos) = movement_path.path.last().copied() {
+            if cursor_pos != last_pos {
+                movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs);
+            }
+        }
+    }
+
+    // Stop dragging on mouse release
+    if mouse_button.just_released(MouseButton::Left) {
+        movement_path.dragging = false;
+    }
+}
+
+/// Handle keyboard path drawing (WASD/Arrow keys)
+fn handle_keyboard_path_drawing(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    map: Res<GameMap>,
+    highlights: Res<MovementHighlights>,
+    mut movement_path: ResMut<MovementPath>,
+    mut cursor: ResMut<GridCursor>,
+    input_mode: Res<InputMode>,
+    turn_state: Res<TurnState>,
+) {
+    // Skip during non-select phases
+    if turn_state.phase != TurnPhase::Select {
+        return;
+    }
+
+    // Only handle when a unit is selected and drawing path
+    if highlights.selected_unit.is_none() {
+        return;
+    }
+
+    // Skip if using mouse mode exclusively
+    if *input_mode == InputMode::Mouse {
+        return;
+    }
+
+    // Initialize path if not started
+    if !movement_path.drawing && highlights.selected_unit.is_some() {
+        // Find the unit's starting position from cursor or first available
+        if highlights.tiles.contains(&(cursor.x, cursor.y)) {
+            movement_path.start(IVec2::new(cursor.x, cursor.y));
+        }
+    }
+
+    // Direction input
+    let mut dx = 0i32;
+    let mut dy = 0i32;
+
+    if keyboard.just_pressed(KeyCode::KeyW) || keyboard.just_pressed(KeyCode::ArrowUp) {
+        dy = -1;  // Grid Y decreases going up visually
+    }
+    if keyboard.just_pressed(KeyCode::KeyS) || keyboard.just_pressed(KeyCode::ArrowDown) {
+        dy = 1;
+    }
+    if keyboard.just_pressed(KeyCode::KeyA) || keyboard.just_pressed(KeyCode::ArrowLeft) {
+        dx = -1;
+    }
+    if keyboard.just_pressed(KeyCode::KeyD) || keyboard.just_pressed(KeyCode::ArrowRight) {
+        dx = 1;
+    }
+
+    if dx != 0 || dy != 0 {
+        if let Some(last_pos) = movement_path.path.last().copied() {
+            let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
+
+            // Try to extend path
+            if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs) {
+                // Update cursor to follow path
+                cursor.x = new_pos.x;
+                cursor.y = new_pos.y;
+                cursor.visible = true;
+            }
+        }
+    }
+}
+
+/// Spawn mesh entities for path indicators
+fn spawn_path_indicator_meshes(
+    mut commands: Commands,
+    movement_path: Res<MovementPath>,
+    map: Res<GameMap>,
+    existing_path_meshes: Query<Entity, With<PathIndicatorMesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // Only update when path changes
+    if !movement_path.is_changed() {
+        return;
+    }
+
+    // Despawn old path meshes
+    for entity in existing_path_meshes.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+
+    if movement_path.path.len() < 2 {
+        return;
+    }
+
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+
+    // Path line material (bright cyan/teal)
+    let path_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.0, 0.9, 0.8, 0.8),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    // Draw path segments between tiles
+    for i in 0..movement_path.path.len() {
+        let pos = movement_path.path[i];
+        let world_x = pos.x as f32 * TILE_SIZE + offset_x;
+        let world_z = pos.y as f32 * TILE_SIZE + offset_z;
+
+        let tile_height = map.get(pos.x, pos.y)
+            .map(|t| t.tile_height())
+            .unwrap_or(4.0);
+
+        // Draw a smaller indicator on each path tile
+        let indicator_size = if i == movement_path.path.len() - 1 {
+            TILE_SIZE * 0.4  // Larger for destination
+        } else {
+            TILE_SIZE * 0.25  // Smaller for path tiles
+        };
+
+        let indicator_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(indicator_size / 2.0)));
+
+        commands.spawn((
+            Mesh3d(indicator_mesh),
+            MeshMaterial3d(path_material.clone()),
+            Transform::from_xyz(world_x, tile_height + 0.2, world_z),
+            PathIndicatorMesh,
+        ));
+
+        // Draw arrow/line to next tile
+        if i < movement_path.path.len() - 1 {
+            let next_pos = movement_path.path[i + 1];
+            let next_world_x = next_pos.x as f32 * TILE_SIZE + offset_x;
+            let next_world_z = next_pos.y as f32 * TILE_SIZE + offset_z;
+            let next_tile_height = map.get(next_pos.x, next_pos.y)
+                .map(|t| t.tile_height())
+                .unwrap_or(4.0);
+
+            // Create a connecting line segment
+            let mid_x = (world_x + next_world_x) / 2.0;
+            let mid_z = (world_z + next_world_z) / 2.0;
+            let mid_y = (tile_height + next_tile_height) / 2.0 + 0.2;
+
+            // Determine direction for line orientation
+            let dx = next_world_x - world_x;
+            let dz = next_world_z - world_z;
+            let length = (dx * dx + dz * dz).sqrt();
+
+            // Create line mesh (thin rectangle)
+            let line_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(length / 2.0, 3.0)));
+
+            // Calculate rotation to point from current to next
+            let angle = dz.atan2(dx);
+
+            commands.spawn((
+                Mesh3d(line_mesh),
+                MeshMaterial3d(path_material.clone()),
+                Transform::from_xyz(mid_x, mid_y, mid_z)
+                    .with_rotation(Quat::from_rotation_y(-angle)),
+                PathIndicatorMesh,
             ));
         }
     }
