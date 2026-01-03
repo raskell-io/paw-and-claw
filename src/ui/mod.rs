@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPlugin, input::EguiWantsInput};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass, input::EguiWantsInput};
 
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
@@ -127,7 +127,7 @@ impl Plugin for UiPlugin {
             .init_resource::<InGameMenuState>()
             .init_resource::<EguiReady>()
             .add_systems(Update, increment_egui_frame_counter)
-            .add_systems(Update, (
+            .add_systems(EguiPrimaryContextPass, (
                 draw_main_menu.run_if(in_state(GameState::Menu)),
                 draw_battle_setup.run_if(in_state(GameState::Battle)),
                 draw_battle_ui.run_if(in_state(GameState::Battle)),
@@ -135,16 +135,19 @@ impl Plugin for UiPlugin {
                 draw_production_menu.run_if(in_state(GameState::Battle)),
                 draw_victory_screen.run_if(in_state(GameState::Battle)),
                 draw_ingame_menu.run_if(in_state(GameState::Battle)),
-                handle_ingame_menu_input.run_if(in_state(GameState::Battle)),
-                handle_fog_toggle.run_if(in_state(GameState::Battle)),
-                track_hovered_unit.run_if(in_state(GameState::Battle)),
-                track_hovered_tile.run_if(in_state(GameState::Battle)),
                 draw_unit_tooltip.run_if(in_state(GameState::Battle)),
                 draw_terrain_info_panel.run_if(in_state(GameState::Battle)),
                 draw_unit_hp_numbers.run_if(in_state(GameState::Battle)),
                 draw_editor.run_if(in_state(GameState::Editor)),
-                editor_paint.run_if(in_state(GameState::Editor)),
             ).run_if(egui_is_ready))
+            // Keep non-egui systems in Update
+            .add_systems(Update, (
+                handle_ingame_menu_input.run_if(in_state(GameState::Battle)),
+                handle_fog_toggle.run_if(in_state(GameState::Battle)),
+                track_hovered_unit.run_if(in_state(GameState::Battle)),
+                track_hovered_tile.run_if(in_state(GameState::Battle)),
+                editor_paint.run_if(in_state(GameState::Editor)),
+            ))
             .add_systems(Startup, start_battle_for_testing)
             .add_systems(OnEnter(GameState::Battle), trigger_battle_setup)
             .add_systems(OnEnter(GameState::Editor), setup_editor)
