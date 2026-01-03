@@ -1,0 +1,179 @@
+// Movement Costs - How many movement points each terrain costs per unit class
+// Values are movement point costs (99 = impassable)
+//
+// Unit Classes:
+//   foot         - Infantry units (Scout, Shocktrooper)
+//   wheels       - Wheeled vehicles (Recon, Stinger, Barrage)
+//   treads       - Tracked vehicles (Ironclad, Juggernaut, Behemoth, Siege, Flak)
+//   air          - Flying units (Skywing, Raptor, Talon)
+//   naval        - Ships (Frigate, Lurker, Dreadnought)
+//   transport    - Ground transports (Carrier, Supplier)
+//   air_transport - Air transports (Ferrier)
+//   naval_transport - Naval transports (Barge)
+//
+// Inspired by Advance Wars movement tables
+(
+    costs: {
+        // === GROUND TERRAIN ===
+
+        "grass": {
+            // Open grassland - easy for everyone
+            "foot": 1,
+            "wheels": 2,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "tall_grass": {
+            // Tall grass - slightly slower for vehicles
+            "foot": 1,
+            "wheels": 3,
+            "treads": 2,
+            "air": 1,
+            "naval": 99,
+            "transport": 2,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "thicket": {
+            // Dense shrubs - good cover but slow
+            "foot": 2,
+            "wheels": 3,
+            "treads": 2,
+            "air": 1,
+            "naval": 99,
+            "transport": 2,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "brambles": {
+            // Thorny bushes - very slow but great defense
+            "foot": 3,
+            "wheels": 99,  // Too dense for wheels
+            "treads": 3,
+            "air": 1,
+            "naval": 99,
+            "transport": 99,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "log": {
+            // Fallen log - like a natural road
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "boulder": {
+            // Large boulder - impassable for vehicles
+            "foot": 3,
+            "wheels": 99,
+            "treads": 99,
+            "air": 1,
+            "naval": 99,
+            "transport": 99,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "hollow": {
+            // Hollow log/stump - shelter for infantry
+            "foot": 1,
+            "wheels": 99,
+            "treads": 99,
+            "air": 1,
+            "naval": 99,
+            "transport": 99,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        // === WATER TERRAIN ===
+
+        "creek": {
+            // Shallow water - slows ground units
+            "foot": 2,
+            "wheels": 99,  // Vehicles can't cross
+            "treads": 99,
+            "air": 1,
+            "naval": 99,  // Too shallow for ships
+            "transport": 99,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "pond": {
+            // Deep water - only for naval and air
+            "foot": 99,
+            "wheels": 99,
+            "treads": 99,
+            "air": 1,
+            "naval": 1,
+            "transport": 99,
+            "air_transport": 1,
+            "naval_transport": 1,
+        },
+
+        "shore": {
+            // Muddy shore - slow for everyone
+            "foot": 2,
+            "wheels": 3,
+            "treads": 2,
+            "air": 1,
+            "naval": 2,  // Ships can beach here
+            "transport": 2,
+            "air_transport": 1,
+            "naval_transport": 2,
+        },
+
+        // === SPECIAL TERRAIN ===
+
+        "base": {
+            // Fortified base - easy movement, resupply point
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "outpost": {
+            // Small outpost - can be captured
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "storehouse": {
+            // Supply cache - resupply point
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+    }
+)

@@ -1,13 +1,23 @@
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use std::collections::{HashMap, HashSet};
 
 use super::{
     Faction, FactionMember, Unit, UnitType, GridPosition, GameMap, Tile, Terrain,
     TurnState, TurnPhase, FactionFunds, AttackEvent, CaptureEvent, GameResult,
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
-    Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssets, SpriteAssetsParam,
-    UnitAnimation, effective_movement,
+    Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssetsParam,
+    UnitAnimation, effective_movement, GameData,
 };
+
+/// Bundled AI-related resources to stay under Bevy's system parameter limit
+#[derive(SystemParam)]
+struct AiResources<'w> {
+    ai_state: ResMut<'w, AiState>,
+    turn_plan: ResMut<'w, AiTurnPlan>,
+    memory: ResMut<'w, AiMemory>,
+    game_data: Res<'w, GameData>,
+}
 
 pub struct AiPlugin;
 
@@ -237,6 +247,7 @@ fn build_influence_maps(
     analysis: &GameAnalysis,
     map: &GameMap,
     tiles: &[(Entity, Tile)],
+    game_data: &GameData,
 ) -> InfluenceMaps {
     let mut maps = InfluenceMaps::new(map.width as i32, map.height as i32);
 
@@ -271,6 +282,8 @@ fn build_influence_maps(
             actual_movement,
             map,
             &analysis.unit_positions,
+            stats.class,
+            game_data,
         );
 
         for (mx, my) in moves {
@@ -703,6 +716,7 @@ fn predict_enemy_actions(
     _influence: &InfluenceMaps,
     memory: &AiMemory,
     map: &GameMap,
+    game_data: &GameData,
 ) -> Vec<PredictedAction> {
     let mut predictions = Vec::new();
 
@@ -716,6 +730,8 @@ fn predict_enemy_actions(
             actual_movement,
             map,
             &analysis.unit_positions,
+            stats.class,
+            game_data,
         );
 
         // Find best predicted action for this enemy
@@ -745,7 +761,7 @@ fn predict_enemy_actions(
                         let clear_weather = Weather::new(WeatherType::Clear);
                         let damage = calculate_damage(&enemy.unit, &ai_unit.unit,
                             map.get(ai_unit.pos.x, ai_unit.pos.y).unwrap_or(Terrain::Grass),
-                            &no_bonus, &no_bonus, &clear_weather);
+                            &no_bonus, &no_bonus, &clear_weather, game_data);
 
                         // Players tend to go for kills
                         if damage >= ai_unit.unit.hp {
@@ -957,12 +973,13 @@ fn score_action(
     predictions: &[PredictedAction],
     map: &GameMap,
     config: &AiConfig,
+    game_data: &GameData,
 ) -> f32 {
     let primary_goal = goals.first().cloned().unwrap_or(StrategicGoal::Attack { priority: 50.0 });
 
     match action {
         AiAction::Attack { move_to, target } => {
-            score_attack_action(unit, *move_to, *target, analysis, influence, &primary_goal, predictions, map, config)
+            score_attack_action(unit, *move_to, *target, analysis, influence, &primary_goal, predictions, map, config, game_data)
         }
         AiAction::Capture { move_to, tile } => {
             score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map, config)
@@ -986,6 +1003,7 @@ fn score_attack_action(
     predictions: &[PredictedAction],
     map: &GameMap,
     config: &AiConfig,
+    game_data: &GameData,
 ) -> f32 {
     let target_unit = match analysis.enemy_units.iter().find(|u| u.entity == target) {
         Some(u) => u,
@@ -1003,7 +1021,7 @@ fn score_attack_action(
     let clear_weather = Weather::new(WeatherType::Clear);
 
     let defender_terrain = map.get(target_unit.pos.x, target_unit.pos.y).unwrap_or(Terrain::Grass);
-    let damage = calculate_damage(&attacker.unit, &target_unit.unit, defender_terrain, &no_bonus, &no_bonus, &clear_weather);
+    let damage = calculate_damage(&attacker.unit, &target_unit.unit, defender_terrain, &no_bonus, &no_bonus, &clear_weather, game_data);
 
     // === BASE DAMAGE UTILITY ===
     // Apply personality attack preference
@@ -1020,7 +1038,7 @@ fn score_attack_action(
         let attacker_terrain = map.get(move_to.0, move_to.1).unwrap_or(Terrain::Grass);
         let mut temp_target = target_unit.unit.clone();
         temp_target.hp -= damage;
-        let counter = calculate_damage(&temp_target, &attacker.unit, attacker_terrain, &no_bonus, &no_bonus, &clear_weather);
+        let counter = calculate_damage(&temp_target, &attacker.unit, attacker_terrain, &no_bonus, &no_bonus, &clear_weather, game_data);
         score += UtilityCurves::risk_utility(counter, attacker.unit.hp, attacker.value)
             * config.risk_tolerance();
     }
@@ -1410,6 +1428,7 @@ fn plan_turn_advanced(
     predictions: &[PredictedAction],
     map: &GameMap,
     config: &AiConfig,
+    game_data: &GameData,
 ) -> Vec<PlannedAction> {
     let mut actions: Vec<PlannedAction> = Vec::new();
     let mut planned_positions: HashSet<(i32, i32)> = HashSet::new();
@@ -1431,6 +1450,8 @@ fn plan_turn_advanced(
             actual_movement,
             map,
             &analysis.unit_positions,
+            stats.class,
+            game_data,
         );
 
         for (mx, my) in &moves {
@@ -1452,7 +1473,7 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             target: enemy.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config);
+                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data);
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1466,7 +1487,7 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             tile: tile.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config);
+                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data);
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1474,13 +1495,13 @@ fn plan_turn_advanced(
 
             // Evaluate moves
             let action = AiAction::Move { move_to: (*mx, *my) };
-            let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config);
+            let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data);
             all_possible.push((ai_unit.entity, action, score));
         }
 
         // Wait action
         let wait = AiAction::Wait;
-        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config);
+        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config, game_data);
         all_possible.push((ai_unit.entity, wait, score));
     }
 
@@ -1792,9 +1813,7 @@ fn should_ai_activate_power(
 // ============================================================================
 
 fn ai_turn_system(
-    mut ai_state: ResMut<AiState>,
-    mut turn_plan: ResMut<AiTurnPlan>,
-    mut memory: ResMut<AiMemory>,
+    mut ai_res: AiResources,
     mut turn_state: ResMut<TurnState>,
     mut funds: ResMut<FactionFunds>,
     time: Res<Time>,
@@ -1813,8 +1832,8 @@ fn ai_turn_system(
         return;
     }
 
-    if !ai_state.enabled || turn_state.current_faction != Faction::Northern {
-        ai_state.phase = AiTurnPhase::Waiting;
+    if !ai_res.ai_state.enabled || turn_state.current_faction != Faction::Northern {
+        ai_res.ai_state.phase = AiTurnPhase::Waiting;
         return;
     }
 
@@ -1822,8 +1841,8 @@ fn ai_turn_system(
         return;
     }
 
-    ai_state.action_delay.tick(time.delta());
-    if !ai_state.action_delay.finished() {
+    ai_res.ai_state.action_delay.tick(time.delta());
+    if !ai_res.ai_state.action_delay.finished() {
         return;
     }
 
@@ -1831,15 +1850,15 @@ fn ai_turn_system(
     let co = commanders.get_active(Faction::Northern).get_commander();
     let config = AiConfig {
         personality: co.personality,
-        strategy: ai_state.config.strategy, // Keep strategy from state
+        strategy: ai_res.ai_state.config.strategy, // Keep strategy from state
     };
 
-    match ai_state.phase {
+    match ai_res.ai_state.phase {
         AiTurnPhase::Waiting => {
             // Update memory with player positions from last turn
-            update_memory(&mut memory, &units);
-            memory.turn_count += 1;
-            ai_state.phase = AiTurnPhase::Planning;
+            update_memory(&mut ai_res.memory, &units);
+            ai_res.memory.turn_count += 1;
+            ai_res.ai_state.phase = AiTurnPhase::Planning;
 
             // Log AI configuration at start of turn
             info!("AI Turn ({}) - Strategy: {:?}, Personality: {:?}",
@@ -1877,30 +1896,30 @@ fn ai_turn_system(
 
             // Full analysis pipeline
             let analysis = analyze_game_state(&all_units, &all_tiles, Faction::Northern);
-            let influence = build_influence_maps(&analysis, &map, &all_tiles);
-            let goals = determine_strategic_goals(&analysis, &influence, &memory, &config);
-            let predictions = predict_enemy_actions(&analysis, &influence, &memory, &map);
+            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data);
+            let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config);
+            let predictions = predict_enemy_actions(&analysis, &influence, &ai_res.memory, &map, &ai_res.game_data);
 
             info!("AI Strategic Goals: {:?}", goals.iter().take(2).collect::<Vec<_>>());
 
             // Plan with all systems
-            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config);
+            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, &ai_res.game_data);
 
-            turn_plan.actions = actions;
-            turn_plan.current_index = 0;
+            ai_res.turn_plan.actions = actions;
+            ai_res.turn_plan.current_index = 0;
 
-            ai_state.phase = AiTurnPhase::ExecutingActions;
-            ai_state.action_delay.reset();
+            ai_res.ai_state.phase = AiTurnPhase::ExecutingActions;
+            ai_res.ai_state.action_delay.reset();
         }
 
         AiTurnPhase::ExecutingActions => {
-            if turn_plan.current_index >= turn_plan.actions.len() {
-                ai_state.phase = AiTurnPhase::Production;
-                ai_state.action_delay.reset();
+            if ai_res.turn_plan.current_index >= ai_res.turn_plan.actions.len() {
+                ai_res.ai_state.phase = AiTurnPhase::Production;
+                ai_res.ai_state.action_delay.reset();
                 return;
             }
 
-            let planned = &turn_plan.actions[turn_plan.current_index];
+            let planned = &ai_res.turn_plan.actions[ai_res.turn_plan.current_index];
             execute_action(
                 &mut commands,
                 planned.action.clone(),
@@ -1911,8 +1930,8 @@ fn ai_turn_system(
                 &mut capture_events,
             );
 
-            turn_plan.current_index += 1;
-            ai_state.action_delay.reset();
+            ai_res.turn_plan.current_index += 1;
+            ai_res.ai_state.action_delay.reset();
         }
 
         AiTurnPhase::Production => {
@@ -1925,8 +1944,8 @@ fn ai_turn_system(
                 .collect();
 
             let analysis = analyze_game_state(&all_units, &all_tiles, Faction::Northern);
-            let influence = build_influence_maps(&analysis, &map, &all_tiles);
-            let goals = determine_strategic_goals(&analysis, &influence, &memory, &config);
+            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data);
+            let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config);
 
             let co_bonuses = commanders.get_bonuses(Faction::Northern);
             smart_production(
@@ -1942,8 +1961,8 @@ fn ai_turn_system(
                 co_bonuses.cost,
             );
 
-            ai_state.phase = AiTurnPhase::EndingTurn;
-            ai_state.action_delay.reset();
+            ai_res.ai_state.phase = AiTurnPhase::EndingTurn;
+            ai_res.ai_state.action_delay.reset();
         }
 
         AiTurnPhase::EndingTurn => {
@@ -1957,7 +1976,7 @@ fn ai_turn_system(
             turn_state.current_faction = Faction::Eastern;
             turn_state.turn_number += 1;
             turn_state.phase = TurnPhase::Select;
-            ai_state.phase = AiTurnPhase::Waiting;
+            ai_res.ai_state.phase = AiTurnPhase::Waiting;
 
             info!("AI ended turn {}", turn_state.turn_number - 1);
         }

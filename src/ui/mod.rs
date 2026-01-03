@@ -9,7 +9,7 @@ use crate::game::{
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
     TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
-    InputMode, MovementPath,
+    InputMode, GameData,
 };
 use crate::states::GameState;
 
@@ -248,6 +248,7 @@ fn draw_battle_setup(
     sprite_assets: Res<SpriteAssets>,
     images: Res<Assets<Image>>,
     tileset_theme: Res<TilesetTheme>,
+    game_data: Res<GameData>,
 ) {
     if !setup_state.needs_setup {
         return;
@@ -267,14 +268,16 @@ fn draw_battle_setup(
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
-                let factions = [
-                    (Faction::Eastern, "Eastern Empire", egui::Color32::from_rgb(200, 80, 80)),
-                    (Faction::Northern, "Northern Realm", egui::Color32::from_rgb(80, 120, 200)),
-                    (Faction::Western, "Western Frontier", egui::Color32::from_rgb(80, 160, 80)),
-                    (Faction::Southern, "Southern Pride", egui::Color32::from_rgb(200, 160, 50)),
-                ];
+                let factions = [Faction::Eastern, Faction::Northern, Faction::Western, Faction::Southern];
 
-                for (faction, name, color) in factions {
+                for faction in factions {
+                    let name = game_data.faction_name(faction);
+                    let faction_color = game_data.faction_color(faction).to_srgba();
+                    let color = egui::Color32::from_rgb(
+                        (faction_color.red * 255.0) as u8,
+                        (faction_color.green * 255.0) as u8,
+                        (faction_color.blue * 255.0) as u8,
+                    );
                     let is_selected = setup_state.player_faction == faction;
                     let button_color = if is_selected { color } else { egui::Color32::from_rgb(60, 60, 60) };
 
@@ -343,7 +346,7 @@ fn draw_battle_setup(
                 // === CO SELECTION ===
                 ui.vertical(|ui| {
                     ui.set_min_width(350.0);
-                    ui.label(egui::RichText::new(format!("{} Commanders", setup_state.player_faction.name()))
+                    ui.label(egui::RichText::new(format!("{} Commanders", game_data.faction_name(setup_state.player_faction)))
                         .size(16.0).strong());
                     ui.add_space(5.0);
 
@@ -357,7 +360,7 @@ fn draw_battle_setup(
                             let co = co_id.get_commander();
                             let is_selected = setup_state.player_co == Some(co_id);
 
-                            let faction_color = setup_state.player_faction.color().to_srgba();
+                            let faction_color = game_data.faction_color(setup_state.player_faction).to_srgba();
                             let button_color = if is_selected {
                                 egui::Color32::from_rgb(
                                     (faction_color.red * 255.0) as u8,
@@ -377,8 +380,8 @@ fn draw_battle_setup(
 
                                 ui.vertical(|ui| {
                                     ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(co.name).size(13.0).strong());
-                                        ui.label(egui::RichText::new(format!("- {}", co.power.name))
+                                        ui.label(egui::RichText::new(game_data.commander_name(co_id)).size(13.0).strong());
+                                        ui.label(egui::RichText::new(format!("- {}", game_data.commander_power_name(co_id)))
                                             .size(11.0).color(egui::Color32::from_rgb(255, 200, 50)));
                                     });
 
@@ -467,6 +470,7 @@ fn draw_battle_ui(
     mut power_events: MessageWriter<PowerActivatedEvent>,
     selection_state: Res<BattleSetupState>,
     weather: Res<Weather>,
+    game_data: Res<GameData>,
 ) {
     // Don't show battle UI controls if game is over (victory screen handles it)
     if game_result.game_over {
@@ -500,7 +504,7 @@ fn draw_battle_ui(
                 ui.label(egui::RichText::new(format!(
                     "Turn {} - {}'s Turn",
                     turn_state.turn_number,
-                    turn_state.current_faction.name()
+                    game_data.faction_name(turn_state.current_faction)
                 )).size(15.0));
             }
 
@@ -523,7 +527,7 @@ fn draw_battle_ui(
             let can_activate = commanders.can_activate(player_faction);
             let power_active = commanders.is_power_active(player_faction);
 
-            ui.label(egui::RichText::new(format!("CO: {}", co.name)).size(15.0).strong());
+            ui.label(egui::RichText::new(format!("CO: {}", game_data.commander_name(co_id))).size(15.0).strong());
 
             // Power meter bar
             let progress = charge as f32 / power_cost as f32;
@@ -544,13 +548,13 @@ fn draw_battle_ui(
                     .strong());
             } else {
                 ui.add_enabled_ui(can_activate && !is_ai_turn, |ui| {
-                    if ui.button(egui::RichText::new(format!("{}", co.power.name)).strong()).clicked() {
+                    if ui.button(egui::RichText::new(game_data.commander_power_name(co_id)).strong()).clicked() {
                         if let Some(effect) = commanders.activate_power(player_faction) {
                             power_events.write(PowerActivatedEvent {
                                 faction: player_faction,
                                 effect,
                             });
-                            info!("Activated CO Power: {}!", co.power.name);
+                            info!("Activated CO Power: {}!", game_data.commander_power_name(co_id));
                         }
                     }
                 });
@@ -637,7 +641,7 @@ fn draw_battle_ui(
                     });
 
                     info!("Turn ended. {} -> {} (+{} income)",
-                        old_faction.name(), turn_state.current_faction.name(), income);
+                        game_data.faction_name(old_faction), game_data.faction_name(turn_state.current_faction), income);
                 }
             });
         });
@@ -651,10 +655,10 @@ fn draw_battle_ui(
             egui::SidePanel::right("unit_info")
                 .min_width(220.0)
                 .show(ctx, |ui| {
-                    ui.heading(unit.unit_type.name());
-                    ui.label(egui::RichText::new(unit.unit_type.description()).weak().size(11.0));
+                    ui.heading(game_data.unit_name(unit.unit_type));
+                    ui.label(egui::RichText::new(game_data.unit_description(unit.unit_type)).weak().size(11.0));
                     ui.add_space(4.0);
-                    ui.label(format!("Faction: {}", faction.faction.name()));
+                    ui.label(format!("Faction: {}", game_data.faction_name(faction.faction)));
                     ui.label(format!("Position: ({}, {})", pos.x, pos.y));
                     ui.separator();
 
@@ -887,6 +891,7 @@ fn draw_action_menu(
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
     weather: Res<Weather>,
+    game_data: Res<GameData>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -929,7 +934,7 @@ fn draw_action_menu(
 
                 // Calculate damage estimate (with CO bonuses and weather)
                 let defender_terrain = map.get(pos_xy.0, pos_xy.1).unwrap_or(Terrain::Grass);
-                let damage = calculate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &weather);
+                let damage = calculate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &weather, &game_data);
 
                 // Calculate counter-attack damage (if defender can counter)
                 let defender_stats = unit.unit_type.stats();
@@ -941,7 +946,7 @@ fn draw_action_menu(
                         // Create a temporary unit with reduced HP for counter calculation
                         let mut temp_defender = unit.clone();
                         temp_defender.hp = defender_hp_after;
-                        Some(calculate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather))
+                        Some(calculate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather, &game_data))
                     } else {
                         None // Defender will be destroyed, no counter
                     }
@@ -951,7 +956,7 @@ fn draw_action_menu(
 
                 (
                     entity,
-                    unit.unit_type.name().to_string(),
+                    game_data.unit_name(unit.unit_type).to_string(),
                     unit.hp,
                     damage,
                     counter_damage,
@@ -977,7 +982,7 @@ fn draw_action_menu(
 
     // Check if this is a transport with cargo
     let is_transport_with_cargo = attacker_unit.is_transport() && attacker_unit.has_cargo();
-    let cargo_name = attacker_unit.cargo.as_ref().map(|c| c.unit_type.name().to_string());
+    let cargo_name = attacker_unit.cargo.as_ref().map(|c| game_data.unit_name(c.unit_type).to_string());
 
     // Find adjacent transports that can load this unit
     // We need to find them differently since we can't get Entity from iter()
@@ -1007,7 +1012,7 @@ fn draw_action_menu(
 
             // Check if at one of the adjacent positions
             if adjacent.contains(&(pos.x, pos.y)) {
-                result.push(((pos.x, pos.y), unit.unit_type.name().to_string()));
+                result.push(((pos.x, pos.y), game_data.unit_name(unit.unit_type).to_string()));
             }
         }
         result
@@ -1037,7 +1042,7 @@ fn draw_action_menu(
                 }
                 // Check passable terrain
                 let terrain = map.get(*x, *y).unwrap_or(Terrain::Grass);
-                if terrain.movement_cost() >= 99 {
+                if game_data.terrain_movement_cost(terrain) >= 99 {
                     return false;
                 }
                 // Check not occupied
@@ -1055,7 +1060,7 @@ fn draw_action_menu(
             tiles.get(tile_entity).ok().map(|tile| {
                 let required = tile.terrain.capture_points();
                 let progress = tile.capture_progress;
-                (tile.terrain.name(), progress, required)
+                (game_data.terrain_name(tile.terrain), progress, required)
             })
         })
     } else {
@@ -1196,7 +1201,7 @@ fn draw_action_menu(
 
                 for (ux, uy) in &unload_positions {
                     let terrain = map.get(*ux, *uy).unwrap_or(Terrain::Grass);
-                    if ui.add(egui::Button::new(egui::RichText::new(format!("Unload to ({}, {}) - {}", ux, uy, terrain.name())).size(12.0))
+                    if ui.add(egui::Button::new(egui::RichText::new(format!("Unload to ({}, {}) - {}", ux, uy, game_data.terrain_name(terrain))).size(12.0))
                         .min_size(egui::vec2(180.0, 24.0))).clicked()
                     {
                         unload_position = Some((*ux, *uy));
@@ -1335,6 +1340,7 @@ fn draw_production_menu(
     images: Res<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    game_data: Res<GameData>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -1348,20 +1354,24 @@ fn draw_production_menu(
     // Get CO cost modifier
     let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
 
-    // Units available for production at bases (base costs)
-    let base_units = [
-        (UnitType::Scout, "Scout", 10u32, "Infantry, can capture"),
-        (UnitType::Shocktrooper, "Shocktrooper", 30u32, "Heavy infantry"),
-        (UnitType::Recon, "Recon", 40u32, "Fast scout vehicle"),
-        (UnitType::Siege, "Siege", 60u32, "Artillery (2-3 range)"),
-        (UnitType::Ironclad, "Ironclad", 70u32, "Main battle tank"),
+    // Units available for production at bases
+    let base_unit_types = [
+        UnitType::Scout,
+        UnitType::Shocktrooper,
+        UnitType::Recon,
+        UnitType::Siege,
+        UnitType::Ironclad,
     ];
 
-    // Apply CO cost modifier
-    let buildable_units: Vec<_> = base_units.iter()
-        .map(|(unit_type, name, base_cost, desc)| {
-            let adjusted_cost = (*base_cost as f32 * co_bonuses.cost).round() as u32;
-            (*unit_type, *name, adjusted_cost, *desc)
+    // Apply faction and CO cost modifiers
+    let faction_modifier = game_data.faction_cost_modifier(turn_state.current_faction);
+    let buildable_units: Vec<_> = base_unit_types.iter()
+        .filter_map(|unit_type| {
+            game_data.unit_stats(*unit_type).map(|stats| {
+                let base_cost = stats.cost;
+                let adjusted_cost = (base_cost as f32 * faction_modifier * co_bonuses.cost).round() as u32;
+                (*unit_type, game_data.unit_name(*unit_type), adjusted_cost, game_data.unit_description(*unit_type))
+            })
         })
         .collect();
 
@@ -1460,6 +1470,7 @@ fn draw_victory_screen(
     mut commands: Commands,
     units: Query<Entity, With<Unit>>,
     tiles: Query<Entity, With<Tile>>,
+    game_data: Res<GameData>,
 ) {
     if !game_result.game_over {
         return;
@@ -1536,7 +1547,7 @@ fn draw_victory_screen(
                 ui.add_space(10.0);
 
                 // Winner faction
-                ui.label(egui::RichText::new(format!("{} wins!", winner.name()))
+                ui.label(egui::RichText::new(format!("{} wins!", game_data.faction_name(winner)))
                     .size(24.0));
 
                 ui.add_space(10.0);
@@ -1762,6 +1773,7 @@ fn draw_terrain_info_panel(
     map: Res<GameMap>,
     tiles: Query<&Tile>,
     fog: Res<FogOfWar>,
+    game_data: Res<GameData>,
 ) {
     let Some(pos) = selected_tile.position else { return };
 
@@ -1791,13 +1803,13 @@ fn draw_terrain_info_panel(
             ui.set_min_width(150.0);
 
             // Terrain name
-            let terrain_color = terrain.color().to_srgba();
+            let terrain_color = game_data.terrain_color(terrain).to_srgba();
             let color = egui::Color32::from_rgb(
                 (terrain_color.red * 255.0).min(255.0) as u8,
                 (terrain_color.green * 255.0).min(255.0) as u8,
                 (terrain_color.blue * 255.0).min(255.0) as u8,
             );
-            ui.label(egui::RichText::new(terrain.name())
+            ui.label(egui::RichText::new(game_data.terrain_name(terrain))
                 .size(14.0)
                 .strong()
                 .color(color));
@@ -1810,7 +1822,7 @@ fn draw_terrain_info_panel(
                 .spacing([20.0, 2.0])
                 .show(ui, |ui| {
                     // Defense bonus
-                    let def_bonus = terrain.defense_bonus();
+                    let def_bonus = game_data.terrain_defense(terrain);
                     ui.label("Defense:");
                     if def_bonus > 0 {
                         ui.label(egui::RichText::new(format!("+{}★", def_bonus))
@@ -1822,7 +1834,7 @@ fn draw_terrain_info_panel(
 
                     // Movement cost
                     ui.label("Move cost:");
-                    let base_cost = terrain.movement_cost();
+                    let base_cost = game_data.terrain_movement_cost(terrain);
                     if base_cost >= 99 {
                         ui.label(egui::RichText::new("Impassable")
                             .color(egui::Color32::from_rgb(180, 80, 80)));
@@ -1832,11 +1844,11 @@ fn draw_terrain_info_panel(
                     ui.end_row();
 
                     // Owner (for capturable terrain)
-                    if terrain.is_capturable() && !is_fogged {
+                    if game_data.terrain_capturable(terrain) && !is_fogged {
                         ui.label("Owner:");
                         if let Some(owner) = tile_owner {
-                            let owner_color = owner.color().to_srgba();
-                            ui.label(egui::RichText::new(owner.name())
+                            let owner_color = game_data.faction_color(owner).to_srgba();
+                            ui.label(egui::RichText::new(game_data.faction_name(owner))
                                 .color(egui::Color32::from_rgb(
                                     (owner_color.red * 255.0) as u8,
                                     (owner_color.green * 255.0) as u8,
@@ -1850,9 +1862,9 @@ fn draw_terrain_info_panel(
                     }
 
                     // Income (for property tiles)
-                    if terrain.is_capturable() {
+                    if game_data.terrain_capturable(terrain) {
                         ui.label("Income:");
-                        let income = terrain.income_value();
+                        let income = game_data.terrain_income(terrain);
                         if income > 0 {
                             ui.label(egui::RichText::new(format!("+{}", income))
                                 .color(egui::Color32::from_rgb(255, 200, 80)));
@@ -1898,6 +1910,7 @@ fn draw_unit_tooltip(
     map: Res<GameMap>,
     commanders: Res<Commanders>,
     weather: Res<Weather>,
+    game_data: Res<GameData>,
 ) {
     let Some(entity) = hovered.entity else { return };
     let Ok((unit, faction, pos)) = units.get(entity) else { return };
@@ -1916,11 +1929,11 @@ fn draw_unit_tooltip(
     // Attack with CO bonus
     let effective_attack = (stats.attack as f32 * co_bonuses.attack * weather.effects().attack_multiplier).round() as u32;
     // Defense with CO bonus + terrain
-    let terrain_def = terrain.defense_bonus() as u32;
+    let terrain_def = game_data.terrain_defense(terrain);
     let effective_defense = (stats.defense as f32 * co_bonuses.defense * weather.effects().defense_multiplier).round() as u32 + terrain_def * 10;
 
     // Faction color
-    let faction_color = faction.faction.color().to_srgba();
+    let faction_color = game_data.faction_color(faction.faction).to_srgba();
     let color = egui::Color32::from_rgb(
         (faction_color.red * 255.0) as u8,
         (faction_color.green * 255.0) as u8,
@@ -1938,11 +1951,11 @@ fn draw_unit_tooltip(
 
             // Unit name and faction
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(unit.unit_type.name())
+                ui.label(egui::RichText::new(game_data.unit_name(unit.unit_type))
                     .size(14.0)
                     .strong()
                     .color(color));
-                ui.label(egui::RichText::new(format!("({})", faction.faction.name()))
+                ui.label(egui::RichText::new(format!("({})", game_data.faction_name(faction.faction)))
                     .size(10.0)
                     .weak());
             });

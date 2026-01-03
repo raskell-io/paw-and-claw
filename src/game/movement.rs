@@ -3,7 +3,7 @@ use bevy::ecs::system::SystemParam;
 use bevy_egui::input::EguiWantsInput;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass};
 use crate::states::GameState;
 
 /// Bundled read-only game state for systems with many parameters
@@ -12,6 +12,15 @@ pub struct GameStateContext<'w> {
     pub game_result: Res<'w, GameResult>,
     pub commanders: Res<'w, Commanders>,
     pub weather: Res<'w, Weather>,
+}
+
+/// Bundled input state for systems with many parameters
+#[derive(SystemParam)]
+pub struct InputState<'w> {
+    pub mouse_button: Res<'w, ButtonInput<MouseButton>>,
+    pub egui_wants_input: Res<'w, EguiWantsInput>,
+    pub movement_path: ResMut<'w, MovementPath>,
+    pub cursor: ResMut<'w, GridCursor>,
 }
 
 /// Marker component for movement highlight mesh entities
@@ -86,7 +95,15 @@ impl MovementPath {
 
     /// Try to extend the path to the given position
     /// Returns true if successful, false if invalid move
-    pub fn try_extend(&mut self, pos: IVec2, map: &GameMap, valid_tiles: &HashSet<(i32, i32)>, tile_costs: &HashMap<(i32, i32), u32>) -> bool {
+    pub fn try_extend(
+        &mut self,
+        pos: IVec2,
+        map: &GameMap,
+        valid_tiles: &HashSet<(i32, i32)>,
+        tile_costs: &HashMap<(i32, i32), u32>,
+        unit_class: UnitClass,
+        game_data: &GameData,
+    ) -> bool {
         if self.path.is_empty() {
             return false;
         }
@@ -100,7 +117,7 @@ impl MovementPath {
         if let Some(idx) = self.path.iter().position(|&p| p == pos) {
             // Truncate path to this position (backtrack)
             self.path.truncate(idx + 1);
-            self.recalculate_cost(map);
+            self.recalculate_cost(map, unit_class, game_data);
             return true;
         }
 
@@ -119,11 +136,11 @@ impl MovementPath {
         false
     }
 
-    fn recalculate_cost(&mut self, map: &GameMap) {
+    fn recalculate_cost(&mut self, map: &GameMap, unit_class: UnitClass, game_data: &GameData) {
         self.total_cost = 0;
         for pos in self.path.iter().skip(1) {  // Skip starting position
             let terrain = map.get(pos.x, pos.y).unwrap_or(Terrain::Grass);
-            self.total_cost += terrain.movement_cost();
+            self.total_cost += game_data.movement_cost_or_default(terrain, unit_class);
         }
     }
 
@@ -294,6 +311,7 @@ pub struct MovementHighlights {
     pub tile_costs: HashMap<(i32, i32), u32>,  // Cost to reach each tile (for stamina)
     pub attack_targets: HashSet<Entity>,  // Enemy units that can be attacked
     pub selected_unit: Option<Entity>,
+    pub selected_unit_class: Option<UnitClass>,  // Unit class for movement cost lookup
 }
 
 /// Grid cursor for keyboard navigation
@@ -353,8 +371,10 @@ pub fn calculate_movement_range(
     movement: u32,
     map: &GameMap,
     units: &HashMap<(i32, i32), Entity>,
+    unit_class: UnitClass,
+    game_data: &GameData,
 ) -> HashSet<(i32, i32)> {
-    let (reachable, _) = calculate_movement_range_with_costs(start, movement, map, units);
+    let (reachable, _) = calculate_movement_range_with_costs(start, movement, map, units, unit_class, game_data);
     reachable
 }
 
@@ -368,12 +388,14 @@ pub struct UnitInfo {
 
 /// Calculate reachable tiles and their costs using BFS
 /// Returns (reachable tiles, cost to reach each tile)
-/// Now takes UnitInfo to allow moving onto friendly same-type units for joining
+/// Uses GameData for terrain movement costs based on unit class
 pub fn calculate_movement_range_with_costs(
     start: &GridPosition,
     movement: u32,
     map: &GameMap,
     units: &HashMap<(i32, i32), Entity>,
+    unit_class: UnitClass,
+    game_data: &GameData,
 ) -> (HashSet<(i32, i32)>, HashMap<(i32, i32), u32>) {
     let mut reachable = HashSet::new();
     let mut visited = HashMap::new();
@@ -394,7 +416,8 @@ pub fn calculate_movement_range_with_costs(
             let ny = y + dy;
 
             if let Some(terrain) = map.get(nx, ny) {
-                let move_cost = terrain.movement_cost();
+                // Use GameData for movement cost based on unit class
+                let move_cost = game_data.movement_cost_or_default(terrain, unit_class);
                 let new_cost = cost + move_cost;
 
                 // Can't move through units (but can stop on friendly same-type for joining)
@@ -425,6 +448,7 @@ pub fn calculate_movement_range_with_costs(
 }
 
 /// Calculate reachable tiles including those occupied by joinable friendly units
+/// Uses GameData for terrain movement costs based on unit class
 pub fn calculate_movement_range_with_joins(
     start: &GridPosition,
     movement: u32,
@@ -432,6 +456,8 @@ pub fn calculate_movement_range_with_joins(
     moving_unit_type: super::UnitType,
     moving_faction: Faction,
     all_units: &[(Entity, (i32, i32), Faction, super::UnitType)],
+    unit_class: UnitClass,
+    game_data: &GameData,
 ) -> (HashSet<(i32, i32)>, HashMap<(i32, i32), u32>) {
     let mut reachable = HashSet::new();
     let mut visited = HashMap::new();
@@ -468,7 +494,8 @@ pub fn calculate_movement_range_with_joins(
             let ny = y + dy;
 
             if let Some(terrain) = map.get(nx, ny) {
-                let move_cost = terrain.movement_cost();
+                // Use GameData for movement cost based on unit class
+                let move_cost = game_data.movement_cost_or_default(terrain, unit_class);
                 let new_cost = cost + move_cost;
 
                 // Can't move through blocked tiles (enemy units)
@@ -521,6 +548,7 @@ fn handle_keyboard_input(
     commanders: Res<Commanders>,
     weather: Res<Weather>,
     mut movement_path: ResMut<MovementPath>,
+    game_data: Res<GameData>,
 ) {
     // Don't process input if game is over
     if game_result.game_over {
@@ -575,6 +603,7 @@ fn handle_keyboard_input(
     // ESC to deselect
     if keyboard.just_pressed(KeyCode::Escape) {
         highlights.selected_unit = None;
+        highlights.selected_unit_class = None;
         highlights.tiles.clear();
         highlights.tile_costs.clear();
         highlights.attack_targets.clear();
@@ -614,6 +643,7 @@ fn handle_keyboard_input(
                     unit.moved = true;
                 }
                 highlights.selected_unit = None;
+        highlights.selected_unit_class = None;
                 highlights.tiles.clear();
                 highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
@@ -701,6 +731,7 @@ fn handle_keyboard_input(
                     };
 
                     highlights.selected_unit = None;
+        highlights.selected_unit_class = None;
                     highlights.tiles.clear();
                     highlights.tile_costs.clear();
                     highlights.attack_targets.clear();
@@ -738,8 +769,10 @@ fn handle_keyboard_input(
                     let all_unit_info: Vec<_> = units.iter()
                         .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
                         .collect();
+                    let unit_class = unit.unit_type.stats().class;
                     let (tiles, tile_costs) = calculate_movement_range_with_joins(
-                        &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info
+                        &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
+                        unit_class, &game_data
                     );
 
                     // Calculate attack targets
@@ -748,12 +781,13 @@ fn handle_keyboard_input(
                         .collect();
                     let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
 
-                    found_unit = Some((entity, tiles, tile_costs, attack_targets));
+                    found_unit = Some((entity, tiles, tile_costs, attack_targets, unit_class));
                     break;
                 }
             }
-            if let Some((entity, tiles, tile_costs, attack_targets)) = found_unit {
+            if let Some((entity, tiles, tile_costs, attack_targets, unit_class)) = found_unit {
                 highlights.selected_unit = Some(entity);
+                highlights.selected_unit_class = Some(unit_class);
                 highlights.tiles = tiles;
                 highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
@@ -921,7 +955,6 @@ fn update_camera_angle(
 /// Handle mouse click for selection and movement
 fn handle_click_input(
     mut commands: Commands,
-    mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
@@ -929,16 +962,15 @@ fn handle_click_input(
     mut highlights: ResMut<MovementHighlights>,
     mut pending_action: ResMut<PendingAction>,
     mut production_state: ResMut<ProductionState>,
-    mut cursor: ResMut<GridCursor>,
     mut turn_state: ResMut<TurnState>,
     map: Res<GameMap>,
     mut attack_events: MessageWriter<AttackEvent>,
     game_ctx: GameStateContext,
-    mut movement_path: ResMut<MovementPath>,
-    egui_wants_input: Res<EguiWantsInput>,
+    mut input: InputState,
+    game_data: Res<GameData>,
 ) {
     // Don't process input if egui wants it (UI is being clicked)
-    if egui_wants_input.wants_any_pointer_input() {
+    if input.egui_wants_input.wants_any_pointer_input() {
         return;
     }
 
@@ -949,7 +981,7 @@ fn handle_click_input(
 
     // In Action phase, clicks on targets are handled here
     if turn_state.phase == TurnPhase::Action {
-        if !mouse_button.just_pressed(MouseButton::Left) {
+        if !input.mouse_button.just_pressed(MouseButton::Left) {
             return;
         }
 
@@ -988,7 +1020,7 @@ fn handle_click_input(
         return;
     }
 
-    if !mouse_button.just_pressed(MouseButton::Left) {
+    if !input.mouse_button.just_pressed(MouseButton::Left) {
         return;
     }
 
@@ -1002,9 +1034,9 @@ fn handle_click_input(
     let grid_y = grid_pos.y;
 
     // Update cursor position to click location
-    cursor.x = grid_x;
-    cursor.y = grid_y;
-    cursor.visible = false; // Hide keyboard cursor when using mouse
+    input.cursor.x = grid_x;
+    input.cursor.y = grid_y;
+    input.cursor.visible = false; // Hide keyboard cursor when using mouse
 
     // If we have a selected unit, try to attack or move
     if let Some(selected_entity) = highlights.selected_unit {
@@ -1026,10 +1058,11 @@ fn handle_click_input(
                 unit.moved = true;
             }
             highlights.selected_unit = None;
+        highlights.selected_unit_class = None;
             highlights.tiles.clear();
             highlights.tile_costs.clear();
             highlights.attack_targets.clear();
-            movement_path.clear();
+            input.movement_path.clear();
             return;
         }
 
@@ -1041,16 +1074,17 @@ fn handle_click_input(
             if clicking_on_selected {
                 // Clicking on selected unit - deselect
                 highlights.selected_unit = None;
+        highlights.selected_unit_class = None;
                 highlights.tiles.clear();
                 highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
-                movement_path.clear();
+                input.movement_path.clear();
                 return;
             }
 
             // If path drawing is active, let handle_path_drawing manage clicks
             // Don't immediately move - wait for path to be confirmed
-            if movement_path.drawing && movement_path.path.len() >= 1 {
+            if input.movement_path.drawing && input.movement_path.path.len() >= 1 {
                 // Path is being drawn, let the path drawing system handle this
                 return;
             }
@@ -1071,7 +1105,7 @@ fn handle_click_input(
                     let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
                     let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
                     let total_movement = game_ctx.weather.apply_movement(base_movement);
-                    let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions);
+                    let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions, stats.class, &game_data);
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
@@ -1079,17 +1113,18 @@ fn handle_click_input(
                         .collect();
                     let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
 
-                    switch_to = Some((entity, tiles, attack_targets));
+                    switch_to = Some((entity, tiles, attack_targets, stats.class));
                     break;
                 }
             }
 
-            if let Some((entity, tiles, attack_targets)) = switch_to {
+            if let Some((entity, tiles, attack_targets, unit_class)) = switch_to {
                 highlights.selected_unit = Some(entity);
+                highlights.selected_unit_class = Some(unit_class);
                 highlights.tiles = tiles;
                 highlights.attack_targets = attack_targets;
                 // Start path from unit's new position
-                movement_path.start(IVec2::new(grid_x, grid_y));
+                input.movement_path.start(IVec2::new(grid_x, grid_y));
                 info!("Switched selection to unit at ({}, {})", grid_x, grid_y);
                 return;
             }
@@ -1108,8 +1143,8 @@ fn handle_click_input(
             let new_pos = GridPosition::new(grid_x, grid_y);
 
             // Use path total cost if available, otherwise fall back to tile cost
-            let move_cost = if movement_path.total_cost > 0 {
-                movement_path.total_cost
+            let move_cost = if input.movement_path.total_cost > 0 {
+                input.movement_path.total_cost
             } else {
                 highlights.tile_costs.get(&(grid_x, grid_y)).copied().unwrap_or(1)
             };
@@ -1162,10 +1197,11 @@ fn handle_click_input(
             };
 
             highlights.selected_unit = None;
+        highlights.selected_unit_class = None;
             highlights.tiles.clear();
             highlights.tile_costs.clear();
             highlights.attack_targets.clear();
-            movement_path.clear();
+            input.movement_path.clear();
 
             // Enter Action phase if there are targets, can capture, or can join
             if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
@@ -1201,7 +1237,8 @@ fn handle_click_input(
                 .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
                 .collect();
             let (move_tiles, move_costs) = calculate_movement_range_with_joins(
-                &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info
+                &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
+                stats.class, &game_data
             );
 
             // Calculate attack targets
@@ -1210,18 +1247,19 @@ fn handle_click_input(
                 .collect();
             let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
 
-            select_unit = Some((entity, move_tiles, move_costs, attack_targets, pos.x, pos.y));
+            select_unit = Some((entity, move_tiles, move_costs, attack_targets, pos.x, pos.y, stats.class));
             break;
         }
     }
 
-    if let Some((entity, tiles, tile_costs, attack_targets, x, y)) = select_unit {
+    if let Some((entity, tiles, tile_costs, attack_targets, x, y, unit_class)) = select_unit {
         highlights.selected_unit = Some(entity);
+        highlights.selected_unit_class = Some(unit_class);
         highlights.tiles = tiles;
         highlights.tile_costs = tile_costs;
         highlights.attack_targets = attack_targets;
         // Start path from unit's position
-        movement_path.start(IVec2::new(x, y));
+        input.movement_path.start(IVec2::new(x, y));
         info!("Selected unit at ({}, {}), can reach {} tiles", x, y, highlights.tiles.len());
         return;
     }
@@ -1248,10 +1286,11 @@ fn handle_click_input(
 
     // Clicked on empty space or enemy unit - deselect
     highlights.selected_unit = None;
+    highlights.selected_unit_class = None;
     highlights.tiles.clear();
     highlights.tile_costs.clear();
     highlights.attack_targets.clear();
-    movement_path.clear();
+    input.movement_path.clear();
     production_state.active = false;
 }
 
@@ -1356,6 +1395,7 @@ fn handle_path_drawing(
     mut movement_path: ResMut<MovementPath>,
     input_mode: Res<InputMode>,
     egui_wants_input: Res<EguiWantsInput>,
+    game_data: Res<GameData>,
 ) {
     // Don't process input if egui wants it (UI is being clicked)
     if egui_wants_input.wants_any_pointer_input() {
@@ -1399,7 +1439,9 @@ fn handle_path_drawing(
     if movement_path.dragging && mouse_button.pressed(MouseButton::Left) {
         if let Some(last_pos) = movement_path.path.last().copied() {
             if cursor_pos != last_pos {
-                movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs);
+                if let Some(unit_class) = highlights.selected_unit_class {
+                    movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data);
+                }
             }
         }
     }
@@ -1419,6 +1461,7 @@ fn handle_keyboard_path_drawing(
     mut cursor: ResMut<GridCursor>,
     input_mode: Res<InputMode>,
     turn_state: Res<TurnState>,
+    game_data: Res<GameData>,
 ) {
     // Skip during non-select phases
     if turn_state.phase != TurnPhase::Select {
@@ -1465,11 +1508,13 @@ fn handle_keyboard_path_drawing(
             let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
 
             // Try to extend path
-            if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs) {
-                // Update cursor to follow path
-                cursor.x = new_pos.x;
-                cursor.y = new_pos.y;
-                cursor.visible = true;
+            if let Some(unit_class) = highlights.selected_unit_class {
+                if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
+                    // Update cursor to follow path
+                    cursor.x = new_pos.x;
+                    cursor.y = new_pos.y;
+                    cursor.visible = true;
+                }
             }
         }
     }

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType, CargoUnit, spawn_unit, SpriteAssets};
+use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType, CargoUnit, spawn_unit, SpriteAssets, GameData};
 
 pub struct CombatPlugin;
 
@@ -57,8 +57,12 @@ pub struct UnloadEvent {
     pub position: (i32, i32),  // Where to unload the passenger
 }
 
-/// Calculate damage based on Advance Wars-like formula
-/// Includes CO bonuses and weather effects for attack and defense
+/// Calculate damage based on Advance Wars-like formula with damage tables
+/// Uses moddable damage tables for base damage, then applies modifiers:
+/// - Attacker HP percentage
+/// - CO attack/defense bonuses
+/// - Weather effects
+/// - Terrain defense
 pub fn calculate_damage(
     attacker: &Unit,
     defender: &Unit,
@@ -66,41 +70,61 @@ pub fn calculate_damage(
     attacker_co: &CoBonuses,
     defender_co: &CoBonuses,
     weather: &Weather,
+    game_data: &GameData,
 ) -> i32 {
-    let attacker_stats = attacker.unit_type.stats();
-    let defender_stats = defender.unit_type.stats();
+    // Look up base damage from damage tables
+    let base_damage_percent = match game_data.get_base_damage(attacker.unit_type, defender.unit_type) {
+        Some(dmg) => dmg as f32,
+        None => {
+            // Fallback: use old formula if no damage table entry
+            // This allows gradual migration and handles missing entries
+            let attacker_attack = game_data.unit_stats(attacker.unit_type)
+                .map(|s| s.attack as f32)
+                .unwrap_or_else(|| attacker.unit_type.stats().attack as f32);
+            let defender_defense = game_data.unit_stats(defender.unit_type)
+                .map(|s| s.defense as f32)
+                .unwrap_or_else(|| defender.unit_type.stats().defense as f32);
+
+            // Simple fallback: attack - defense, min 0
+            (attacker_attack - defender_defense * 0.5).max(0.0)
+        }
+    };
+
     let weather_effects = weather.effects();
 
-    // Base damage formula (simplified Advance Wars)
-    // Damage = AttackPower * CO_Attack * Weather_Attack * (AttackerHP% / 100) * ((100 - DefenseBonus) / 100)
-    let attack_power = (attacker_stats.attack as f32
-        * attacker_co.attack
-        * weather_effects.attack_multiplier) as i32;
+    // Apply attack modifiers (CO bonus, weather)
+    let attack_modifier = attacker_co.attack * weather_effects.attack_multiplier;
+
+    // Attacker HP percentage affects damage output
     let attacker_hp_modifier = attacker.hp_percentage();
 
-    // Defense from unit type + terrain, modified by CO and weather
-    let base_defense = (defender_stats.defense as f32
-        * defender_co.defense
-        * weather_effects.defense_multiplier) as i32;
-
+    // Calculate defender's total defense
     // Terrain defense - check if weather negates cover (thickets, brambles, etc.)
     let terrain_defense = if (defender_terrain == Terrain::Thicket || defender_terrain == Terrain::Brambles)
         && !weather.forests_provide_cover()
     {
-        0 // Rain negates vegetation cover
+        0.0 // Rain negates vegetation cover
     } else {
-        defender_terrain.defense_bonus() * 10
+        game_data.terrain_defense(defender_terrain) as f32 * 10.0
     };
 
-    let total_defense = (base_defense + terrain_defense).min(200);
-    let defense_modifier = (200.0 - total_defense as f32) / 200.0;
+    // Defense modifier reduces damage (CO defense bonus, weather, terrain)
+    // Each 10% terrain defense reduces damage by ~10%
+    let defense_modifier = defender_co.defense * weather_effects.defense_multiplier;
+    let terrain_reduction = (100.0 - terrain_defense.min(70.0)) / 100.0; // Cap terrain at 70%
 
-    let base_damage = attack_power as f32 * attacker_hp_modifier * defense_modifier;
+    // Final damage calculation
+    // base_damage_percent * attack_modifiers * hp_modifier * (1 - defense_reduction)
+    let final_damage = base_damage_percent
+        * attack_modifier
+        * attacker_hp_modifier
+        * terrain_reduction
+        / defense_modifier;  // Higher defense = less damage
 
-    // Add some randomness (90% - 110%)
-    let random_modifier = 1.0; // TODO: Add actual randomness
+    // Add some randomness (95% - 105%) - TODO: implement actual randomness
+    let random_modifier = 1.0;
 
-    (base_damage * random_modifier).round() as i32
+    (final_damage * random_modifier).round() as i32
 }
 
 /// Check if attacker can attack defender
@@ -136,6 +160,7 @@ fn process_attacks(
     map: Res<GameMap>,
     mut commanders: ResMut<Commanders>,
     weather: Res<Weather>,
+    game_data: Res<GameData>,
 ) {
     for event in events.read() {
         let Ok([(mut attacker_unit, attacker_pos, attacker_faction),
@@ -151,14 +176,16 @@ fn process_attacks(
         }
 
         // Check ammo - can't attack without ammo (if unit uses ammo)
-        let attacker_stats = attacker_unit.unit_type.stats();
-        if attacker_stats.max_ammo > 0 && attacker_unit.ammo == 0 {
+        let attacker_max_ammo = game_data.unit_stats(attacker_unit.unit_type)
+            .map(|s| s.max_ammo)
+            .unwrap_or_else(|| attacker_unit.unit_type.stats().max_ammo);
+        if attacker_max_ammo > 0 && attacker_unit.ammo == 0 {
             warn!("No ammo to attack!");
             continue;
         }
 
         // Deduct ammo if unit uses ammo
-        if attacker_stats.max_ammo > 0 {
+        if attacker_max_ammo > 0 {
             attacker_unit.ammo = attacker_unit.ammo.saturating_sub(1);
             info!("Ammo: {} -> {}", attacker_unit.ammo + 1, attacker_unit.ammo);
         }
@@ -173,13 +200,13 @@ fn process_attacks(
             .unwrap_or(Terrain::Grass);
 
         // Calculate and apply damage (with CO bonuses and weather effects)
-        let damage = calculate_damage(&attacker_unit, &defender_unit, defender_terrain, &attacker_co, &defender_co, &weather);
+        let damage = calculate_damage(&attacker_unit, &defender_unit, defender_terrain, &attacker_co, &defender_co, &weather, &game_data);
         defender_unit.hp -= damage;
 
         info!(
             "{} attacks {} for {} damage! (HP: {} -> {})",
-            attacker_unit.unit_type.name(),
-            defender_unit.unit_type.name(),
+            game_data.unit_name(attacker_unit.unit_type),
+            game_data.unit_name(defender_unit.unit_type),
             damage,
             defender_unit.hp + damage,
             defender_unit.hp
@@ -195,11 +222,16 @@ fn process_attacks(
 
         // Check if defender is destroyed
         if defender_unit.hp <= 0 {
-            info!("{} destroyed!", defender_unit.unit_type.name());
+            info!("{} destroyed!", game_data.unit_name(defender_unit.unit_type));
             commands.entity(event.defender).despawn();
         } else {
             // Counter-attack (if defender can reach attacker)
-            let counter_stats = defender_unit.unit_type.stats();
+            let counter_stats = game_data.unit_stats(defender_unit.unit_type)
+                .map(|s| (s.attack as i32, s.attack_range, s.max_ammo))
+                .unwrap_or_else(|| {
+                    let s = defender_unit.unit_type.stats();
+                    (s.attack, s.attack_range, s.max_ammo)
+                });
             let distance = attacker_pos.distance_to(defender_pos);
 
             // Can only counter if:
@@ -208,16 +240,17 @@ fn process_attacks(
             // 3. Has ammo (if uses ammo)
             // Note: Ranged/indirect units (min_range > 1) typically can't counter at all
             // because they can't fire at adjacent units
-            let (min_range, max_range) = counter_stats.attack_range;
+            let (counter_attack, counter_range, counter_max_ammo) = counter_stats;
+            let (min_range, max_range) = counter_range;
             let attacker_in_counter_range = distance >= min_range && distance <= max_range;
 
-            let can_counter = counter_stats.attack > 0
+            let can_counter = counter_attack > 0
                 && attacker_in_counter_range
-                && (counter_stats.max_ammo == 0 || defender_unit.ammo > 0);
+                && (counter_max_ammo == 0 || defender_unit.ammo > 0);
 
             if can_counter {
                 // Deduct ammo for counter-attack if unit uses ammo
-                if counter_stats.max_ammo > 0 {
+                if counter_max_ammo > 0 {
                     defender_unit.ammo = defender_unit.ammo.saturating_sub(1);
                 }
 
@@ -225,12 +258,12 @@ fn process_attacks(
                     .get(attacker_pos.x, attacker_pos.y)
                     .unwrap_or(Terrain::Grass);
 
-                let counter_damage = calculate_damage(&defender_unit, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather);
+                let counter_damage = calculate_damage(&defender_unit, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather, &game_data);
                 attacker_unit.hp -= counter_damage;
 
                 info!(
                     "{} counter-attacks for {} damage! (HP: {})",
-                    defender_unit.unit_type.name(),
+                    game_data.unit_name(defender_unit.unit_type),
                     counter_damage,
                     attacker_unit.hp
                 );
@@ -241,7 +274,7 @@ fn process_attacks(
                 commanders.charge(attacker_faction.faction, counter_charge / 2);
 
                 if attacker_unit.hp <= 0 {
-                    info!("{} destroyed by counter-attack!", attacker_unit.unit_type.name());
+                    info!("{} destroyed by counter-attack!", game_data.unit_name(attacker_unit.unit_type));
                     commands.entity(event.attacker).despawn();
                 }
             }

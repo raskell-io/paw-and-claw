@@ -39,6 +39,12 @@ const DEFAULT_TERRAIN_RON: &str = include_str!("../../assets/data/terrain.ron");
 /// Default commanders data embedded at compile time
 const DEFAULT_COMMANDERS_RON: &str = include_str!("../../assets/data/commanders.ron");
 
+/// Default damage tables embedded at compile time
+const DEFAULT_DAMAGE_TABLES_RON: &str = include_str!("../../assets/data/damage_tables.ron");
+
+/// Default movement costs embedded at compile time
+const DEFAULT_MOVEMENT_COSTS_RON: &str = include_str!("../../assets/data/movement_costs.ron");
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -215,6 +221,22 @@ pub struct CommandersRegistry {
     pub commanders: HashMap<String, CommanderData>,
 }
 
+/// Container for damage tables (unit vs unit base damage percentages)
+/// The outer key is the attacker unit type, inner key is defender unit type
+/// Values are base damage percentages (0-100+, where 100 = can one-shot at full HP)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DamageTablesRegistry {
+    pub tables: HashMap<String, HashMap<String, u32>>,
+}
+
+/// Container for movement costs (terrain vs unit class)
+/// The outer key is terrain type, inner key is unit class
+/// Values are movement point costs (99 = impassable)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MovementCostsRegistry {
+    pub costs: HashMap<String, HashMap<String, u32>>,
+}
+
 // ============================================================================
 // GAME DATA RESOURCE
 // ============================================================================
@@ -226,6 +248,8 @@ pub struct GameData {
     pub units: UnitsRegistry,
     pub terrain: TerrainRegistry,
     pub commanders: CommandersRegistry,
+    pub damage_tables: DamageTablesRegistry,
+    pub movement_costs: MovementCostsRegistry,
     /// Whether mods have been loaded
     pub mods_loaded: bool,
     /// List of loaded mod names
@@ -249,12 +273,18 @@ impl GameData {
             .expect("Failed to parse embedded terrain.ron");
         let commanders = ron::from_str(DEFAULT_COMMANDERS_RON)
             .expect("Failed to parse embedded commanders.ron");
+        let damage_tables = ron::from_str(DEFAULT_DAMAGE_TABLES_RON)
+            .expect("Failed to parse embedded damage_tables.ron");
+        let movement_costs = ron::from_str(DEFAULT_MOVEMENT_COSTS_RON)
+            .expect("Failed to parse embedded movement_costs.ron");
 
         Self {
             factions,
             units,
             terrain,
             commanders,
+            damage_tables,
+            movement_costs,
             mods_loaded: false,
             loaded_mods: Vec::new(),
         }
@@ -396,6 +426,193 @@ impl GameData {
         let key = commander_to_key(id);
         self.commanders.commanders.get(key)
     }
+
+    // ========================================================================
+    // CONVENIENCE LOOKUP METHODS
+    // ========================================================================
+    // These methods provide direct access to commonly-used data fields,
+    // with sensible fallbacks if data is not found.
+
+    /// Get faction name (falls back to debug name if not in GameData)
+    pub fn faction_name(&self, faction: Faction) -> &str {
+        self.get_faction(faction)
+            .map(|f| f.name.as_str())
+            .unwrap_or_else(|| match faction {
+                Faction::Eastern => "Eastern Empire",
+                Faction::Northern => "Northern Realm",
+                Faction::Western => "Western Frontier",
+                Faction::Southern => "Southern Pride",
+                Faction::Nether => "Nether Dominion",
+            })
+    }
+
+    /// Get faction description
+    pub fn faction_description(&self, faction: Faction) -> &str {
+        self.get_faction(faction)
+            .map(|f| f.description.as_str())
+            .unwrap_or("No description available.")
+    }
+
+    /// Get faction color as Bevy Color
+    pub fn faction_color(&self, faction: Faction) -> Color {
+        self.get_faction(faction)
+            .map(|f| Color::srgb(f.color[0], f.color[1], f.color[2]))
+            .unwrap_or(Color::srgb(0.5, 0.5, 0.5))
+    }
+
+    /// Get faction unit cost modifier
+    pub fn faction_cost_modifier(&self, faction: Faction) -> f32 {
+        self.get_faction(faction)
+            .map(|f| f.unit_cost_modifier)
+            .unwrap_or(1.0)
+    }
+
+    /// Get unit name
+    pub fn unit_name(&self, unit_type: UnitType) -> &str {
+        self.get_unit(unit_type)
+            .map(|u| u.name.as_str())
+            .unwrap_or("Unknown Unit")
+    }
+
+    /// Get unit description
+    pub fn unit_description(&self, unit_type: UnitType) -> &str {
+        self.get_unit(unit_type)
+            .map(|u| u.description.as_str())
+            .unwrap_or("No description available.")
+    }
+
+    /// Get unit stats
+    pub fn unit_stats(&self, unit_type: UnitType) -> Option<&UnitStatsData> {
+        self.get_unit(unit_type).map(|u| &u.stats)
+    }
+
+    /// Get terrain name
+    pub fn terrain_name(&self, terrain: Terrain) -> &str {
+        self.get_terrain(terrain)
+            .map(|t| t.name.as_str())
+            .unwrap_or("Unknown Terrain")
+    }
+
+    /// Get terrain defense bonus
+    pub fn terrain_defense(&self, terrain: Terrain) -> u32 {
+        self.get_terrain(terrain)
+            .map(|t| t.defense)
+            .unwrap_or(0)
+    }
+
+    /// Get terrain movement cost
+    pub fn terrain_movement_cost(&self, terrain: Terrain) -> u32 {
+        self.get_terrain(terrain)
+            .map(|t| t.movement_cost)
+            .unwrap_or(1)
+    }
+
+    /// Get terrain color as Bevy Color
+    pub fn terrain_color(&self, terrain: Terrain) -> Color {
+        self.get_terrain(terrain)
+            .map(|t| Color::srgb(t.color[0], t.color[1], t.color[2]))
+            .unwrap_or(Color::srgb(0.5, 0.5, 0.5))
+    }
+
+    /// Check if terrain is capturable
+    pub fn terrain_capturable(&self, terrain: Terrain) -> bool {
+        self.get_terrain(terrain)
+            .map(|t| t.capturable)
+            .unwrap_or(false)
+    }
+
+    /// Get terrain capture points required
+    pub fn terrain_capture_points(&self, terrain: Terrain) -> u32 {
+        self.get_terrain(terrain)
+            .map(|t| t.capture_points)
+            .unwrap_or(0)
+    }
+
+    /// Get terrain income value
+    pub fn terrain_income(&self, terrain: Terrain) -> u32 {
+        self.get_terrain(terrain)
+            .map(|t| t.income)
+            .unwrap_or(0)
+    }
+
+    /// Get commander name
+    pub fn commander_name(&self, id: CommanderId) -> &str {
+        self.get_commander(id)
+            .map(|c| c.name.as_str())
+            .unwrap_or("Unknown Commander")
+    }
+
+    /// Get commander description
+    pub fn commander_description(&self, id: CommanderId) -> &str {
+        self.get_commander(id)
+            .map(|c| c.description.as_str())
+            .unwrap_or("No description available.")
+    }
+
+    /// Get commander power name
+    pub fn commander_power_name(&self, id: CommanderId) -> &str {
+        self.get_commander(id)
+            .map(|c| c.power.name.as_str())
+            .unwrap_or("Unknown Power")
+    }
+
+    /// Get commander power description
+    pub fn commander_power_description(&self, id: CommanderId) -> &str {
+        self.get_commander(id)
+            .map(|c| c.power.description.as_str())
+            .unwrap_or("No description available.")
+    }
+
+    // === DAMAGE TABLE LOOKUPS ===
+
+    /// Get base damage percentage for attacker vs defender matchup
+    /// Returns None if no entry exists (unit cannot attack that target)
+    pub fn get_base_damage(&self, attacker: UnitType, defender: UnitType) -> Option<u32> {
+        let attacker_key = unit_type_to_key(attacker);
+        let defender_key = unit_type_to_key(defender);
+
+        self.damage_tables.tables
+            .get(attacker_key)
+            .and_then(|targets| targets.get(defender_key))
+            .copied()
+    }
+
+    /// Check if attacker can damage defender (has a damage table entry)
+    pub fn can_damage(&self, attacker: UnitType, defender: UnitType) -> bool {
+        self.get_base_damage(attacker, defender).is_some()
+    }
+
+    // === MOVEMENT COST LOOKUPS ===
+
+    /// Get movement cost for a unit class on a terrain type
+    /// Returns None if no entry exists, caller should use terrain default or 99 (impassable)
+    pub fn get_movement_cost(&self, terrain: Terrain, unit_class: UnitClass) -> Option<u32> {
+        let terrain_key = terrain_to_key(terrain);
+        let class_key = unit_class_to_key(unit_class);
+
+        self.movement_costs.costs
+            .get(terrain_key)
+            .and_then(|classes| classes.get(class_key))
+            .copied()
+    }
+
+    /// Get movement cost with fallback to terrain default
+    pub fn movement_cost_or_default(&self, terrain: Terrain, unit_class: UnitClass) -> u32 {
+        self.get_movement_cost(terrain, unit_class)
+            .unwrap_or_else(|| {
+                // Fallback to terrain's base movement cost
+                self.get_terrain(terrain)
+                    .map(|t| t.movement_cost)
+                    .unwrap_or(1)
+            })
+    }
+
+    /// Check if terrain is passable for a unit class
+    pub fn is_passable(&self, terrain: Terrain, unit_class: UnitClass) -> bool {
+        self.get_movement_cost(terrain, unit_class)
+            .map(|cost| cost < 99)
+            .unwrap_or(true) // Default to passable if no entry
+    }
 }
 
 // ============================================================================
@@ -472,5 +689,18 @@ fn commander_to_key(id: CommanderId) -> &'static str {
         CommanderId::Burrower => "burrower",
         CommanderId::Hivemind => "hivemind",
         CommanderId::Dredge => "dredge",
+    }
+}
+
+fn unit_class_to_key(class: UnitClass) -> &'static str {
+    match class {
+        UnitClass::Foot => "foot",
+        UnitClass::Wheels => "wheels",
+        UnitClass::Treads => "treads",
+        UnitClass::Air => "air",
+        UnitClass::Naval => "naval",
+        UnitClass::Transport => "transport",
+        UnitClass::AirTransport => "air_transport",
+        UnitClass::NavalTransport => "naval_transport",
     }
 }
