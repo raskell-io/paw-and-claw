@@ -747,6 +747,8 @@ fn handle_keyboard_input(
                 highlights.tiles = tiles;
                 highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
+                // Start path from unit's position
+                movement_path.start(IVec2::new(cursor.x, cursor.y));
                 info!("Selected unit at ({}, {})", cursor.x, cursor.y);
             }
         }
@@ -1063,6 +1065,8 @@ fn handle_click_input(
                 highlights.selected_unit = Some(entity);
                 highlights.tiles = tiles;
                 highlights.attack_targets = attack_targets;
+                // Start path from unit's new position
+                movement_path.start(IVec2::new(grid_x, grid_y));
                 info!("Switched selection to unit at ({}, {})", grid_x, grid_y);
                 return;
             }
@@ -1193,6 +1197,8 @@ fn handle_click_input(
         highlights.tiles = tiles;
         highlights.tile_costs = tile_costs;
         highlights.attack_targets = attack_targets;
+        // Start path from unit's position
+        movement_path.start(IVec2::new(x, y));
         info!("Selected unit at ({}, {}), can reach {} tiles", x, y, highlights.tiles.len());
         return;
     }
