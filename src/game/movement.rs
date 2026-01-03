@@ -589,9 +589,17 @@ fn handle_keyboard_input(
         cursor.visible = true;
 
         if let Some(selected_entity) = highlights.selected_unit {
-            // Check if cursor is on an attack target (before moving)
+            // Use path destination if path exists, otherwise use cursor
+            let (target_x, target_y) = if movement_path.path.len() >= 2 {
+                let dest = movement_path.path.last().unwrap();
+                (dest.x, dest.y)
+            } else {
+                (cursor.x, cursor.y)
+            };
+
+            // Check if target is an attack target (before moving)
             let target_entity = units.iter()
-                .find(|(e, p, _, _, _)| p.x == cursor.x && p.y == cursor.y && highlights.attack_targets.contains(e))
+                .find(|(e, p, _, _, _)| p.x == target_x && p.y == target_y && highlights.attack_targets.contains(e))
                 .map(|(e, _, _, _, _)| e);
 
             if let Some(target) = target_entity {
@@ -614,8 +622,11 @@ fn handle_keyboard_input(
                 return;
             }
 
-            // Try to move to cursor position
-            if highlights.tiles.contains(&(cursor.x, cursor.y)) {
+            // Try to move to path destination or cursor position
+            if highlights.tiles.contains(&(target_x, target_y)) {
+                // Update cursor to match target
+                cursor.x = target_x;
+                cursor.y = target_y;
                 // Check if target has a joinable unit (friendly same-type)
                 let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type));
                 let joinable_unit = units.iter()
@@ -1018,7 +1029,7 @@ fn handle_click_input(
         }
 
         if highlights.tiles.contains(&(grid_x, grid_y)) {
-            // Check if clicking on the same unit (deselect) or empty tile (move)
+            // Check if clicking on the same unit (deselect) or empty tile (draw path)
             let clicking_on_selected = units.iter()
                 .any(|(e, p, _, _, _)| e == selected_entity && p.x == grid_x && p.y == grid_y);
 
@@ -1029,6 +1040,13 @@ fn handle_click_input(
                 highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
                 movement_path.clear();
+                return;
+            }
+
+            // If path drawing is active, let handle_path_drawing manage clicks
+            // Don't immediately move - wait for path to be confirmed
+            if movement_path.drawing && movement_path.path.len() >= 1 {
+                // Path is being drawn, let the path drawing system handle this
                 return;
             }
 
@@ -1441,8 +1459,10 @@ fn handle_keyboard_path_drawing(
     }
 
     if dx != 0 || dy != 0 {
+        info!("WASD input: dx={}, dy={}, path_len={}", dx, dy, movement_path.path.len());
         if let Some(last_pos) = movement_path.path.last().copied() {
             let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
+            info!("Trying to extend from ({},{}) to ({},{})", last_pos.x, last_pos.y, new_pos.x, new_pos.y);
 
             // Try to extend path
             if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs) {
@@ -1450,7 +1470,12 @@ fn handle_keyboard_path_drawing(
                 cursor.x = new_pos.x;
                 cursor.y = new_pos.y;
                 cursor.visible = true;
+                info!("Path extended! New length: {}", movement_path.path.len());
+            } else {
+                info!("Failed to extend - tile not in range or not adjacent");
             }
+        } else {
+            info!("No path started yet");
         }
     }
 }
