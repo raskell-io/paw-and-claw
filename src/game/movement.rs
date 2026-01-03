@@ -1,8 +1,18 @@
 use bevy::prelude::*;
+use bevy::render::mesh::Mesh3d;
+use bevy::pbr::MeshMaterial3d;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction};
 use crate::states::GameState;
+
+/// Marker component for movement highlight mesh entities
+#[derive(Component)]
+pub struct MovementHighlightMesh;
+
+/// Marker component for attack target highlight mesh entities
+#[derive(Component)]
+pub struct AttackHighlightMesh;
 
 /// Convert screen position to grid coordinates using ray-plane intersection
 /// Returns None if the ray doesn't hit the ground plane or is outside the map
@@ -59,7 +69,7 @@ impl Plugin for MovementPlugin {
                 handle_camera_angle_toggle,
                 update_camera_angle,
                 handle_click_input,
-                update_movement_highlights,
+                spawn_movement_highlight_meshes,
                 draw_grid_cursor,
                 draw_action_targets,
                 draw_resource_warnings,
@@ -1065,61 +1075,86 @@ fn handle_click_input(
     production_state.active = false;
 }
 
-fn update_movement_highlights(
+/// Spawn mesh entities for movement and attack highlights
+fn spawn_movement_highlight_meshes(
+    mut commands: Commands,
     highlights: Res<MovementHighlights>,
-    mut gizmos: Gizmos,
     map: Res<GameMap>,
     units: Query<(&GridPosition, &FactionMember)>,
+    existing_move_highlights: Query<Entity, With<MovementHighlightMesh>>,
+    existing_attack_highlights: Query<Entity, With<AttackHighlightMesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // Only update when highlights change
+    if !highlights.is_changed() {
+        return;
+    }
+
+    // Despawn old highlight meshes
+    for entity in existing_move_highlights.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    for entity in existing_attack_highlights.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
     let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
 
-    // Rotation to lay the rectangle flat on the XZ plane
-    let flat_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    // Create movement highlight material (semi-transparent blue)
+    let move_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.2, 0.5, 1.0, 0.4),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
 
-    // Draw movement range (blue) - multiple layers for visibility
+    // Create attack highlight material (semi-transparent red)
+    let attack_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(1.0, 0.2, 0.2, 0.5),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    // Height offset to place highlights just above ground
+    let highlight_height = 0.1;
+
+    // Spawn movement range highlight meshes
     for &(x, y) in &highlights.tiles {
         let world_x = x as f32 * TILE_SIZE + offset_x;
         let world_z = y as f32 * TILE_SIZE + offset_z;
 
-        // Outer border (bright)
-        gizmos.rect(
-            Isometry3d::new(Vec3::new(world_x, 0.02, world_z), flat_rotation),
-            Vec2::splat(TILE_SIZE - 2.0),
-            Color::srgba(0.3, 0.7, 1.0, 0.9),
-        );
-        // Middle fill
-        gizmos.rect(
-            Isometry3d::new(Vec3::new(world_x, 0.03, world_z), flat_rotation),
-            Vec2::splat(TILE_SIZE - 6.0),
-            Color::srgba(0.2, 0.5, 0.9, 0.7),
-        );
-        // Inner highlight
-        gizmos.rect(
-            Isometry3d::new(Vec3::new(world_x, 0.04, world_z), flat_rotation),
-            Vec2::splat(TILE_SIZE - 10.0),
-            Color::srgba(0.4, 0.8, 1.0, 0.5),
-        );
+        // Create a flat plane mesh for this tile
+        let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
+
+        commands.spawn((
+            Mesh3d(plane_mesh),
+            MeshMaterial3d(move_material.clone()),
+            Transform::from_xyz(world_x, highlight_height, world_z),
+            MovementHighlightMesh,
+        ));
     }
 
-    // Draw attack targets (red)
+    // Spawn attack target highlight meshes
     for target_entity in &highlights.attack_targets {
         if let Ok((pos, _)) = units.get(*target_entity) {
             let world_x = pos.x as f32 * TILE_SIZE + offset_x;
             let world_z = pos.y as f32 * TILE_SIZE + offset_z;
 
-            // Red border for attack target
-            gizmos.rect(
-                Isometry3d::new(Vec3::new(world_x, 0.05, world_z), flat_rotation),
-                Vec2::splat(TILE_SIZE - 2.0),
-                Color::srgba(1.0, 0.2, 0.2, 0.8),
-            );
-            // Inner red highlight
-            gizmos.rect(
-                Isometry3d::new(Vec3::new(world_x, 0.06, world_z), flat_rotation),
-                Vec2::splat(TILE_SIZE - 6.0),
-                Color::srgba(1.0, 0.3, 0.3, 0.4),
-            );
+            let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
+
+            commands.spawn((
+                Mesh3d(plane_mesh),
+                MeshMaterial3d(attack_material.clone()),
+                Transform::from_xyz(world_x, highlight_height + 0.05, world_z),
+                AttackHighlightMesh,
+            ));
         }
     }
 }
