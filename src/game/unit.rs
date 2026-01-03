@@ -14,60 +14,108 @@ impl Plugin for UnitPlugin {
     }
 }
 
-/// Component for smooth unit movement animation
+/// Component for smooth unit movement animation along a path
 #[derive(Component)]
 pub struct UnitAnimation {
-    /// Starting world position
-    pub start_pos: Vec3,
-    /// Target world position
-    pub end_pos: Vec3,
-    /// Animation progress (0.0 to 1.0)
-    pub progress: f32,
-    /// Animation speed (units per second, higher = faster)
+    /// Waypoints to move through (world positions)
+    pub waypoints: Vec<Vec3>,
+    /// Current waypoint index (moving toward waypoints[current_waypoint])
+    pub current_waypoint: usize,
+    /// Progress within current segment (0.0 to 1.0)
+    pub segment_progress: f32,
+    /// Animation speed (segments per second, higher = faster)
     pub speed: f32,
 }
 
 impl UnitAnimation {
-    /// Create a new movement animation
+    /// Create a new movement animation with a single destination (backwards compatible)
     pub fn new(start: Vec3, end: Vec3) -> Self {
         Self {
-            start_pos: start,
-            end_pos: end,
-            progress: 0.0,
-            speed: 5.0, // Complete animation in ~0.2 seconds per tile
+            waypoints: vec![start, end],
+            current_waypoint: 1,
+            segment_progress: 0.0,
+            speed: 5.0, // Complete each tile in ~0.2 seconds
         }
     }
 
-    /// Check if animation is complete
+    /// Create a new movement animation following a path of waypoints
+    pub fn from_path(waypoints: Vec<Vec3>) -> Self {
+        Self {
+            waypoints,
+            current_waypoint: 1,
+            segment_progress: 0.0,
+            speed: 5.0,
+        }
+    }
+
+    /// Check if animation is complete (reached final waypoint)
     pub fn is_complete(&self) -> bool {
-        self.progress >= 1.0
+        self.current_waypoint >= self.waypoints.len()
+    }
+
+    /// Get current start position (previous waypoint)
+    fn current_start(&self) -> Vec3 {
+        self.waypoints.get(self.current_waypoint.saturating_sub(1))
+            .copied()
+            .unwrap_or(Vec3::ZERO)
+    }
+
+    /// Get current target position
+    fn current_target(&self) -> Vec3 {
+        self.waypoints.get(self.current_waypoint)
+            .copied()
+            .unwrap_or(self.current_start())
+    }
+
+    /// Get final destination
+    pub fn final_position(&self) -> Vec3 {
+        self.waypoints.last().copied().unwrap_or(Vec3::ZERO)
     }
 }
 
-/// System to animate unit movement smoothly
+/// System to animate unit movement smoothly along waypoints
 fn animate_unit_movement(
     mut commands: Commands,
     time: Res<Time>,
     mut units: Query<(Entity, &mut Transform, &mut UnitAnimation)>,
 ) {
     for (entity, mut transform, mut animation) in units.iter_mut() {
-        // Update progress
-        animation.progress += time.delta_secs() * animation.speed;
-        animation.progress = animation.progress.min(1.0);
-
         if animation.is_complete() {
             // Animation done - snap to final position and remove component
-            transform.translation.x = animation.end_pos.x;
-            transform.translation.z = animation.end_pos.z;
+            let final_pos = animation.final_position();
+            transform.translation.x = final_pos.x;
+            transform.translation.z = final_pos.z;
+            commands.entity(entity).remove::<UnitAnimation>();
+            continue;
+        }
+
+        // Update segment progress
+        animation.segment_progress += time.delta_secs() * animation.speed;
+
+        // Check if we've completed the current segment
+        while animation.segment_progress >= 1.0 && !animation.is_complete() {
+            animation.segment_progress -= 1.0;
+            animation.current_waypoint += 1;
+        }
+
+        if animation.is_complete() {
+            // Finished all segments
+            let final_pos = animation.final_position();
+            transform.translation.x = final_pos.x;
+            transform.translation.z = final_pos.z;
             commands.entity(entity).remove::<UnitAnimation>();
         } else {
+            // Interpolate within current segment
+            let start = animation.current_start();
+            let target = animation.current_target();
+
             // Smooth interpolation using smoothstep for nice easing
-            let t = animation.progress;
+            let t = animation.segment_progress.min(1.0);
             let t_smooth = t * t * (3.0 - 2.0 * t);
 
             // Lerp position (only X and Z, preserve Y height)
-            transform.translation.x = animation.start_pos.x + (animation.end_pos.x - animation.start_pos.x) * t_smooth;
-            transform.translation.z = animation.start_pos.z + (animation.end_pos.z - animation.start_pos.z) * t_smooth;
+            transform.translation.x = start.x + (target.x - start.x) * t_smooth;
+            transform.translation.z = start.z + (target.z - start.z) * t_smooth;
         }
     }
 }

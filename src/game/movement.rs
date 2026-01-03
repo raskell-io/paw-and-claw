@@ -681,19 +681,28 @@ fn handle_keyboard_input(
                         highlights.tile_costs.get(&(cursor.x, cursor.y)).copied().unwrap_or(1)
                     };
 
-                    // Move the unit with animation
+                    // Move the unit with animation following the path
                     let faction_copy;
                     let unit_copy;
-                    let start_pos;
                     if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
-                        start_pos = transform.translation;
+                        let start_pos = transform.translation;
                         grid_pos.x = cursor.x;
                         grid_pos.y = cursor.y;
-                        // Calculate end position (preserve Y height)
-                        let new_world_pos = grid_pos.to_world(&map);
-                        let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
-                        // Add animation component for smooth movement
-                        commands.entity(selected_entity).insert(UnitAnimation::new(start_pos, end_pos));
+
+                        // Convert path to world positions for animation
+                        let waypoints: Vec<Vec3> = if movement_path.path.len() >= 2 {
+                            movement_path.path.iter().map(|p| {
+                                let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
+                                Vec3::new(world_pos.x, start_pos.y, world_pos.z)
+                            }).collect()
+                        } else {
+                            // Fallback: direct path if no drawn path
+                            let end_world = grid_pos.to_world(&map);
+                            vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
+                        };
+
+                        // Add animation component for smooth movement along path
+                        commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
                         unit.moved = true;
                         // Deduct stamina based on path cost
                         unit.stamina = unit.stamina.saturating_sub(move_cost);
@@ -1139,7 +1148,7 @@ fn handle_click_input(
                 })
                 .map(|(e, _, _, _, _)| e);
 
-            // Move the unit with animation
+            // Move the unit with animation following the path
             let new_pos = GridPosition::new(grid_x, grid_y);
 
             // Use path total cost if available, otherwise fall back to tile cost
@@ -1155,11 +1164,21 @@ fn handle_click_input(
                 let start_pos = transform.translation;
                 grid_pos.x = grid_x;
                 grid_pos.y = grid_y;
-                // Calculate end position (preserve Y height)
-                let new_world_pos = grid_pos.to_world(&map);
-                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
-                // Add animation component for smooth movement
-                commands.entity(selected_entity).insert(UnitAnimation::new(start_pos, end_pos));
+
+                // Convert path to world positions for animation
+                let waypoints: Vec<Vec3> = if input.movement_path.path.len() >= 2 {
+                    input.movement_path.path.iter().map(|p| {
+                        let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
+                        Vec3::new(world_pos.x, start_pos.y, world_pos.z)
+                    }).collect()
+                } else {
+                    // Fallback: direct path if no drawn path
+                    let end_world = grid_pos.to_world(&map);
+                    vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
+                };
+
+                // Add animation component for smooth movement along path
+                commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
                 unit.moved = true;
                 // Deduct stamina based on path cost
                 unit.stamina = unit.stamina.saturating_sub(move_cost);
