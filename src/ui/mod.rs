@@ -95,7 +95,27 @@ pub struct InGameMenuState {
     pub open: bool,
 }
 
+/// Resource to track if egui is ready (needs a frame to initialize)
+#[derive(Resource, Default)]
+pub struct EguiReady {
+    pub frames: u32,
+}
+
+impl EguiReady {
+    pub fn is_ready(&self) -> bool {
+        self.frames >= 2  // Wait 2 frames for egui to fully initialize
+    }
+}
+
 pub struct UiPlugin;
+
+fn egui_is_ready(egui_ready: Res<EguiReady>) -> bool {
+    egui_ready.is_ready()
+}
+
+fn increment_egui_frame_counter(mut egui_ready: ResMut<EguiReady>) {
+    egui_ready.frames = egui_ready.frames.saturating_add(1);
+}
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
@@ -105,6 +125,8 @@ impl Plugin for UiPlugin {
             .init_resource::<HoveredUnit>()
             .init_resource::<SelectedTile>()
             .init_resource::<InGameMenuState>()
+            .init_resource::<EguiReady>()
+            .add_systems(Update, increment_egui_frame_counter)
             .add_systems(Update, (
                 draw_main_menu.run_if(in_state(GameState::Menu)),
                 draw_battle_setup.run_if(in_state(GameState::Battle)),
@@ -122,7 +144,7 @@ impl Plugin for UiPlugin {
                 draw_unit_hp_numbers.run_if(in_state(GameState::Battle)),
                 draw_editor.run_if(in_state(GameState::Editor)),
                 editor_paint.run_if(in_state(GameState::Editor)),
-            ))
+            ).run_if(egui_is_ready))
             .add_systems(Startup, start_battle_for_testing)
             .add_systems(OnEnter(GameState::Battle), trigger_battle_setup)
             .add_systems(OnEnter(GameState::Editor), setup_editor)
