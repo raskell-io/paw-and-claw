@@ -3,7 +3,7 @@
 
 (
     terrain: {
-        // ========== GROUND TERRAIN ==========
+        // Ground terrain
         "grass": (
             name: "Grass",
             description: "Open grass - easy movement, no cover",
@@ -12,7 +12,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.35, 0.55, 0.25],  // Green
+            color: (0.35, 0.55, 0.25),
             feature_height: 0.0,
             tile_height: 0.0,
             asset_name: "grass",
@@ -25,7 +25,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.3, 0.5, 0.2],  // Darker green
+            color: (0.3, 0.5, 0.2),
             feature_height: 0.0,
             tile_height: 0.0,
             asset_name: "tall_grass",
@@ -38,7 +38,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.2, 0.4, 0.15],  // Forest green
+            color: (0.2, 0.4, 0.15),
             feature_height: 32.0,
             tile_height: 2.0,
             asset_name: "thicket",
@@ -51,7 +51,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.25, 0.35, 0.18],  // Thorny green-brown
+            color: (0.25, 0.35, 0.18),
             feature_height: 24.0,
             tile_height: 1.5,
             asset_name: "brambles",
@@ -64,7 +64,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.45, 0.35, 0.25],  // Brown
+            color: (0.45, 0.35, 0.25),
             feature_height: 16.0,
             tile_height: 1.0,
             asset_name: "log",
@@ -77,7 +77,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.5, 0.5, 0.55],  // Grey
+            color: (0.5, 0.5, 0.55),
             feature_height: 28.0,
             tile_height: 3.0,
             asset_name: "boulder",
@@ -90,13 +90,13 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.4, 0.3, 0.2],  // Dark brown
+            color: (0.4, 0.3, 0.2),
             feature_height: 36.0,
             tile_height: 2.5,
             asset_name: "hollow",
         ),
 
-        // ========== WATER TERRAIN ==========
+        // Water terrain
         "creek": (
             name: "Creek",
             description: "Shallow creek - slows ground units",
@@ -105,7 +105,7 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.3, 0.5, 0.7],  // Light blue
+            color: (0.3, 0.5, 0.7),
             feature_height: 0.0,
             tile_height: -1.0,
             asset_name: "creek",
@@ -114,11 +114,11 @@
             name: "Pond",
             description: "Deep pond - impassable for ground, naval units only",
             defense: 0,
-            movement_cost: 99,  // Impassable for ground
+            movement_cost: 99,
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.2, 0.4, 0.65],  // Deep blue
+            color: (0.2, 0.4, 0.65),
             feature_height: 0.0,
             tile_height: -2.0,
             asset_name: "pond",
@@ -131,13 +131,13 @@
             capturable: false,
             capture_points: 0,
             income: 0,
-            color: [0.55, 0.5, 0.35],  // Sandy brown
+            color: (0.55, 0.5, 0.35),
             feature_height: 0.0,
             tile_height: -0.5,
             asset_name: "shore",
         ),
 
-        // ========== SPECIAL TERRAIN ==========
+        // Special terrain
         "base": (
             name: "Base",
             description: "Fortified base - spawn point, high defense",
@@ -146,7 +146,7 @@
             capturable: true,
             capture_points: 20,
             income: 1000,
-            color: [0.5, 0.45, 0.4],  // Stone grey
+            color: (0.5, 0.45, 0.4),
             feature_height: 48.0,
             tile_height: 3.0,
             asset_name: "base",
@@ -159,7 +159,7 @@
             capturable: true,
             capture_points: 20,
             income: 1000,
-            color: [0.55, 0.5, 0.45],  // Light stone
+            color: (0.55, 0.5, 0.45),
             feature_height: 40.0,
             tile_height: 2.0,
             asset_name: "outpost",
@@ -172,7 +172,7 @@
             capturable: true,
             capture_points: 20,
             income: 500,
-            color: [0.48, 0.42, 0.35],  // Wood brown
+            color: (0.48, 0.42, 0.35),
             feature_height: 32.0,
             tile_height: 1.5,
             asset_name: "storehouse",
