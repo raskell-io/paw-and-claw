@@ -16,7 +16,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Paw & Claw".into(),
-                resolution: (1280.0, 720.0).into(),
+                resolution: (1280, 720).into(),
                 canvas: Some("#game-canvas".into()),
                 prevent_default_event_handling: false,
                 ..default()
@@ -48,6 +48,7 @@ fn setup_lighting(mut commands: Commands) {
     commands.insert_resource(AmbientLight {
         color: Color::WHITE,
         brightness: 0.6,
+        affects_lightmapped_meshes: true,
     });
 
     // Directional light (sun-like)

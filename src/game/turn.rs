@@ -32,7 +32,7 @@ pub enum VictoryType {
 }
 
 /// Event fired when a faction's turn starts
-#[derive(Event)]
+#[derive(Message)]
 pub struct TurnStartEvent {
     pub faction: Faction,
     #[allow(dead_code)]

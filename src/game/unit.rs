@@ -947,7 +947,7 @@ fn update_hp_displays(
 ) {
     for (unit, children) in units.iter() {
         for child in children.iter() {
-            if let Ok(mut text) = hp_displays.get_mut(*child) {
+            if let Ok(mut text) = hp_displays.get_mut(child) {
                 // HP 1-10 display (ceiling of HP/10)
                 let hp_display = ((unit.hp as f32) / 10.0).ceil() as i32;
                 let hp_display = hp_display.clamp(1, 10);

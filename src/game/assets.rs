@@ -6,16 +6,14 @@ use super::{Faction, UnitType, Terrain, TILE_SIZE};
 
 /// System parameter that bundles sprite assets and mesh/material stores for 3D rendering
 #[derive(SystemParam)]
-pub struct SpriteAssetsParam<'w, 's> {
+pub struct SpriteAssetsParam<'w> {
     pub assets: Res<'w, SpriteAssets>,
     pub images: Res<'w, Assets<Image>>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<StandardMaterial>>,
-    #[system_param(ignore)]
-    _marker: std::marker::PhantomData<&'s ()>,
 }
 
-impl<'w, 's> SpriteAssetsParam<'w, 's> {
+impl<'w> SpriteAssetsParam<'w> {
     /// Get unit sprite or fallback to procedural
     pub fn get_unit_sprite(&self, faction: Faction, unit_type: UnitType) -> SpriteSource {
         self.assets.get_unit_sprite(&self.images, faction, unit_type)

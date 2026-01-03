@@ -1,6 +1,4 @@
 use bevy::prelude::*;
-use bevy::render::mesh::{Mesh3d, Meshable};
-use bevy::pbr::MeshMaterial3d;
 use serde::{Deserialize, Serialize};
 
 use super::{Faction, spawn_unit};

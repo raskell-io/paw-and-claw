@@ -22,7 +22,7 @@ fn update_billboards(
     camera_query: Query<&Transform, With<Camera3d>>,
     mut billboards: Query<&mut Transform, (With<Billboard>, Without<Camera3d>)>,
 ) {
-    let Ok(camera) = camera_query.get_single() else { return };
+    let Ok(camera) = camera_query.single() else { return };
 
     // Get the camera's rotation - sprites should face opposite to camera's forward
     // This makes them appear flat/2D regardless of camera angle
@@ -202,7 +202,7 @@ fn get_procedural_feature_params(terrain: Terrain) -> (Color, Vec2) {
 
 /// Spawn a faction flag as 3D mesh child of a building
 fn spawn_faction_flag_3d(
-    parent: &mut ChildBuilder,
+    parent: &mut ChildSpawnerCommands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     faction: Faction,
@@ -255,7 +255,7 @@ fn get_feature_sprite_params(terrain: Terrain) -> (Color, Vec2) {
 
 /// Legacy spawn function - no longer used in 3D mode
 #[allow(dead_code)]
-fn spawn_building_roof(_parent: &mut ChildBuilder, _terrain: Terrain) {
+fn spawn_building_roof(_parent: &mut ChildSpawnerCommands, _terrain: Terrain) {
     // Roofs are now part of the building mesh in 3D mode
 }
 
@@ -272,7 +272,7 @@ pub fn update_building_flags(
             if feature.grid_position == tile.position && feature.terrain_type.is_capturable() {
                 // Update flag color
                 for child in feature_children.iter() {
-                    if let Ok(mut sprite) = flags.get_mut(*child) {
+                    if let Ok(mut sprite) = flags.get_mut(child) {
                         if let Some(owner) = tile.owner {
                             sprite.color = owner.color();
                         }

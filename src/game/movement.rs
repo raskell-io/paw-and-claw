@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
-use bevy::render::mesh::Mesh3d;
-use bevy::pbr::MeshMaterial3d;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction};
@@ -517,7 +515,7 @@ fn handle_keyboard_input(
     mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: Query<(Entity, &Tile)>,
     map: Res<GameMap>,
-    mut attack_events: EventWriter<AttackEvent>,
+    mut attack_events: MessageWriter<AttackEvent>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
     weather: Res<Weather>,
@@ -604,7 +602,7 @@ fn handle_keyboard_input(
 
             if let Some(target) = target_entity {
                 // Attack!
-                attack_events.send(AttackEvent {
+                attack_events.write(AttackEvent {
                     attacker: selected_entity,
                     defender: target,
                 });
@@ -865,7 +863,7 @@ fn update_camera_angle(
     zoom: Res<CameraZoom>,
     mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
-    let Ok(mut camera_transform) = camera_query.get_single_mut() else { return };
+    let Ok(mut camera_transform) = camera_query.single_mut() else { return };
 
     // Update transition progress based on mode
     let target = match angle.mode {
@@ -933,7 +931,7 @@ fn handle_click_input(
     mut cursor: ResMut<GridCursor>,
     mut turn_state: ResMut<TurnState>,
     map: Res<GameMap>,
-    mut attack_events: EventWriter<AttackEvent>,
+    mut attack_events: MessageWriter<AttackEvent>,
     game_ctx: GameStateContext,
     mut movement_path: ResMut<MovementPath>,
 ) {
@@ -948,8 +946,8 @@ fn handle_click_input(
             return;
         }
 
-        let window = windows.single();
-        let (camera, camera_transform) = cameras.single();
+        let Ok(window) = windows.single() else { return };
+        let Ok((camera, camera_transform)) = cameras.single() else { return };
 
         let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
             return;
@@ -965,7 +963,7 @@ fn handle_click_input(
 
             if let Some(target) = target_entity {
                 // Attack!
-                attack_events.send(AttackEvent {
+                attack_events.write(AttackEvent {
                     attacker: acting_entity,
                     defender: target,
                 });
@@ -987,8 +985,8 @@ fn handle_click_input(
         return;
     }
 
-    let window = windows.single();
-    let (camera, camera_transform) = cameras.single();
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = cameras.single() else { return };
 
     let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
         return;
@@ -1010,7 +1008,7 @@ fn handle_click_input(
 
         if let Some(target) = target_entity {
             // Attack!
-            attack_events.send(AttackEvent {
+            attack_events.write(AttackEvent {
                 attacker: selected_entity,
                 defender: target,
             });
@@ -1268,10 +1266,10 @@ fn spawn_movement_highlight_meshes(
 
     // Despawn old highlight meshes
     for entity in existing_move_highlights.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
     for entity in existing_attack_highlights.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 
     let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
@@ -1364,8 +1362,8 @@ fn handle_path_drawing(
         return;
     }
 
-    let Ok(window) = windows.get_single() else { return };
-    let Ok((camera, camera_transform)) = camera_query.get_single() else { return };
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = camera_query.single() else { return };
 
     let Some(cursor_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
         return;
@@ -1466,38 +1464,19 @@ fn handle_keyboard_path_drawing(
 
 /// Create an arrow mesh pointing in the +X direction (triangle)
 fn create_arrow_mesh() -> Mesh {
-    use bevy::render::mesh::PrimitiveTopology;
-
     // Arrow triangle vertices (pointing in +X direction, lying on XZ plane)
     // Made larger for visibility - about 1/3 of tile size
     let arrow_size = TILE_SIZE * 0.35;
     let arrow_width = TILE_SIZE * 0.25;
 
-    let positions = vec![
-        [arrow_size, 0.0, 0.0],           // Tip (front)
-        [-arrow_size * 0.4, 0.0, arrow_width],   // Back left
-        [-arrow_size * 0.4, 0.0, -arrow_width],  // Back right
-    ];
+    // Create a Triangle3d primitive and convert to mesh
+    let triangle = Triangle3d::new(
+        Vec3::new(arrow_size, 0.0, 0.0),              // Tip (front)
+        Vec3::new(-arrow_size * 0.4, 0.0, arrow_width),  // Back left
+        Vec3::new(-arrow_size * 0.4, 0.0, -arrow_width), // Back right
+    );
 
-    let normals = vec![
-        [0.0, 1.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 1.0, 0.0],
-    ];
-
-    let uvs = vec![
-        [0.5, 0.0],
-        [0.0, 1.0],
-        [1.0, 1.0],
-    ];
-
-    let indices = bevy::render::mesh::Indices::U32(vec![0, 1, 2]);
-
-    Mesh::new(PrimitiveTopology::TriangleList, bevy::render::render_asset::RenderAssetUsages::default())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-        .with_inserted_indices(indices)
+    Mesh::from(triangle)
 }
 
 /// Spawn mesh entities for path indicators
@@ -1516,7 +1495,7 @@ fn spawn_path_indicator_meshes(
 
     // Despawn old path meshes
     for entity in existing_path_meshes.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 
     if movement_path.path.len() < 2 {

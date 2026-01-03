@@ -275,7 +275,7 @@ fn apply_fog_to_features(
 
         // Apply brightness to child sprites (flags, roofs)
         for child in children.iter() {
-            if let Ok(mut child_sprite) = child_sprites.get_mut(*child) {
+            if let Ok(mut child_sprite) = child_sprites.get_mut(child) {
                 let child_base = child_sprite.color.to_srgba();
                 child_sprite.color = Color::srgba(
                     child_base.red * brightness,
@@ -299,7 +299,7 @@ fn apply_fog_to_units(
         for (_, _, mut vis, children) in units.iter_mut() {
             *vis = Visibility::Visible;
             for child in children.iter() {
-                if let Ok(mut child_vis) = child_visibility.get_mut(*child) {
+                if let Ok(mut child_vis) = child_visibility.get_mut(child) {
                     *child_vis = Visibility::Visible;
                 }
             }
@@ -312,7 +312,7 @@ fn apply_fog_to_units(
         if faction.faction == Faction::Eastern {
             *vis = Visibility::Visible;
             for child in children.iter() {
-                if let Ok(mut child_vis) = child_visibility.get_mut(*child) {
+                if let Ok(mut child_vis) = child_visibility.get_mut(child) {
                     *child_vis = Visibility::Visible;
                 }
             }
@@ -325,7 +325,7 @@ fn apply_fog_to_units(
             TileVisibility::Visible => {
                 *vis = Visibility::Visible;
                 for child in children.iter() {
-                    if let Ok(mut child_vis) = child_visibility.get_mut(*child) {
+                    if let Ok(mut child_vis) = child_visibility.get_mut(child) {
                         *child_vis = Visibility::Visible;
                     }
                 }
@@ -334,7 +334,7 @@ fn apply_fog_to_units(
                 // Hide enemy units in fog
                 *vis = Visibility::Hidden;
                 for child in children.iter() {
-                    if let Ok(mut child_vis) = child_visibility.get_mut(*child) {
+                    if let Ok(mut child_vis) = child_visibility.get_mut(child) {
                         *child_vis = Visibility::Hidden;
                     }
                 }

@@ -17,41 +17,41 @@ impl Plugin for CombatPlugin {
 }
 
 /// Event fired when a unit attacks another
-#[derive(Event)]
+#[derive(Message)]
 pub struct AttackEvent {
     pub attacker: Entity,
     pub defender: Entity,
 }
 
 /// Event fired when a unit attempts to capture a tile
-#[derive(Event)]
+#[derive(Message)]
 pub struct CaptureEvent {
     pub unit: Entity,
     pub tile: Entity,
 }
 
 /// Event fired when two units join/merge
-#[derive(Event)]
+#[derive(Message)]
 pub struct JoinEvent {
     pub source: Entity,  // Unit that moved (will be despawned)
     pub target: Entity,  // Unit being joined into (will receive HP/ammo/stamina)
 }
 
 /// Event fired when a Supplier unit resupplies adjacent friendly units
-#[derive(Event)]
+#[derive(Message)]
 pub struct ResupplyEvent {
     pub supplier: Entity,  // The Supplier unit performing resupply
 }
 
 /// Event fired when a unit is loaded into a transport
-#[derive(Event)]
+#[derive(Message)]
 pub struct LoadEvent {
     pub transport_pos: (i32, i32),  // Position of the transport
     pub passenger: Entity,           // The unit being loaded
 }
 
 /// Event fired when a unit is unloaded from a transport
-#[derive(Event)]
+#[derive(Message)]
 pub struct UnloadEvent {
     pub transport: Entity,  // The transport unit
     pub position: (i32, i32),  // Where to unload the passenger
@@ -370,7 +370,7 @@ fn process_joins(
         target_unit.moved = true;  // Unit has acted this turn
 
         // Despawn source unit (with children like shadows/borders)
-        commands.entity(event.source).despawn_recursive();
+        commands.entity(event.source).despawn();
     }
 }
 
@@ -508,7 +508,7 @@ fn process_load(
         );
 
         // Despawn the passenger entity (it's now stored as cargo)
-        commands.entity(event.passenger).despawn_recursive();
+        commands.entity(event.passenger).despawn();
     }
 }
 

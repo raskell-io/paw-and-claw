@@ -679,7 +679,7 @@ impl CoBonuses {
 // ============================================================================
 
 /// Event fired when a CO power is activated
-#[derive(Event)]
+#[derive(Message)]
 pub struct PowerActivatedEvent {
     pub faction: Faction,
     pub effect: PowerEffect,

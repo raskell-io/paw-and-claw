@@ -281,7 +281,7 @@ impl Weather {
 }
 
 /// Event fired when weather changes
-#[derive(Event)]
+#[derive(Message)]
 pub struct WeatherChangedEvent {
     pub old_weather: WeatherType,
     pub new_weather: WeatherType,
@@ -295,7 +295,7 @@ pub struct WeatherChangedEvent {
 fn weather_change_system(
     mut weather: ResMut<Weather>,
     turn_state: Res<crate::game::TurnState>,
-    mut weather_events: EventWriter<WeatherChangedEvent>,
+    mut weather_events: MessageWriter<WeatherChangedEvent>,
     mut last_turn: Local<u32>,
 ) {
     // Only check at start of new turns
@@ -312,7 +312,7 @@ fn weather_change_system(
     let old_weather = weather.current;
     if let Some(new_weather) = weather.try_random_change() {
         info!("Weather changed from {:?} to {:?}!", old_weather, new_weather);
-        weather_events.send(WeatherChangedEvent {
+        weather_events.write(WeatherChangedEvent {
             old_weather,
             new_weather,
         });

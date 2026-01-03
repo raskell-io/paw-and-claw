@@ -1802,11 +1802,11 @@ fn ai_turn_system(
     map: Res<GameMap>,
     mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: Query<(Entity, &Tile)>,
-    mut attack_events: EventWriter<AttackEvent>,
-    mut capture_events: EventWriter<CaptureEvent>,
+    mut attack_events: MessageWriter<AttackEvent>,
+    mut capture_events: MessageWriter<CaptureEvent>,
     game_result: Res<GameResult>,
     mut commanders: ResMut<Commanders>,
-    mut power_events: EventWriter<PowerActivatedEvent>,
+    mut power_events: MessageWriter<PowerActivatedEvent>,
     mut sprite_param: SpriteAssetsParam,
 ) {
     if game_result.game_over {
@@ -1859,7 +1859,7 @@ fn ai_turn_system(
                 if should_activate {
                     if let Some(effect) = commanders.activate_power(Faction::Northern) {
                         info!("AI activated CO Power: {}!", co.power.name);
-                        power_events.send(PowerActivatedEvent {
+                        power_events.write(PowerActivatedEvent {
                             faction: Faction::Northern,
                             effect,
                         });
@@ -1999,8 +1999,8 @@ fn execute_action(
     entity: Entity,
     units: &mut Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     map: &GameMap,
-    attack_events: &mut EventWriter<AttackEvent>,
-    capture_events: &mut EventWriter<CaptureEvent>,
+    attack_events: &mut MessageWriter<AttackEvent>,
+    capture_events: &mut MessageWriter<CaptureEvent>,
 ) {
     match action {
         AiAction::Attack { move_to, target } => {
@@ -2018,7 +2018,7 @@ fn execute_action(
                 unit.moved = true;
                 unit.attacked = true;
             }
-            attack_events.send(AttackEvent { attacker: entity, defender: target });
+            attack_events.write(AttackEvent { attacker: entity, defender: target });
         }
         AiAction::Capture { move_to, tile } => {
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
@@ -2034,7 +2034,7 @@ fn execute_action(
                 unit.moved = true;
                 unit.attacked = true;
             }
-            capture_events.send(CaptureEvent { unit: entity, tile });
+            capture_events.write(CaptureEvent { unit: entity, tile });
         }
         AiAction::Move { move_to } => {
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {

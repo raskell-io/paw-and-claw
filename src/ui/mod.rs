@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::core_pipeline::core_3d::Camera3d;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
 use crate::game::{
@@ -100,7 +99,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(EguiPlugin)
+        app.add_plugins(EguiPlugin::default())
             .init_resource::<BattleSetupState>()
             .init_resource::<EditorState>()
             .init_resource::<HoveredUnit>()
@@ -147,7 +146,8 @@ fn draw_main_menu(
     mut contexts: EguiContexts,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(100.0);
 
@@ -228,11 +228,13 @@ fn draw_battle_setup(
         return;
     }
 
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
     egui::Window::new("Battle Setup")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.set_min_width(700.0);
 
             // === FACTION SELECTION ===
@@ -433,12 +435,12 @@ fn draw_battle_ui(
     mut units: Query<(&mut Unit, &FactionMember, &GridPosition)>,
     funds: Res<FactionFunds>,
     tiles: Query<&Tile>,
-    mut turn_start_events: EventWriter<TurnStartEvent>,
+    mut turn_start_events: MessageWriter<TurnStartEvent>,
     ai_state: Res<AiState>,
     game_result: Res<GameResult>,
     mut fog: ResMut<FogOfWar>,
     mut commanders: ResMut<Commanders>,
-    mut power_events: EventWriter<PowerActivatedEvent>,
+    mut power_events: MessageWriter<PowerActivatedEvent>,
     selection_state: Res<BattleSetupState>,
     weather: Res<Weather>,
 ) {
@@ -452,12 +454,14 @@ fn draw_battle_ui(
         return;
     }
 
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
     let is_ai_turn = ai_state.enabled && turn_state.current_faction == Faction::Northern;
 
     // Top panel - turn info (bigger header with two rows)
     egui::TopBottomPanel::top("turn_info")
         .min_height(52.0)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
         ui.add_space(6.0);
 
         // First row: Turn info, Funds, CO Power, Weather
@@ -518,7 +522,7 @@ fn draw_battle_ui(
                 ui.add_enabled_ui(can_activate && !is_ai_turn, |ui| {
                     if ui.button(egui::RichText::new(format!("{}", co.power.name)).strong()).clicked() {
                         if let Some(effect) = commanders.activate_power(player_faction) {
-                            power_events.send(PowerActivatedEvent {
+                            power_events.write(PowerActivatedEvent {
                                 faction: player_faction,
                                 effect,
                             });
@@ -565,7 +569,7 @@ fn draw_battle_ui(
     // End Turn button - floating in bottom right corner
     egui::Area::new(egui::Id::new("end_turn_area"))
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -20.0))
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.add_enabled_ui(!is_ai_turn, |ui| {
                 let button = egui::Button::new(
                     egui::RichText::new("End Turn").size(22.0).strong()
@@ -603,7 +607,7 @@ fn draw_battle_ui(
                         .map(|t| t.terrain.income_value())
                         .sum();
 
-                    turn_start_events.send(TurnStartEvent {
+                    turn_start_events.write(TurnStartEvent {
                         faction: turn_state.current_faction,
                         income,
                     });
@@ -622,7 +626,7 @@ fn draw_battle_ui(
         {
             egui::SidePanel::right("unit_info")
                 .min_width(220.0)
-                .show(contexts.ctx_mut(), |ui| {
+                .show(ctx, |ui| {
                     ui.heading(unit.unit_type.name());
                     ui.label(egui::RichText::new(unit.unit_type.description()).weak().size(11.0));
                     ui.add_space(4.0);
@@ -709,7 +713,7 @@ fn draw_battle_ui(
     }
 
     // Bottom panel - controls hint
-    egui::TopBottomPanel::bottom("controls").show(contexts.ctx_mut(), |ui| {
+    egui::TopBottomPanel::bottom("controls").show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label("Click: Select/Move | WASD/Arrows: Pan camera | Space: Select/Confirm | ESC: Menu | F: Toggle Fog");
         });
@@ -768,11 +772,13 @@ fn draw_ingame_menu(
         return;
     }
 
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
     // Darken background
     egui::Area::new(egui::Id::new("menu_backdrop"))
         .fixed_pos(egui::pos2(0.0, 0.0))
         .order(egui::Order::Middle)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             let screen = ui.ctx().screen_rect();
             ui.painter().rect_filled(
                 screen,
@@ -787,7 +793,7 @@ fn draw_ingame_menu(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .min_width(250.0)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
 
@@ -847,12 +853,12 @@ fn draw_action_menu(
     mut turn_state: ResMut<TurnState>,
     mut units: Query<(&mut Unit, Option<&FactionMember>, Option<&GridPosition>)>,
     tiles: Query<&Tile>,
-    mut attack_events: EventWriter<AttackEvent>,
-    mut capture_events: EventWriter<CaptureEvent>,
-    mut join_events: EventWriter<JoinEvent>,
-    mut resupply_events: EventWriter<ResupplyEvent>,
-    mut load_events: EventWriter<LoadEvent>,
-    mut unload_events: EventWriter<UnloadEvent>,
+    mut attack_events: MessageWriter<AttackEvent>,
+    mut capture_events: MessageWriter<CaptureEvent>,
+    mut join_events: MessageWriter<JoinEvent>,
+    mut resupply_events: MessageWriter<ResupplyEvent>,
+    mut load_events: MessageWriter<LoadEvent>,
+    mut unload_events: MessageWriter<UnloadEvent>,
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
@@ -1032,12 +1038,14 @@ fn draw_action_menu(
         None
     };
 
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
     // Show action menu in center of screen
     egui::Window::new("Action")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.set_min_width(200.0);
 
             // Show available targets
@@ -1184,7 +1192,7 @@ fn draw_action_menu(
 
     // Process action outside the UI closure
     if let Some(target) = attack_target {
-        attack_events.send(AttackEvent {
+        attack_events.write(AttackEvent {
             attacker: acting_entity,
             defender: target,
         });
@@ -1202,7 +1210,7 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if capture_clicked {
         if let Some(tile_entity) = pending_action.capture_tile {
-            capture_events.send(CaptureEvent {
+            capture_events.write(CaptureEvent {
                 unit: acting_entity,
                 tile: tile_entity,
             });
@@ -1221,7 +1229,7 @@ fn draw_action_menu(
         }
     } else if join_clicked {
         if let Some(join_target) = pending_action.join_target {
-            join_events.send(JoinEvent {
+            join_events.write(JoinEvent {
                 source: acting_entity,
                 target: join_target,
             });
@@ -1239,7 +1247,7 @@ fn draw_action_menu(
         }
     } else if resupply_clicked {
         // Send resupply event - the system will handle finding and resupplying adjacent units
-        resupply_events.send(ResupplyEvent {
+        resupply_events.write(ResupplyEvent {
             supplier: acting_entity,
         });
 
@@ -1252,7 +1260,7 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if let Some(transport_pos) = load_target {
         // Send load event with transport position - the handler will find the transport
-        load_events.send(LoadEvent {
+        load_events.write(LoadEvent {
             transport_pos,
             passenger: acting_entity,
         });
@@ -1266,7 +1274,7 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if let Some(pos) = unload_position {
         // Send unload event
-        unload_events.send(UnloadEvent {
+        unload_events.write(UnloadEvent {
             transport: acting_entity,
             position: pos,
         });
@@ -1338,11 +1346,13 @@ fn draw_production_menu(
     let mut spawn_unit_type: Option<UnitType> = None;
     let mut spawn_cost: u32 = 0;
 
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
     egui::Window::new("Build Unit")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.set_min_width(250.0);
 
             ui.label(egui::RichText::new(format!("Funds: {}", current_funds)).strong());
@@ -1466,11 +1476,13 @@ fn draw_victory_screen(
     let mut restart_clicked = false;
     let mut menu_clicked = false;
 
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+
     // Dark overlay
     egui::Area::new(egui::Id::new("victory_overlay"))
         .fixed_pos(egui::pos2(0.0, 0.0))
         .order(egui::Order::Background)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             let screen_rect = ui.ctx().screen_rect();
             ui.painter().rect_filled(
                 screen_rect,
@@ -1485,7 +1497,7 @@ fn draw_victory_screen(
         .resizable(false)
         .title_bar(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.set_min_width(300.0);
 
             ui.vertical_centered(|ui| {
@@ -1581,7 +1593,8 @@ fn draw_unit_hp_numbers(
         return;
     }
 
-    let Ok((camera, camera_transform)) = camera.get_single() else { return };
+    let Ok((camera, camera_transform)) = camera.single() else { return };
+    let Ok(ctx) = contexts.ctx_mut() else { return };
 
     for (entity, unit, unit_transform, faction) in units.iter() {
         // Check fog visibility for enemy units
@@ -1615,7 +1628,7 @@ fn draw_unit_hp_numbers(
         egui::Area::new(egui::Id::new(("hp_num", entity)))
             .fixed_pos(egui::pos2(screen_pos.x + offset_x, screen_pos.y + offset_y))
             .order(egui::Order::Foreground)
-            .show(contexts.ctx_mut(), |ui| {
+            .show(ctx, |ui| {
                 // Small dark background
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 2.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180));
@@ -1645,8 +1658,8 @@ fn track_hovered_unit(
     mut hovered: ResMut<HoveredUnit>,
     fog: Res<FogOfWar>,
 ) {
-    let Ok(window) = windows.get_single() else { return };
-    let Ok((camera, camera_transform)) = cameras.get_single() else { return };
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = cameras.single() else { return };
 
     let Some(cursor_pos) = window.cursor_position() else {
         hovered.entity = None;
@@ -1691,8 +1704,8 @@ fn track_hovered_tile(
         return;
     }
 
-    let Ok(window) = windows.get_single() else { return };
-    let Ok((camera, camera_transform)) = cameras.get_single() else { return };
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = cameras.single() else { return };
 
     let Some(cursor_pos) = window.cursor_position() else {
         selected_tile.position = None;
@@ -1730,6 +1743,7 @@ fn draw_terrain_info_panel(
 
     // Get terrain at position
     let Some(terrain) = map.get(pos.x, pos.y) else { return };
+    let Ok(ctx) = contexts.ctx_mut() else { return };
 
     // Find tile entity for owner info
     let mut tile_owner: Option<Faction> = None;
@@ -1748,8 +1762,8 @@ fn draw_terrain_info_panel(
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::LEFT_BOTTOM, [10.0, -10.0])
-        .frame(egui::Frame::popup(&contexts.ctx_mut().style()))
-        .show(contexts.ctx_mut(), |ui| {
+        .frame(egui::Frame::popup(&ctx.style()))
+        .show(ctx, |ui| {
             ui.set_min_width(150.0);
 
             // Terrain name
@@ -1863,6 +1877,7 @@ fn draw_unit_tooltip(
 ) {
     let Some(entity) = hovered.entity else { return };
     let Ok((unit, faction, pos)) = units.get(entity) else { return };
+    let Ok(ctx) = contexts.ctx_mut() else { return };
 
     let stats = unit.unit_type.stats();
     let co_bonuses = commanders.get_bonuses(faction.faction);
@@ -1893,8 +1908,8 @@ fn draw_unit_tooltip(
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::LEFT_BOTTOM, [10.0, -10.0])
-        .frame(egui::Frame::popup(&contexts.ctx_mut().style()))
-        .show(contexts.ctx_mut(), |ui| {
+        .frame(egui::Frame::popup(&ctx.style()))
+        .show(ctx, |ui| {
             ui.set_min_width(180.0);
 
             // Unit name and faction
@@ -2173,9 +2188,10 @@ fn draw_editor(
 ) {
     let mut should_respawn = false;
     let mut should_save = false;
+    let Ok(ctx) = contexts.ctx_mut() else { return };
 
     // Left panel - Tools
-    egui::SidePanel::left("editor_tools").min_width(200.0).show(contexts.ctx_mut(), |ui| {
+    egui::SidePanel::left("editor_tools").min_width(200.0).show(ctx, |ui| {
         ui.heading("Map Editor");
         ui.separator();
 
@@ -2319,7 +2335,7 @@ fn draw_editor(
     });
 
     // Right panel - Info
-    egui::SidePanel::right("editor_info").min_width(150.0).show(contexts.ctx_mut(), |ui| {
+    egui::SidePanel::right("editor_info").min_width(150.0).show(ctx, |ui| {
         ui.heading("Info");
         ui.separator();
 
@@ -2383,8 +2399,8 @@ fn editor_paint(
     camera: Query<(&Camera, &GlobalTransform)>,
 ) {
     // Get mouse position in world coordinates using ray-plane intersection
-    let Ok(window) = windows.get_single() else { return };
-    let Ok((camera, camera_transform)) = camera.get_single() else { return };
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = camera.single() else { return };
 
     let Some(cursor_pos) = window.cursor_position() else { return };
     let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return };

@@ -20,19 +20,19 @@ impl Plugin for SavePlugin {
 }
 
 /// Event to trigger a game save
-#[derive(Event)]
+#[derive(Message)]
 pub struct SaveGameEvent {
     pub slot: u32,
 }
 
 /// Event to trigger a game load
-#[derive(Event)]
+#[derive(Message)]
 pub struct LoadGameEvent {
     pub slot: u32,
 }
 
 /// Event fired when game has been loaded (for systems to react)
-#[derive(Event)]
+#[derive(Message)]
 pub struct GameLoadedEvent;
 
 /// Complete serializable game state
@@ -309,7 +309,7 @@ fn handle_save_game(
 fn handle_load_game(
     mut commands: Commands,
     mut events: EventReader<LoadGameEvent>,
-    mut loaded_events: EventWriter<GameLoadedEvent>,
+    mut loaded_events: MessageWriter<GameLoadedEvent>,
     mut game_map: ResMut<GameMap>,
     mut turn_state: ResMut<TurnState>,
     mut funds: ResMut<FactionFunds>,
@@ -344,10 +344,10 @@ fn handle_load_game(
 
         // Despawn existing entities
         for entity in tiles.iter() {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
         for entity in units.iter() {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
 
         // Restore GameMap
@@ -466,23 +466,23 @@ fn handle_load_game(
         }
 
         info!("Game loaded from slot {} ({})", event.slot, storage_location(event.slot));
-        loaded_events.send(GameLoadedEvent);
+        loaded_events.write(GameLoadedEvent);
     }
 }
 
 /// Keyboard shortcuts for save/load
 fn save_load_keyboard(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut save_events: EventWriter<SaveGameEvent>,
-    mut load_events: EventWriter<LoadGameEvent>,
+    mut save_events: MessageWriter<SaveGameEvent>,
+    mut load_events: MessageWriter<LoadGameEvent>,
 ) {
     // F5 = Quick Save
     if keyboard.just_pressed(KeyCode::F5) {
-        save_events.send(SaveGameEvent { slot: 0 });
+        save_events.write(SaveGameEvent { slot: 0 });
     }
     // F9 = Quick Load
     if keyboard.just_pressed(KeyCode::F9) {
-        load_events.send(LoadGameEvent { slot: 0 });
+        load_events.write(LoadGameEvent { slot: 0 });
     }
 }
 
