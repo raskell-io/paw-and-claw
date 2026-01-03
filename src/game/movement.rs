@@ -200,7 +200,7 @@ impl Plugin for MovementPlugin {
             ).run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 handle_click_input,
-                handle_path_drawing,
+                handle_path_drawing.after(handle_click_input),
                 spawn_movement_highlight_meshes,
                 spawn_path_indicator_meshes,
             ).run_if(in_state(GameState::Battle)))
@@ -1373,20 +1373,21 @@ fn handle_path_drawing(
 
     // Start dragging on mouse down
     if mouse_button.just_pressed(MouseButton::Left) {
-        info!("Mouse clicked at ({}, {}), path len={}, in_range={}",
+        info!("Mouse clicked at ({}, {}), path len={}, in_range={}, path_start={:?}",
               cursor_pos.x, cursor_pos.y, movement_path.path.len(),
-              highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)));
-        // Check if clicking on the selected unit's position or within movement range
-        if highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)) ||
-           movement_path.path.first() == Some(&cursor_pos) {
-            if movement_path.path.is_empty() {
-                // Find unit start position (first tile that was the unit's original pos)
-                // For now, if clicking in range, start path from there
-                movement_path.start(cursor_pos);
-                info!("Started path at ({}, {})", cursor_pos.x, cursor_pos.y);
-            }
+              highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)),
+              movement_path.path.first());
+
+        // If path already started (from unit selection), just start dragging
+        if !movement_path.path.is_empty() {
             movement_path.dragging = true;
-            info!("Started dragging");
+            info!("Started dragging (path already exists)");
+        }
+        // Otherwise, check if clicking within movement range to start new path
+        else if highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)) {
+            movement_path.start(cursor_pos);
+            movement_path.dragging = true;
+            info!("Started new path at ({}, {})", cursor_pos.x, cursor_pos.y);
         }
     }
 
