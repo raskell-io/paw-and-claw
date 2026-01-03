@@ -127,7 +127,7 @@ impl Default for CameraAngle {
             transition_progress: 0.0,
             transition_speed: 3.0,  // Transition takes ~0.33 seconds
             perspective_height: 400.0,
-            perspective_pitch: std::f32::consts::FRAC_PI_6,  // 30 degrees from horizontal
+            perspective_pitch: std::f32::consts::FRAC_PI_3,  // 60 degrees from horizontal (more top-down)
             top_down_height: 600.0,
             look_at: Vec2::ZERO,  // Start looking at center
         }
@@ -1122,13 +1122,15 @@ fn spawn_movement_highlight_meshes(
         ..default()
     });
 
-    // Height offset to place highlights just above ground
-    let highlight_height = 0.1;
-
     // Spawn movement range highlight meshes
     for &(x, y) in &highlights.tiles {
         let world_x = x as f32 * TILE_SIZE + offset_x;
         let world_z = y as f32 * TILE_SIZE + offset_z;
+
+        // Get tile height to place highlight on top of tile
+        let tile_height = map.get(x, y)
+            .map(|t| t.tile_height())
+            .unwrap_or(4.0);
 
         // Create a flat plane mesh for this tile
         let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
@@ -1136,7 +1138,7 @@ fn spawn_movement_highlight_meshes(
         commands.spawn((
             Mesh3d(plane_mesh),
             MeshMaterial3d(move_material.clone()),
-            Transform::from_xyz(world_x, highlight_height, world_z),
+            Transform::from_xyz(world_x, tile_height + 0.1, world_z),
             MovementHighlightMesh,
         ));
     }
@@ -1147,12 +1149,17 @@ fn spawn_movement_highlight_meshes(
             let world_x = pos.x as f32 * TILE_SIZE + offset_x;
             let world_z = pos.y as f32 * TILE_SIZE + offset_z;
 
+            // Get tile height
+            let tile_height = map.get(pos.x, pos.y)
+                .map(|t| t.tile_height())
+                .unwrap_or(4.0);
+
             let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
 
             commands.spawn((
                 Mesh3d(plane_mesh),
                 MeshMaterial3d(attack_material.clone()),
-                Transform::from_xyz(world_x, highlight_height + 0.05, world_z),
+                Transform::from_xyz(world_x, tile_height + 0.15, world_z),
                 AttackHighlightMesh,
             ));
         }

@@ -9,7 +9,7 @@ use crate::game::{
     calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
-    TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid,
+    TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
 };
 use crate::states::GameState;
 
@@ -221,6 +221,7 @@ fn draw_battle_setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     sprite_assets: Res<SpriteAssets>,
     images: Res<Assets<Image>>,
+    tileset_theme: Res<TilesetTheme>,
 ) {
     if !setup_state.needs_setup {
         return;
@@ -408,7 +409,7 @@ fn draw_battle_setup(
 
                             // Load and spawn the selected map
                             let map_data = get_builtin_map(setup_state.selected_map);
-                            spawn_map_from_data(&mut commands, &mut game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data);
+                            spawn_map_from_data(&mut commands, &mut game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data, *tileset_theme);
                             spawn_units_from_data(&mut commands, &game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data);
 
                             setup_state.needs_setup = false;

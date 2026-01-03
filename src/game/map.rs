@@ -1,20 +1,49 @@
 use bevy::prelude::*;
-use bevy::render::mesh::Mesh3d;
+use bevy::render::mesh::{Mesh3d, Meshable};
+use bevy::pbr::MeshMaterial3d;
 use serde::{Deserialize, Serialize};
 
-use super::{Faction, spawn_unit, spawn_terrain_feature};
+use super::{Faction, spawn_unit};
 use super::maps::{MapData, SelectedMap, get_builtin_map};
+
+/// Tileset theme affects the foundation/ground color
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Resource)]
+pub enum TilesetTheme {
+    #[default]
+    Woodland,   // Forest/temperate - brown earth
+    Steppe,     // Grassland/plains - tan/yellow soil
+    Desert,     // Arid - sandy beige
+    Tundra,     // Cold/arctic - gray permafrost
+    Swamp,      // Wetland - dark muddy brown
+}
+
+impl TilesetTheme {
+    pub fn ground_color(&self) -> Color {
+        match self {
+            TilesetTheme::Woodland => Color::srgb(0.35, 0.25, 0.15),
+            TilesetTheme::Steppe => Color::srgb(0.55, 0.45, 0.30),
+            TilesetTheme::Desert => Color::srgb(0.70, 0.55, 0.35),
+            TilesetTheme::Tundra => Color::srgb(0.45, 0.45, 0.50),
+            TilesetTheme::Swamp => Color::srgb(0.25, 0.20, 0.15),
+        }
+    }
+}
+
+/// Depth of the foundation layer beneath tiles
+pub const FOUNDATION_DEPTH: f32 = 12.0;
 
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameMap>()
-            .init_resource::<SelectedMap>();
+            .init_resource::<SelectedMap>()
+            .init_resource::<TilesetTheme>();
     }
 }
 
 /// Spawn the map based on the selected map ID
+#[allow(dead_code)]
 pub fn spawn_map_from_selection(
     commands: &mut Commands,
     game_map: &mut ResMut<GameMap>,
@@ -23,9 +52,10 @@ pub fn spawn_map_from_selection(
     sprite_assets: &super::SpriteAssets,
     images: &Assets<Image>,
     selected: &SelectedMap,
+    tileset_theme: TilesetTheme,
 ) -> MapData {
     let map_data = get_builtin_map(selected.map_id);
-    spawn_map_from_data(commands, game_map, meshes, materials, sprite_assets, images, &map_data);
+    spawn_map_from_data(commands, game_map, meshes, materials, sprite_assets, images, &map_data, tileset_theme);
     map_data
 }
 
@@ -35,9 +65,10 @@ pub fn spawn_map_from_data(
     game_map: &mut ResMut<GameMap>,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    sprite_assets: &super::SpriteAssets,
-    images: &Assets<Image>,
+    _sprite_assets: &super::SpriteAssets,
+    _images: &Assets<Image>,
     map_data: &MapData,
+    tileset_theme: TilesetTheme,
 ) {
     // Update GameMap resource
     game_map.width = map_data.width;
@@ -48,9 +79,6 @@ pub fn spawn_map_from_data(
     let offset_x = -(game_map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
     let offset_z = -(game_map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
 
-    // Create shared tile mesh (flat quad on XZ plane)
-    let tile_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat((TILE_SIZE - 2.0) / 2.0)));
-
     // Build property ownership lookup
     let property_owners: std::collections::HashMap<(i32, i32), Faction> = map_data
         .properties
@@ -58,7 +86,22 @@ pub fn spawn_map_from_data(
         .map(|p| ((p.x, p.y), p.owner))
         .collect();
 
-    // Spawn tile entities as 3D meshes on XZ plane
+    // Spawn foundation layer - single large cuboid beneath all tiles
+    let map_width = game_map.width as f32 * TILE_SIZE;
+    let map_depth = game_map.height as f32 * TILE_SIZE;
+    let foundation_mesh = meshes.add(Cuboid::new(map_width, FOUNDATION_DEPTH, map_depth));
+
+    commands.spawn((
+        Mesh3d(foundation_mesh),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: tileset_theme.ground_color(),
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, -FOUNDATION_DEPTH / 2.0, 0.0),
+    ));
+
+    // Spawn tile entities as 3D cuboid meshes
     for y in 0..game_map.height {
         for x in 0..game_map.width {
             let terrain = game_map.tiles[y as usize][x as usize];
@@ -73,14 +116,21 @@ pub fn spawn_map_from_data(
                 terrain.color()
             };
 
+            // Get tile height based on terrain type
+            let tile_height = terrain.tile_height();
+
+            // Create cuboid mesh for this tile
+            let tile_mesh = meshes.add(Cuboid::new(TILE_SIZE - 2.0, tile_height, TILE_SIZE - 2.0));
+
             commands.spawn((
-                Mesh3d(tile_mesh.clone()),
+                Mesh3d(tile_mesh),
                 MeshMaterial3d(materials.add(StandardMaterial {
                     base_color: tile_color,
-                    unlit: true,  // Keep flat shading like original
+                    unlit: true,
                     ..default()
                 })),
-                Transform::from_xyz(world_x, 0.0, world_z),
+                // Position so top of cuboid is at tile_height
+                Transform::from_xyz(world_x, tile_height / 2.0, world_z),
                 Tile {
                     terrain,
                     position: IVec2::new(x as i32, y as i32),
@@ -89,11 +139,6 @@ pub fn spawn_map_from_data(
                     capturing_faction: None,
                 },
             ));
-
-            // Spawn terrain feature sprite for terrains with vertical elements
-            if terrain.has_feature() {
-                spawn_terrain_feature(commands, meshes, materials, sprite_assets, images, x, y, terrain, owner, offset_x, offset_z);
-            }
         }
     }
 }
@@ -285,6 +330,25 @@ impl Terrain {
             Terrain::Outpost => 40.0,    // Medium building
             Terrain::Storehouse => 32.0, // Small building
             _ => 0.0,
+        }
+    }
+
+    /// Height of the 3D tile cuboid
+    pub fn tile_height(&self) -> f32 {
+        match self {
+            Terrain::Grass => 4.0,
+            Terrain::TallGrass => 4.0,
+            Terrain::Shore => 2.0,
+            Terrain::Creek => 2.0,
+            Terrain::Pond => 1.0,
+            Terrain::Thicket => 6.0,
+            Terrain::Brambles => 5.0,
+            Terrain::Log => 8.0,
+            Terrain::Boulder => 10.0,
+            Terrain::Hollow => 6.0,
+            Terrain::Base => 8.0,
+            Terrain::Outpost => 6.0,
+            Terrain::Storehouse => 5.0,
         }
     }
 
