@@ -579,11 +579,11 @@ fn handle_keyboard_input(
 
     if shift_held || cursor.visible {
         if keyboard.just_pressed(KeyCode::KeyW) || keyboard.just_pressed(KeyCode::ArrowUp) {
-            cursor.y = (cursor.y + 1).min(map.height as i32 - 1);
+            cursor.y = (cursor.y - 1).max(0);  // Grid Y decreases going up visually
             moved_cursor = true;
         }
         if keyboard.just_pressed(KeyCode::KeyS) || keyboard.just_pressed(KeyCode::ArrowDown) {
-            cursor.y = (cursor.y - 1).max(0);
+            cursor.y = (cursor.y + 1).min(map.height as i32 - 1);
             moved_cursor = true;
         }
         if keyboard.just_pressed(KeyCode::KeyA) || keyboard.just_pressed(KeyCode::ArrowLeft) {
