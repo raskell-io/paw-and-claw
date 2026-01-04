@@ -238,19 +238,55 @@ impl Plugin for MovementPlugin {
                 draw_action_targets,
                 draw_resource_warnings,
             ).run_if(in_state(GameState::Battle)))
-            .add_systems(Update, handle_cancel_move.run_if(in_state(GameState::Battle)));
+            .add_systems(Update, handle_cancel_move.run_if(in_state(GameState::Battle)))
+            .add_systems(Update, check_animation_complete.run_if(in_state(GameState::Battle)));
+    }
+}
+
+/// Check if unit animation is complete and transition to Action phase
+fn check_animation_complete(
+    mut turn_state: ResMut<TurnState>,
+    pending_action: Res<PendingAction>,
+    units: Query<&UnitAnimation>,
+) {
+    // Only check during Animating phase
+    if turn_state.phase != TurnPhase::Animating {
+        return;
+    }
+
+    // Get the pending unit
+    let Some(unit_entity) = pending_action.unit else {
+        return;
+    };
+
+    // If unit no longer has animation component, animation is complete
+    if units.get(unit_entity).is_err() {
+        turn_state.phase = TurnPhase::Action;
+        info!("Animation complete, entering action phase");
     }
 }
 
 /// Handle cancel move messages - move unit back to original position
 fn handle_cancel_move(
+    mut commands: Commands,
     mut events: MessageReader<CancelMoveEvent>,
-    mut units: Query<&mut GridPosition>,
+    mut units: Query<(&mut GridPosition, &mut Transform)>,
+    map: Res<GameMap>,
 ) {
     for event in events.read() {
-        if let Ok(mut pos) = units.get_mut(event.unit) {
+        if let Ok((mut pos, mut transform)) = units.get_mut(event.unit) {
+            // Update grid position
             pos.x = event.original_position.0;
             pos.y = event.original_position.1;
+
+            // Update visual transform to match
+            let world_pos = pos.to_world(&map);
+            transform.translation.x = world_pos.x;
+            transform.translation.z = world_pos.z;
+
+            // Remove any pending animation
+            commands.entity(event.unit).remove::<UnitAnimation>();
+
             info!("Unit {:?} moved back to {:?}", event.unit, event.original_position);
         }
     }
@@ -865,7 +901,7 @@ fn handle_keyboard_input(
                     highlights.attack_targets.clear();
                     movement_path.clear();
 
-                    // Always enter Action phase to show action menu (Wait, End Turn always available)
+                    // Set up pending action (action menu shown after animation completes)
                     pending_action.unit = Some(selected_entity);
                     pending_action.targets = if unit_copy.attacked { HashSet::new() } else { targets };
                     pending_action.can_capture = can_capture;
@@ -873,8 +909,15 @@ fn handle_keyboard_input(
                     pending_action.can_join = can_join;
                     pending_action.join_target = join_target;
                     pending_action.original_position = Some(original_pos);
-                    turn_state.phase = TurnPhase::Action;
-                    info!("Entering action phase: {} targets, can_capture: {}, can_join: {}, original_pos: {:?}", pending_action.targets.len(), can_capture, can_join, original_pos);
+
+                    // Enter Animating phase if moving, or Action phase directly if staying in place
+                    if staying_in_place {
+                        turn_state.phase = TurnPhase::Action;
+                        info!("Staying in place, entering action phase directly");
+                    } else {
+                        turn_state.phase = TurnPhase::Animating;
+                        info!("Moving unit, entering animating phase");
+                    }
                 }
             }
         } else {
@@ -1411,7 +1454,7 @@ fn handle_click_input(
             highlights.attack_targets.clear();
             input.movement_path.clear();
 
-            // Always enter Action phase to show action menu (Wait, End Turn always available)
+            // Set up pending action (action menu shown after animation completes)
             pending_action.unit = Some(selected_entity);
             pending_action.targets = if unit_copy.attacked { HashSet::new() } else { targets };
             pending_action.can_capture = can_capture;
@@ -1419,8 +1462,15 @@ fn handle_click_input(
             pending_action.can_join = can_join;
             pending_action.join_target = join_target;
             pending_action.original_position = Some(original_pos);
-            turn_state.phase = TurnPhase::Action;
-            info!("Entering action phase: {} targets, can_capture: {}, can_join: {}, original_pos: {:?}", pending_action.targets.len(), can_capture, can_join, original_pos);
+
+            // Enter Animating phase if moving, or Action phase directly if staying in place
+            if staying_in_place {
+                turn_state.phase = TurnPhase::Action;
+                info!("Staying in place, entering action phase directly");
+            } else {
+                turn_state.phase = TurnPhase::Animating;
+                info!("Moving unit, entering animating phase");
+            }
             return;
         }
     }
