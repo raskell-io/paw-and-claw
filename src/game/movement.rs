@@ -206,17 +206,22 @@ impl Plugin for MovementPlugin {
             .init_resource::<InputMode>()
             .init_resource::<MovementPath>()
             // Split systems into smaller groups to avoid tuple size limits
+            // Camera systems can run independently
             .add_systems(Update, (
-                handle_keyboard_input,
-                handle_keyboard_path_drawing,
                 handle_camera_movement,
                 handle_camera_zoom,
                 handle_camera_angle_toggle,
                 update_camera_angle,
             ).run_if(in_state(GameState::Battle)))
+            // Input handling - keyboard and mouse must be ordered to avoid conflicts
             .add_systems(Update, (
-                handle_click_input,
+                handle_keyboard_input,
+                handle_keyboard_path_drawing.after(handle_keyboard_input),
+                handle_click_input.after(handle_keyboard_path_drawing),
                 handle_path_drawing.after(handle_click_input),
+                update_cursor_from_mouse.after(handle_path_drawing),
+            ).run_if(in_state(GameState::Battle)))
+            .add_systems(Update, (
                 spawn_movement_highlight_meshes,
                 spawn_path_indicator_meshes,
             ).run_if(in_state(GameState::Battle)))
@@ -327,7 +332,7 @@ impl Default for GridCursor {
         Self {
             x: 5,
             y: 4,
-            visible: false,
+            visible: true, // Always visible like Advance Wars
         }
     }
 }
@@ -1058,6 +1063,43 @@ fn update_camera_angle(
     );
 }
 
+/// Update cursor position from mouse hover (Advance Wars style - cursor always follows mouse)
+/// When a movement path is being drawn, cursor follows the path endpoint instead
+fn update_cursor_from_mouse(
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    map: Res<GameMap>,
+    mut input: InputState,
+    input_mode: Res<InputMode>,
+) {
+    // Skip if in keyboard-only mode
+    if *input_mode == InputMode::Keyboard {
+        return;
+    }
+
+    // Don't update if egui wants input
+    if input.egui_wants_input.wants_any_pointer_input() {
+        return;
+    }
+
+    // If a movement path is being drawn, cursor follows the path endpoint
+    if input.movement_path.drawing {
+        if let Some(endpoint) = input.movement_path.path.last() {
+            input.cursor.x = endpoint.x;
+            input.cursor.y = endpoint.y;
+            return;
+        }
+    }
+
+    let Ok(window) = windows.single() else { return };
+    let Ok((camera, camera_transform)) = cameras.single() else { return };
+
+    if let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) {
+        input.cursor.x = grid_pos.x;
+        input.cursor.y = grid_pos.y;
+    }
+}
+
 /// Handle mouse click for selection and movement
 fn handle_click_input(
     mut commands: Commands,
@@ -1142,7 +1184,6 @@ fn handle_click_input(
     // Update cursor position to click location
     input.cursor.x = grid_x;
     input.cursor.y = grid_y;
-    input.cursor.visible = false; // Hide keyboard cursor when using mouse
 
     // If we have a selected unit, try to attack or move
     if let Some(selected_entity) = highlights.selected_unit {
@@ -1173,26 +1214,46 @@ fn handle_click_input(
         }
 
         if highlights.tiles.contains(&(grid_x, grid_y)) {
-            // Check if clicking on the same unit (deselect) or empty tile (draw path)
-            let clicking_on_selected = units.iter()
-                .any(|(e, p, _, _, _)| e == selected_entity && p.x == grid_x && p.y == grid_y);
-
-            if clicking_on_selected {
-                // Clicking on selected unit - deselect
-                highlights.selected_unit = None;
-        highlights.selected_unit_class = None;
-                highlights.tiles.clear();
-                highlights.tile_costs.clear();
-                highlights.attack_targets.clear();
-                input.movement_path.clear();
+            // If path drawing is active AND not currently dragging, confirm the move
+            // by falling through to the movement code below
+            if input.movement_path.drawing && !input.movement_path.dragging {
+                // Update the path endpoint to the clicked tile if it's valid
+                // This allows clicking directly on a destination instead of dragging
+                if let Some(destination) = input.movement_path.destination() {
+                    if destination.x != grid_x || destination.y != grid_y {
+                        // Clicked on a different tile than path endpoint
+                        // Try to extend/retract path to this tile, or just use direct move
+                        if let Some(unit_class) = highlights.selected_unit_class {
+                            input.movement_path.try_extend(
+                                IVec2::new(grid_x, grid_y),
+                                &map,
+                                &highlights.tiles,
+                                &highlights.tile_costs,
+                                unit_class,
+                                &game_data,
+                            );
+                        }
+                    }
+                }
+                // Fall through to movement execution below
+            } else if input.movement_path.dragging {
+                // Currently dragging, let path drawing handle it
                 return;
-            }
+            } else {
+                // Not in path drawing mode - check for deselection
+                let clicking_on_selected = units.iter()
+                    .any(|(e, p, _, _, _)| e == selected_entity && p.x == grid_x && p.y == grid_y);
 
-            // If path drawing is active, let handle_path_drawing manage clicks
-            // Don't immediately move - wait for path to be confirmed
-            if input.movement_path.drawing && input.movement_path.path.len() >= 1 {
-                // Path is being drawn, let the path drawing system handle this
-                return;
+                if clicking_on_selected {
+                    // Clicking on selected unit - deselect
+                    highlights.selected_unit = None;
+                    highlights.selected_unit_class = None;
+                    highlights.tiles.clear();
+                    highlights.tile_costs.clear();
+                    highlights.attack_targets.clear();
+                    input.movement_path.clear();
+                    return;
+                }
             }
 
             // Check if clicking on another friendly unit (switch selection)
@@ -1818,11 +1879,12 @@ fn spawn_path_indicator_meshes(
     }
 }
 
-/// Draw the grid cursor when using keyboard navigation
+/// Draw the grid cursor (Advance Wars style corner brackets)
 fn draw_grid_cursor(
     cursor: Res<GridCursor>,
     mut gizmos: Gizmos,
     map: Res<GameMap>,
+    time: Res<Time>,
 ) {
     if !cursor.visible {
         return;
@@ -1834,22 +1896,45 @@ fn draw_grid_cursor(
     let world_x = cursor.x as f32 * TILE_SIZE + offset_x;
     let world_z = cursor.y as f32 * TILE_SIZE + offset_z;
 
-    // Rotation to lay the rectangle flat on the XZ plane
-    let flat_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    // Get tile height to position cursor on top of tile
+    let tile_height = map.get(cursor.x, cursor.y)
+        .map(|t| t.tile_height())
+        .unwrap_or(4.0);
+    let y = tile_height + 0.2; // Height above tile surface
 
-    // Draw cursor outline
-    gizmos.rect(
-        Isometry3d::new(Vec3::new(world_x, 0.08, world_z), flat_rotation),
-        Vec2::splat(TILE_SIZE - 2.0),
-        Color::srgb(1.0, 1.0, 0.0), // Yellow cursor
-    );
+    // Subtle animation - gentle pulse
+    let pulse = (time.elapsed_secs() * 4.0).sin() * 0.08 + 0.92;
 
-    // Draw inner highlight
-    gizmos.rect(
-        Isometry3d::new(Vec3::new(world_x, 0.09, world_z), flat_rotation),
-        Vec2::splat(TILE_SIZE - 6.0),
-        Color::srgba(1.0, 1.0, 0.0, 0.3),
-    );
+    // Corner bracket dimensions
+    let half_tile = (TILE_SIZE / 2.0 - 1.0) * pulse; // Distance from center to corner
+    let bracket_len = TILE_SIZE * 0.35; // Length of each bracket arm
+
+    let color = Color::srgb(1.0, 1.0, 0.0); // Bright yellow
+
+    // Draw thicker L-shaped brackets by drawing multiple offset lines
+    for offset in [0.0, 0.3, 0.6] {
+        let y_off = y + offset * 0.02;
+
+        // Top-left corner
+        let tl = Vec3::new(world_x - half_tile, y_off, world_z - half_tile);
+        gizmos.line(tl, Vec3::new(tl.x + bracket_len, y_off, tl.z), color);
+        gizmos.line(tl, Vec3::new(tl.x, y_off, tl.z + bracket_len), color);
+
+        // Top-right corner
+        let tr = Vec3::new(world_x + half_tile, y_off, world_z - half_tile);
+        gizmos.line(tr, Vec3::new(tr.x - bracket_len, y_off, tr.z), color);
+        gizmos.line(tr, Vec3::new(tr.x, y_off, tr.z + bracket_len), color);
+
+        // Bottom-left corner
+        let bl = Vec3::new(world_x - half_tile, y_off, world_z + half_tile);
+        gizmos.line(bl, Vec3::new(bl.x + bracket_len, y_off, bl.z), color);
+        gizmos.line(bl, Vec3::new(bl.x, y_off, bl.z - bracket_len), color);
+
+        // Bottom-right corner
+        let br = Vec3::new(world_x + half_tile, y_off, world_z + half_tile);
+        gizmos.line(br, Vec3::new(br.x - bracket_len, y_off, br.z), color);
+        gizmos.line(br, Vec3::new(br.x, y_off, br.z - bracket_len), color);
+    }
 }
 
 /// Draw highlights for attack targets during Action phase
