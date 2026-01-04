@@ -10,7 +10,7 @@ use crate::game::{
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
     TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
-    InputMode, GameData, CancelMoveEvent,
+    InputMode, GameData, CancelMoveEvent, GridCursor,
 };
 use crate::states::GameState;
 
@@ -935,6 +935,7 @@ fn draw_action_menu(
     mut menu_state: ResMut<ActionMenuState>,
     mut highlights: ResMut<MovementHighlights>,
     mut turn_start_events: MessageWriter<TurnStartEvent>,
+    mut cursor: ResMut<GridCursor>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -1710,6 +1711,9 @@ fn draw_action_menu(
                 unit: acting_entity,
                 original_position: (orig_x, orig_y),
             });
+            // Move cursor back to original position
+            cursor.x = orig_x;
+            cursor.y = orig_y;
             info!("Cancelled move, returning to ({}, {})", orig_x, orig_y);
         }
         pending_action.unit = None;
