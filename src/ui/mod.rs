@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass, input::EguiWantsInput};
 
 use crate::game::{
@@ -12,6 +13,40 @@ use crate::game::{
     InputMode, GameData,
 };
 use crate::states::GameState;
+
+/// Types of actions available in the action menu
+#[derive(Debug, Clone)]
+pub enum MenuAction {
+    Attack(Entity),  // Entity is the target
+    Capture,
+    Join,
+    Resupply,
+    Load((i32, i32)),  // Position of transport
+    Unload((i32, i32)), // Position to unload to
+    Wait,
+}
+
+/// Resource to track action menu keyboard navigation
+#[derive(Resource, Default)]
+pub struct ActionMenuState {
+    /// Currently selected menu item index
+    pub selected_index: usize,
+    /// List of available actions this frame
+    pub actions: Vec<MenuAction>,
+    /// Whether the menu was just opened (to reset selection)
+    pub just_opened: bool,
+}
+
+/// SystemParam bundle for action event writers (reduces parameter count)
+#[derive(SystemParam)]
+pub struct ActionEvents<'w> {
+    pub attack: MessageWriter<'w, AttackEvent>,
+    pub capture: MessageWriter<'w, CaptureEvent>,
+    pub join: MessageWriter<'w, JoinEvent>,
+    pub resupply: MessageWriter<'w, ResupplyEvent>,
+    pub load: MessageWriter<'w, LoadEvent>,
+    pub unload: MessageWriter<'w, UnloadEvent>,
+}
 
 /// Resource to track battle setup (CO + Map selection)
 #[derive(Resource)]
@@ -125,6 +160,7 @@ impl Plugin for UiPlugin {
             .init_resource::<HoveredUnit>()
             .init_resource::<SelectedTile>()
             .init_resource::<InGameMenuState>()
+            .init_resource::<ActionMenuState>()
             .init_resource::<EguiReady>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(EguiPrimaryContextPass, (
@@ -876,23 +912,21 @@ fn draw_ingame_menu(
 }
 
 /// Draw the action menu when a unit has moved and can attack
+/// Supports keyboard navigation with arrow keys/WASD and Enter/Space to confirm
 fn draw_action_menu(
     mut contexts: EguiContexts,
     mut pending_action: ResMut<PendingAction>,
     mut turn_state: ResMut<TurnState>,
     mut units: Query<(&mut Unit, Option<&FactionMember>, Option<&GridPosition>)>,
     tiles: Query<&Tile>,
-    mut attack_events: MessageWriter<AttackEvent>,
-    mut capture_events: MessageWriter<CaptureEvent>,
-    mut join_events: MessageWriter<JoinEvent>,
-    mut resupply_events: MessageWriter<ResupplyEvent>,
-    mut load_events: MessageWriter<LoadEvent>,
-    mut unload_events: MessageWriter<UnloadEvent>,
+    mut events: ActionEvents,
     map: Res<GameMap>,
     game_result: Res<GameResult>,
     commanders: Res<Commanders>,
     weather: Res<Weather>,
     game_data: Res<GameData>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut menu_state: ResMut<ActionMenuState>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -901,6 +935,10 @@ fn draw_action_menu(
 
     // Only show during Action phase
     if turn_state.phase != TurnPhase::Action {
+        // Reset menu state when not in action phase
+        menu_state.actions.clear();
+        menu_state.selected_index = 0;
+        menu_state.just_opened = true;
         return;
     }
 
@@ -916,6 +954,18 @@ fn draw_action_menu(
     let Some((attacker_unit, attacker_pos)) = attacker_info else {
         return;
     };
+
+    // Reset selection when menu just opened
+    if menu_state.just_opened {
+        menu_state.selected_index = 0;
+        menu_state.just_opened = false;
+    }
+
+    // Handle keyboard navigation
+    let nav_up = keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW);
+    let nav_down = keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS);
+    let nav_confirm = keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::Space);
+    let nav_cancel = keyboard.just_pressed(KeyCode::Escape);
 
     // Get CO bonuses for damage calculation
     let attacker_co = commanders.get_bonuses(turn_state.current_faction);
@@ -1070,6 +1120,64 @@ fn draw_action_menu(
         None
     };
 
+    // Build list of available actions for keyboard navigation
+    menu_state.actions.clear();
+
+    // Add attack targets
+    for (entity, _, _, _, _) in &target_info {
+        menu_state.actions.push(MenuAction::Attack(*entity));
+    }
+
+    // Add capture if available
+    if pending_action.can_capture {
+        menu_state.actions.push(MenuAction::Capture);
+    }
+
+    // Add join if available
+    if pending_action.can_join {
+        menu_state.actions.push(MenuAction::Join);
+    }
+
+    // Add resupply for suppliers
+    if is_supplier {
+        menu_state.actions.push(MenuAction::Resupply);
+    }
+
+    // Add load options
+    for (pos, _) in &adjacent_transport_info {
+        menu_state.actions.push(MenuAction::Load(*pos));
+    }
+
+    // Add unload options
+    for pos in &unload_positions {
+        menu_state.actions.push(MenuAction::Unload(*pos));
+    }
+
+    // Always add Wait as the last option
+    menu_state.actions.push(MenuAction::Wait);
+
+    let action_count = menu_state.actions.len();
+
+    // Handle keyboard navigation
+    if nav_up && menu_state.selected_index > 0 {
+        menu_state.selected_index -= 1;
+    }
+    if nav_down && menu_state.selected_index < action_count.saturating_sub(1) {
+        menu_state.selected_index += 1;
+    }
+
+    // Clamp selection to valid range
+    if menu_state.selected_index >= action_count {
+        menu_state.selected_index = action_count.saturating_sub(1);
+    }
+
+    // Determine which action to execute (keyboard confirm or will be set by button click)
+    let confirmed_action = if nav_confirm && !menu_state.actions.is_empty() {
+        Some(menu_state.actions[menu_state.selected_index].clone())
+    } else {
+        None
+    };
+
     let Ok(ctx) = contexts.ctx_mut() else { return };
 
     // Show action menu in center of screen
@@ -1078,7 +1186,10 @@ fn draw_action_menu(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.set_min_width(200.0);
+            ui.set_min_width(220.0);
+
+            // Helper to create a selectable button
+            let mut current_idx = 0usize;
 
             // Show available targets
             if !target_info.is_empty() {
@@ -1086,9 +1197,17 @@ fn draw_action_menu(
                 ui.separator();
 
                 for (entity, name, hp, (damage_min, damage_max), counter_damage) in &target_info {
+                    let is_selected = current_idx == menu_state.selected_index;
+
                     // Show target name and damage estimate
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(name).strong().size(14.0));
+                        let name_text = if is_selected {
+                            egui::RichText::new(format!("> {}", name)).strong().size(14.0)
+                                .color(egui::Color32::YELLOW)
+                        } else {
+                            egui::RichText::new(name).strong().size(14.0)
+                        };
+                        ui.label(name_text);
                         ui.label(format!("(HP: {})", hp));
                     });
 
@@ -1115,13 +1234,17 @@ fn draw_action_menu(
                             .color(egui::Color32::from_rgb(255, 150, 100)));
                     }
 
-                    if ui.add(egui::Button::new(egui::RichText::new("Attack").size(14.0))
-                        .min_size(egui::vec2(180.0, 28.0))).clicked()
-                    {
+                    let button_text = if is_selected { "> Attack" } else { "Attack" };
+                    let button = egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                        .min_size(egui::vec2(180.0, 28.0))
+                        .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                    if ui.add(button).clicked() {
                         attack_target = Some(*entity);
                     }
 
                     ui.add_space(5.0);
+                    current_idx += 1;
                 }
 
                 ui.separator();
@@ -1129,6 +1252,8 @@ fn draw_action_menu(
 
             // Show capture option if available
             if let Some((terrain_name, progress, required)) = &capture_info {
+                let is_selected = current_idx == menu_state.selected_index;
+
                 ui.heading("Capture");
                 ui.separator();
 
@@ -1140,17 +1265,23 @@ fn draw_action_menu(
                 ui.add(egui::ProgressBar::new(progress_pct)
                     .fill(egui::Color32::from_rgb(255, 200, 50)));
 
-                if ui.add(egui::Button::new(egui::RichText::new("Capture").size(14.0))
-                    .min_size(egui::vec2(180.0, 28.0))).clicked()
-                {
+                let button_text = if is_selected { "> Capture" } else { "Capture" };
+                let button = egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                    .min_size(egui::vec2(180.0, 28.0))
+                    .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                if ui.add(button).clicked() {
                     capture_clicked = true;
                 }
 
                 ui.separator();
+                current_idx += 1;
             }
 
             // Show join option if available
             if pending_action.can_join {
+                let is_selected = current_idx == menu_state.selected_index;
+
                 ui.heading("Join");
                 ui.separator();
 
@@ -1158,17 +1289,22 @@ fn draw_action_menu(
                 ui.label(egui::RichText::new("Combines HP, Stamina, Ammo")
                     .color(egui::Color32::from_rgb(150, 200, 150)));
 
-                if ui.add(egui::Button::new(egui::RichText::new("Join").size(14.0))
-                    .min_size(egui::vec2(180.0, 28.0))).clicked()
-                {
+                let button_text = if is_selected { "> Join" } else { "Join" };
+                let button = egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                    .min_size(egui::vec2(180.0, 28.0))
+                    .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                if ui.add(button).clicked() {
                     join_clicked = true;
                 }
 
                 ui.separator();
+                current_idx += 1;
             }
 
             // Show resupply option for Supplier units
             if is_supplier {
+                let is_selected = current_idx == menu_state.selected_index;
                 ui.heading("Resupply");
                 ui.separator();
 
@@ -1176,13 +1312,17 @@ fn draw_action_menu(
                 ui.label(egui::RichText::new("Restores Stamina & Ammo to max")
                     .color(egui::Color32::from_rgb(150, 200, 255)));
 
-                if ui.add(egui::Button::new(egui::RichText::new("Resupply").size(14.0))
-                    .min_size(egui::vec2(180.0, 28.0))).clicked()
-                {
+                let button_text = if is_selected { "> Resupply" } else { "Resupply" };
+                let button = egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                    .min_size(egui::vec2(180.0, 28.0))
+                    .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                if ui.add(button).clicked() {
                     resupply_clicked = true;
                 }
 
                 ui.separator();
+                current_idx += 1;
             }
 
             // Show load option for foot units near transports
@@ -1191,12 +1331,18 @@ fn draw_action_menu(
                 ui.separator();
 
                 for (transport_pos, transport_name) in &adjacent_transport_info {
+                    let is_selected = current_idx == menu_state.selected_index;
+
                     ui.label(format!("Board {}", transport_name));
-                    if ui.add(egui::Button::new(egui::RichText::new(format!("Load into {}", transport_name)).size(14.0))
-                        .min_size(egui::vec2(180.0, 28.0))).clicked()
-                    {
+                    let button_text = if is_selected { format!("> Load into {}", transport_name) } else { format!("Load into {}", transport_name) };
+                    let button = egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                        .min_size(egui::vec2(180.0, 28.0))
+                        .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                    if ui.add(button).clicked() {
                         load_target = Some(*transport_pos);
                     }
+                    current_idx += 1;
                 }
 
                 ui.separator();
@@ -1212,28 +1358,47 @@ fn draw_action_menu(
                 }
 
                 for (ux, uy) in &unload_positions {
+                    let is_selected = current_idx == menu_state.selected_index;
+
                     let terrain = map.get(*ux, *uy).unwrap_or(Terrain::Grass);
-                    if ui.add(egui::Button::new(egui::RichText::new(format!("Unload to ({}, {}) - {}", ux, uy, game_data.terrain_name(terrain))).size(12.0))
-                        .min_size(egui::vec2(180.0, 24.0))).clicked()
-                    {
+                    let label = format!("Unload to ({}, {}) - {}", ux, uy, game_data.terrain_name(terrain));
+                    let button_text = if is_selected { format!("> {}", label) } else { label };
+                    let button = egui::Button::new(egui::RichText::new(button_text).size(12.0))
+                        .min_size(egui::vec2(180.0, 24.0))
+                        .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                    if ui.add(button).clicked() {
                         unload_position = Some((*ux, *uy));
                     }
+                    current_idx += 1;
                 }
 
                 ui.separator();
             }
 
+            ui.add_space(10.0);
+
             // Wait button
-            if ui.add(egui::Button::new(egui::RichText::new("Wait").size(16.0))
-                .min_size(egui::vec2(180.0, 35.0))).clicked()
             {
-                wait_clicked = true;
+                let is_selected = current_idx == menu_state.selected_index;
+                let button_text = if is_selected { "> Wait" } else { "Wait" };
+                let button = egui::Button::new(egui::RichText::new(button_text).size(16.0))
+                    .min_size(egui::vec2(180.0, 35.0))
+                    .fill(if is_selected { egui::Color32::from_rgb(80, 80, 40) } else { egui::Color32::from_rgb(40, 40, 40) });
+
+                if ui.add(button).clicked() {
+                    wait_clicked = true;
+                }
+                current_idx += 1;
             }
+
+            ui.add_space(5.0);
+            ui.label(egui::RichText::new("↑↓/WS: Navigate  Enter: Select  Esc: Wait").size(10.0).color(egui::Color32::GRAY));
         });
 
     // Process action outside the UI closure
     if let Some(target) = attack_target {
-        attack_events.write(AttackEvent {
+        events.attack.write(AttackEvent {
             attacker: acting_entity,
             defender: target,
         });
@@ -1252,7 +1417,7 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if capture_clicked {
         if let Some(tile_entity) = pending_action.capture_tile {
-            capture_events.write(CaptureEvent {
+            events.capture.write(CaptureEvent {
                 unit: acting_entity,
                 tile: tile_entity,
             });
@@ -1272,7 +1437,7 @@ fn draw_action_menu(
         }
     } else if join_clicked {
         if let Some(join_target) = pending_action.join_target {
-            join_events.write(JoinEvent {
+            events.join.write(JoinEvent {
                 source: acting_entity,
                 target: join_target,
             });
@@ -1290,7 +1455,7 @@ fn draw_action_menu(
         }
     } else if resupply_clicked {
         // Send resupply event - the system will handle finding and resupplying adjacent units
-        resupply_events.write(ResupplyEvent {
+        events.resupply.write(ResupplyEvent {
             supplier: acting_entity,
         });
 
@@ -1307,7 +1472,7 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if let Some(transport_pos) = load_target {
         // Send load event with transport position - the handler will find the transport
-        load_events.write(LoadEvent {
+        events.load.write(LoadEvent {
             transport_pos,
             passenger: acting_entity,
         });
@@ -1326,7 +1491,7 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if let Some(pos) = unload_position {
         // Send unload event
-        unload_events.write(UnloadEvent {
+        events.unload.write(UnloadEvent {
             transport: acting_entity,
             position: pos,
         });
@@ -1349,6 +1514,136 @@ fn draw_action_menu(
             unit.exhausted = true;
         }
 
+        pending_action.unit = None;
+        pending_action.targets.clear();
+        pending_action.can_capture = false;
+        pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
+        turn_state.phase = TurnPhase::Select;
+    }
+
+    // Handle keyboard confirmation
+    if let Some(action) = confirmed_action {
+        match action {
+            MenuAction::Attack(target) => {
+                events.attack.write(AttackEvent {
+                    attacker: acting_entity,
+                    defender: target,
+                });
+                if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+                    unit.attacked = true;
+                    unit.exhausted = true;
+                }
+                pending_action.unit = None;
+                pending_action.targets.clear();
+                pending_action.can_capture = false;
+                pending_action.capture_tile = None;
+                pending_action.can_join = false;
+                pending_action.join_target = None;
+                turn_state.phase = TurnPhase::Select;
+            }
+            MenuAction::Capture => {
+                if let Some(tile_entity) = pending_action.capture_tile {
+                    events.capture.write(CaptureEvent {
+                        unit: acting_entity,
+                        tile: tile_entity,
+                    });
+                    if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+                        unit.attacked = true;
+                        unit.exhausted = true;
+                    }
+                    pending_action.unit = None;
+                    pending_action.targets.clear();
+                    pending_action.can_capture = false;
+                    pending_action.capture_tile = None;
+                    pending_action.can_join = false;
+                    pending_action.join_target = None;
+                    turn_state.phase = TurnPhase::Select;
+                }
+            }
+            MenuAction::Join => {
+                if let Some(join_target) = pending_action.join_target {
+                    events.join.write(JoinEvent {
+                        source: acting_entity,
+                        target: join_target,
+                    });
+                    pending_action.unit = None;
+                    pending_action.targets.clear();
+                    pending_action.can_capture = false;
+                    pending_action.capture_tile = None;
+                    pending_action.can_join = false;
+                    pending_action.join_target = None;
+                    turn_state.phase = TurnPhase::Select;
+                }
+            }
+            MenuAction::Resupply => {
+                events.resupply.write(ResupplyEvent {
+                    supplier: acting_entity,
+                });
+                if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+                    unit.exhausted = true;
+                }
+                pending_action.unit = None;
+                pending_action.targets.clear();
+                pending_action.can_capture = false;
+                pending_action.capture_tile = None;
+                pending_action.can_join = false;
+                pending_action.join_target = None;
+                turn_state.phase = TurnPhase::Select;
+            }
+            MenuAction::Load(transport_pos) => {
+                events.load.write(LoadEvent {
+                    transport_pos,
+                    passenger: acting_entity,
+                });
+                if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+                    unit.exhausted = true;
+                }
+                pending_action.unit = None;
+                pending_action.targets.clear();
+                pending_action.can_capture = false;
+                pending_action.capture_tile = None;
+                pending_action.can_join = false;
+                pending_action.join_target = None;
+                turn_state.phase = TurnPhase::Select;
+            }
+            MenuAction::Unload(pos) => {
+                events.unload.write(UnloadEvent {
+                    transport: acting_entity,
+                    position: pos,
+                });
+                if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+                    unit.exhausted = true;
+                }
+                pending_action.unit = None;
+                pending_action.targets.clear();
+                pending_action.can_capture = false;
+                pending_action.capture_tile = None;
+                pending_action.can_join = false;
+                pending_action.join_target = None;
+                turn_state.phase = TurnPhase::Select;
+            }
+            MenuAction::Wait => {
+                if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+                    unit.exhausted = true;
+                }
+                pending_action.unit = None;
+                pending_action.targets.clear();
+                pending_action.can_capture = false;
+                pending_action.capture_tile = None;
+                pending_action.can_join = false;
+                pending_action.join_target = None;
+                turn_state.phase = TurnPhase::Select;
+            }
+        }
+    }
+
+    // Handle cancel (ESC) - same as Wait
+    if nav_cancel {
+        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+            unit.exhausted = true;
+        }
         pending_action.unit = None;
         pending_action.targets.clear();
         pending_action.can_capture = false;
