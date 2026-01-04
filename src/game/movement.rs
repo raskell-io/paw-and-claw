@@ -557,11 +557,12 @@ fn handle_keyboard_input(
 
     // If in Action phase, keyboard is handled by UI
     if turn_state.phase == TurnPhase::Action {
-        // ESC cancels action and deselects (unit already moved, so mark as done)
+        // ESC cancels action and deselects (unit waits)
         if keyboard.just_pressed(KeyCode::Escape) {
             if let Some(entity) = pending_action.unit {
                 if let Ok((_, _, _, _, mut unit)) = units.get_mut(entity) {
                     unit.attacked = false; // Wait action
+                    unit.moved = true;     // Mark turn complete
                 }
             }
             pending_action.unit = None;

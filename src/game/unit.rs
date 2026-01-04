@@ -87,15 +87,15 @@ impl UnitAnimation {
 fn animate_unit_movement(
     mut commands: Commands,
     time: Res<Time>,
-    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation, &mut Unit)>,
+    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation)>,
 ) {
-    for (entity, mut transform, mut animation, mut unit) in units.iter_mut() {
+    for (entity, mut transform, mut animation) in units.iter_mut() {
         if animation.is_complete() {
-            // Animation done - snap to final position, mark as moved, and remove component
+            // Animation done - snap to final position and remove component
+            // Note: unit.moved is set when an action is finalized (wait/capture/attack/join)
             let final_pos = animation.final_position();
             transform.translation.x = final_pos.x;
             transform.translation.z = final_pos.z;
-            unit.moved = true;
             commands.entity(entity).remove::<UnitAnimation>();
             continue;
         }
@@ -114,7 +114,6 @@ fn animate_unit_movement(
             let final_pos = animation.final_position();
             transform.translation.x = final_pos.x;
             transform.translation.z = final_pos.z;
-            unit.moved = true;
             commands.entity(entity).remove::<UnitAnimation>();
         } else {
             // Interpolate within current segment

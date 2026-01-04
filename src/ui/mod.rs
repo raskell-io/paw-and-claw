@@ -1239,6 +1239,7 @@ fn draw_action_menu(
 
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
             unit.attacked = true;
+            unit.moved = true;
         }
 
         pending_action.unit = None;
@@ -1257,6 +1258,7 @@ fn draw_action_menu(
 
             if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
                 unit.attacked = true; // Capturing ends the unit's turn
+                unit.moved = true;
             }
 
             pending_action.unit = None;
@@ -1291,6 +1293,10 @@ fn draw_action_menu(
             supplier: acting_entity,
         });
 
+        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+            unit.moved = true;
+        }
+
         pending_action.unit = None;
         pending_action.targets.clear();
         pending_action.can_capture = false;
@@ -1304,6 +1310,11 @@ fn draw_action_menu(
             transport_pos,
             passenger: acting_entity,
         });
+
+        // Mark passenger as moved (will be hidden inside transport anyway)
+        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+            unit.moved = true;
+        }
 
         pending_action.unit = None;
         pending_action.targets.clear();
@@ -1319,6 +1330,11 @@ fn draw_action_menu(
             position: pos,
         });
 
+        // Mark transport as moved after unloading
+        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+            unit.moved = true;
+        }
+
         pending_action.unit = None;
         pending_action.targets.clear();
         pending_action.can_capture = false;
@@ -1327,6 +1343,11 @@ fn draw_action_menu(
         pending_action.join_target = None;
         turn_state.phase = TurnPhase::Select;
     } else if wait_clicked {
+        // Mark unit as moved when waiting
+        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+            unit.moved = true;
+        }
+
         pending_action.unit = None;
         pending_action.targets.clear();
         pending_action.can_capture = false;
