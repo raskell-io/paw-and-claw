@@ -3,7 +3,7 @@ use bevy::ecs::system::SystemParam;
 use bevy_egui::input::EguiWantsInput;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass, AutoExhaust};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass};
 use crate::states::GameState;
 
 /// Bundled read-only game state for systems with many parameters
@@ -838,27 +838,15 @@ fn handle_keyboard_input(
                     highlights.attack_targets.clear();
                     movement_path.clear();
 
-                    // Enter Action phase if there are targets, can capture, or can join
-                    if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
-                        pending_action.unit = Some(selected_entity);
-                        pending_action.targets = targets;
-                        pending_action.can_capture = can_capture;
-                        pending_action.capture_tile = capture_tile;
-                        pending_action.can_join = can_join;
-                        pending_action.join_target = join_target;
-                        turn_state.phase = TurnPhase::Action;
-                        info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
-                    } else if staying_in_place {
-                        // No actions and staying in place - exhaust immediately
-                        if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
-                            unit.exhausted = true;
-                        }
-                        info!("No actions available, waiting in place");
-                    } else {
-                        // No actions but moved - flag animation to exhaust when complete
-                        commands.entity(selected_entity).insert(AutoExhaust);
-                        info!("No actions available, will auto-wait after animation");
-                    }
+                    // Always enter Action phase to show action menu (Wait, End Turn always available)
+                    pending_action.unit = Some(selected_entity);
+                    pending_action.targets = if unit_copy.attacked { HashSet::new() } else { targets };
+                    pending_action.can_capture = can_capture;
+                    pending_action.capture_tile = capture_tile;
+                    pending_action.can_join = can_join;
+                    pending_action.join_target = join_target;
+                    turn_state.phase = TurnPhase::Action;
+                    info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
                 }
             }
         } else {
@@ -1392,27 +1380,15 @@ fn handle_click_input(
             highlights.attack_targets.clear();
             input.movement_path.clear();
 
-            // Enter Action phase if there are targets, can capture, or can join
-            if (!targets.is_empty() && !unit_copy.attacked) || can_capture || can_join {
-                pending_action.unit = Some(selected_entity);
-                pending_action.targets = targets;
-                pending_action.can_capture = can_capture;
-                pending_action.capture_tile = capture_tile;
-                pending_action.can_join = can_join;
-                pending_action.join_target = join_target;
-                turn_state.phase = TurnPhase::Action;
-                info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
-            } else if staying_in_place {
-                // No actions and staying in place - exhaust immediately
-                if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
-                    unit.exhausted = true;
-                }
-                info!("No actions available, waiting in place");
-            } else {
-                // No actions but moved - flag animation to exhaust when complete
-                commands.entity(selected_entity).insert(AutoExhaust);
-                info!("No actions available, will auto-wait after animation");
-            }
+            // Always enter Action phase to show action menu (Wait, End Turn always available)
+            pending_action.unit = Some(selected_entity);
+            pending_action.targets = if unit_copy.attacked { HashSet::new() } else { targets };
+            pending_action.can_capture = can_capture;
+            pending_action.capture_tile = capture_tile;
+            pending_action.can_join = can_join;
+            pending_action.join_target = join_target;
+            turn_state.phase = TurnPhase::Action;
+            info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
             return;
         }
     }
