@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use rand::Rng;
 
 use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType, CargoUnit, spawn_unit, SpriteAssets, GameData};
 
@@ -57,12 +58,19 @@ pub struct UnloadEvent {
     pub position: (i32, i32),  // Where to unload the passenger
 }
 
-/// Calculate damage based on Advance Wars-like formula with damage tables
-/// Uses moddable damage tables for base damage, then applies modifiers:
-/// - Attacker HP percentage
-/// - CO attack/defense bonuses
-/// - Weather effects
-/// - Terrain defense
+/// Calculate damage based on Advance Wars 2 formula with damage tables
+///
+/// AW2 Formula:
+/// Damage = [B * (ACO/100 + ACO * (AHP-1)/1000) * ((200 - (DCO + DTR * DHP)) / 100)] + Luck
+///
+/// Where:
+/// - B = Base damage from damage chart (0-180%)
+/// - ACO = Attacker's CO attack bonus (100 = normal, 110 = +10%)
+/// - AHP = Attacker's HP (1-10, we use 1-100 scaled)
+/// - DCO = Defender's CO defense bonus (100 = normal)
+/// - DTR = Defender's terrain stars (0-4, each star = 10% defense)
+/// - DHP = Defender's HP (1-10)
+/// - Luck = Random 0-9 damage (scaled by attacker HP), some COs modify this
 pub fn calculate_damage(
     attacker: &Unit,
     defender: &Unit,
@@ -72,59 +80,132 @@ pub fn calculate_damage(
     weather: &Weather,
     game_data: &GameData,
 ) -> i32 {
-    // Look up base damage from damage tables
+    // Look up base damage from damage tables (B in AW2 formula)
     let base_damage_percent = match game_data.get_base_damage(attacker.unit_type, defender.unit_type) {
         Some(dmg) => dmg as f32,
         None => {
             // Fallback: use old formula if no damage table entry
-            // This allows gradual migration and handles missing entries
             let attacker_attack = game_data.unit_stats(attacker.unit_type)
                 .map(|s| s.attack as f32)
                 .unwrap_or_else(|| attacker.unit_type.stats().attack as f32);
             let defender_defense = game_data.unit_stats(defender.unit_type)
                 .map(|s| s.defense as f32)
                 .unwrap_or_else(|| defender.unit_type.stats().defense as f32);
-
-            // Simple fallback: attack - defense, min 0
             (attacker_attack - defender_defense * 0.5).max(0.0)
         }
     };
 
+    // If base damage is 0, no damage possible (can't hurt this unit type)
+    if base_damage_percent <= 0.0 {
+        return 0;
+    }
+
     let weather_effects = weather.effects();
 
-    // Apply attack modifiers (CO bonus, weather)
-    let attack_modifier = attacker_co.attack * weather_effects.attack_multiplier;
+    // Convert CO attack bonus to AW2 scale (1.0 = 100, 1.1 = 110)
+    let aco = attacker_co.attack * 100.0 * weather_effects.attack_multiplier;
 
-    // Attacker HP percentage affects damage output
-    let attacker_hp_modifier = attacker.hp_percentage();
+    // Attacker HP on 1-10 scale (AW2 uses display HP)
+    let ahp = (attacker.hp as f32 / 10.0).ceil().max(1.0);
 
-    // Calculate defender's total defense
-    // Terrain defense - check if weather negates cover (thickets, brambles, etc.)
-    let terrain_defense = if (defender_terrain == Terrain::Thicket || defender_terrain == Terrain::Brambles)
+    // Calculate attack component: ACO/100 + ACO * (AHP-1)/1000
+    // This means full HP (10) gives full attack, 1 HP gives ~10% attack
+    let attack_component = (aco / 100.0) + (aco * (ahp - 1.0) / 1000.0);
+
+    // Terrain defense stars (0-4 in AW2, we use terrain_defense 0-4)
+    // Weather can negate vegetation cover
+    let terrain_stars = if (defender_terrain == Terrain::Thicket || defender_terrain == Terrain::Brambles)
         && !weather.forests_provide_cover()
     {
         0.0 // Rain negates vegetation cover
     } else {
-        game_data.terrain_defense(defender_terrain) as f32 * 10.0
+        game_data.terrain_defense(defender_terrain) as f32
     };
 
-    // Defense modifier reduces damage (CO defense bonus, weather, terrain)
-    // Each 10% terrain defense reduces damage by ~10%
-    let defense_modifier = defender_co.defense * weather_effects.defense_multiplier;
-    let terrain_reduction = (100.0 - terrain_defense.min(70.0)) / 100.0; // Cap terrain at 70%
+    // Convert CO defense bonus to AW2 scale
+    let dco = defender_co.defense * 100.0 * weather_effects.defense_multiplier;
 
-    // Final damage calculation
-    // base_damage_percent * attack_modifiers * hp_modifier * (1 - defense_reduction)
-    let final_damage = base_damage_percent
-        * attack_modifier
-        * attacker_hp_modifier
-        * terrain_reduction
-        / defense_modifier;  // Higher defense = less damage
+    // Defender HP on 1-10 scale
+    let dhp = (defender.hp as f32 / 10.0).ceil().max(1.0);
 
-    // Add some randomness (95% - 105%) - TODO: implement actual randomness
-    let random_modifier = 1.0;
+    // Calculate defense component: (200 - (DCO + DTR * DHP)) / 100
+    // At 100% defense and 0 terrain, this equals 1.0
+    // At 100% defense and 4 stars with 10 HP, this equals 0.6 (40% reduction)
+    let defense_component = (200.0 - (dco + terrain_stars * 10.0 * dhp)) / 100.0;
+    let defense_component = defense_component.max(0.1); // Minimum 10% damage gets through
 
-    (final_damage * random_modifier).round() as i32
+    // Base damage before luck
+    let base_final = base_damage_percent * attack_component * defense_component / 100.0;
+
+    // AW2 Luck: adds 0-9 random damage, scaled by attacker HP percentage
+    // (A full HP unit can add up to 9 damage, a 1 HP unit adds ~0-1)
+    let mut rng = rand::thread_rng();
+    let luck_roll = rng.gen_range(0..=9) as f32;
+    let luck_damage = luck_roll * (ahp / 10.0);
+
+    // Final damage (minimum 0)
+    let final_damage = (base_final + luck_damage).max(0.0);
+
+    final_damage.round() as i32
+}
+
+/// Calculate damage estimate for UI display (returns min, max, average)
+/// Uses the same formula as calculate_damage but without randomness
+pub fn estimate_damage(
+    attacker: &Unit,
+    defender: &Unit,
+    defender_terrain: Terrain,
+    attacker_co: &CoBonuses,
+    defender_co: &CoBonuses,
+    weather: &Weather,
+    game_data: &GameData,
+) -> (i32, i32) {
+    // Look up base damage from damage tables
+    let base_damage_percent = match game_data.get_base_damage(attacker.unit_type, defender.unit_type) {
+        Some(dmg) => dmg as f32,
+        None => {
+            let attacker_attack = game_data.unit_stats(attacker.unit_type)
+                .map(|s| s.attack as f32)
+                .unwrap_or_else(|| attacker.unit_type.stats().attack as f32);
+            let defender_defense = game_data.unit_stats(defender.unit_type)
+                .map(|s| s.defense as f32)
+                .unwrap_or_else(|| defender.unit_type.stats().defense as f32);
+            (attacker_attack - defender_defense * 0.5).max(0.0)
+        }
+    };
+
+    if base_damage_percent <= 0.0 {
+        return (0, 0);
+    }
+
+    let weather_effects = weather.effects();
+    let aco = attacker_co.attack * 100.0 * weather_effects.attack_multiplier;
+    let ahp = (attacker.hp as f32 / 10.0).ceil().max(1.0);
+    let attack_component = (aco / 100.0) + (aco * (ahp - 1.0) / 1000.0);
+
+    let terrain_stars = if (defender_terrain == Terrain::Thicket || defender_terrain == Terrain::Brambles)
+        && !weather.forests_provide_cover()
+    {
+        0.0
+    } else {
+        game_data.terrain_defense(defender_terrain) as f32
+    };
+
+    let dco = defender_co.defense * 100.0 * weather_effects.defense_multiplier;
+    let dhp = (defender.hp as f32 / 10.0).ceil().max(1.0);
+    let defense_component = (200.0 - (dco + terrain_stars * 10.0 * dhp)) / 100.0;
+    let defense_component = defense_component.max(0.1);
+
+    let base_final = base_damage_percent * attack_component * defense_component / 100.0;
+
+    // Luck range: 0-9 scaled by attacker HP
+    let luck_min = 0.0;
+    let luck_max = 9.0 * (ahp / 10.0);
+
+    let min_damage = (base_final + luck_min).max(0.0).round() as i32;
+    let max_damage = (base_final + luck_max).max(0.0).round() as i32;
+
+    (min_damage, max_damage)
 }
 
 /// Check if attacker can attack defender

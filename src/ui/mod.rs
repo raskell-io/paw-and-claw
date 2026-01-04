@@ -5,7 +5,7 @@ use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
     MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent, ResupplyEvent, LoadEvent, UnloadEvent,
     TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit,
-    calculate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
+    estimate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
     TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
@@ -926,27 +926,29 @@ fn draw_action_menu(
     };
     let defender_co = commanders.get_bonuses(defender_faction);
 
-    // Collect target info with damage estimates
+    // Collect target info with damage estimates (min-max range due to luck)
     let target_info: Vec<_> = pending_action.targets.iter()
         .filter_map(|&entity| {
             units.get(entity).ok().map(|(unit, _faction, pos)| {
                 let pos_xy = pos.map(|p| (p.x, p.y)).unwrap_or((0, 0));
 
-                // Calculate damage estimate (with CO bonuses and weather)
+                // Calculate damage estimate range (with CO bonuses and weather)
                 let defender_terrain = map.get(pos_xy.0, pos_xy.1).unwrap_or(Terrain::Grass);
-                let damage = calculate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &weather, &game_data);
+                let (damage_min, damage_max) = estimate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &weather, &game_data);
 
-                // Calculate counter-attack damage (if defender can counter)
+                // Calculate counter-attack damage range (if defender can counter)
                 let defender_stats = unit.unit_type.stats();
                 let counter_damage = if defender_stats.attack > 0 && defender_stats.attack_range.0 == 1 {
-                    // Estimate defender HP after our attack
-                    let defender_hp_after = (unit.hp - damage).max(0);
+                    // Use average damage (midpoint) for counter calculation
+                    let avg_damage = (damage_min + damage_max) / 2;
+                    let defender_hp_after = (unit.hp - avg_damage).max(0);
                     if defender_hp_after > 0 {
                         let attacker_terrain = map.get(attacker_pos.0, attacker_pos.1).unwrap_or(Terrain::Grass);
                         // Create a temporary unit with reduced HP for counter calculation
                         let mut temp_defender = unit.clone();
                         temp_defender.hp = defender_hp_after;
-                        Some(calculate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather, &game_data))
+                        let (counter_min, counter_max) = estimate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather, &game_data);
+                        Some((counter_min, counter_max))
                     } else {
                         None // Defender will be destroyed, no counter
                     }
@@ -958,7 +960,7 @@ fn draw_action_menu(
                     entity,
                     game_data.unit_name(unit.unit_type).to_string(),
                     unit.hp,
-                    damage,
+                    (damage_min, damage_max),
                     counter_damage,
                 )
             })
@@ -1082,24 +1084,33 @@ fn draw_action_menu(
                 ui.heading("Attack");
                 ui.separator();
 
-                for (entity, name, hp, damage, counter_damage) in &target_info {
+                for (entity, name, hp, (damage_min, damage_max), counter_damage) in &target_info {
                     // Show target name and damage estimate
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(name).strong().size(14.0));
                         ui.label(format!("(HP: {})", hp));
                     });
 
-                    // Damage preview
-                    let damage_text = if *damage >= *hp {
-                        format!("Deal {} dmg (DESTROY)", damage)
+                    // Damage preview with range (AW2 style luck variance)
+                    let damage_text = if *damage_min >= *hp {
+                        format!("Deal {}-{} dmg (DESTROY)", damage_min, damage_max)
+                    } else if *damage_max >= *hp {
+                        format!("Deal {}-{} dmg (may DESTROY)", damage_min, damage_max)
+                    } else if damage_min == damage_max {
+                        format!("Deal {} dmg", damage_min)
                     } else {
-                        format!("Deal {} dmg", damage)
+                        format!("Deal {}-{} dmg", damage_min, damage_max)
                     };
                     ui.label(egui::RichText::new(&damage_text).color(egui::Color32::from_rgb(100, 200, 100)));
 
-                    // Counter-attack warning
-                    if let Some(counter) = counter_damage {
-                        ui.label(egui::RichText::new(format!("Take {} counter", counter))
+                    // Counter-attack warning with range
+                    if let Some((counter_min, counter_max)) = counter_damage {
+                        let counter_text = if counter_min == counter_max {
+                            format!("Take {} counter", counter_min)
+                        } else {
+                            format!("Take {}-{} counter", counter_min, counter_max)
+                        };
+                        ui.label(egui::RichText::new(counter_text)
                             .color(egui::Color32::from_rgb(255, 150, 100)));
                     }
 
