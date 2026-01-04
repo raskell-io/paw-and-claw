@@ -24,6 +24,7 @@ pub enum MenuAction {
     Load((i32, i32)),  // Position of transport
     Unload((i32, i32)), // Position to unload to
     Wait,
+    Cancel,  // Undo move - return unit to original position
     EndTurn,
 }
 
@@ -918,7 +919,7 @@ fn draw_action_menu(
     mut contexts: EguiContexts,
     mut pending_action: ResMut<PendingAction>,
     mut turn_state: ResMut<TurnState>,
-    mut units: Query<(&mut Unit, Option<&FactionMember>, Option<&GridPosition>)>,
+    mut units: Query<(&mut Unit, Option<&FactionMember>, Option<&mut GridPosition>)>,
     tiles: Query<&Tile>,
     mut events: ActionEvents,
     map: Res<GameMap>,
@@ -1030,6 +1031,7 @@ fn draw_action_menu(
     let mut unload_position: Option<(i32, i32)> = None;
     let mut wait_clicked = false;
     let mut end_turn_clicked = false;
+    let mut cancel_clicked = false;
 
     // Check if this is a Supplier unit that can resupply
     let is_supplier = attacker_unit.unit_type == UnitType::Supplier;
@@ -1159,6 +1161,11 @@ fn draw_action_menu(
 
     // Always add Wait
     menu_state.actions.push(MenuAction::Wait);
+
+    // Cancel (undo move) - only if unit actually moved
+    if pending_action.original_position.is_some() {
+        menu_state.actions.push(MenuAction::Cancel);
+    }
 
     // End Turn is always the last option
     menu_state.actions.push(MenuAction::EndTurn);
@@ -1395,6 +1402,20 @@ fn draw_action_menu(
 
                 if ui.add(button).clicked() {
                     wait_clicked = true;
+                }
+                current_idx += 1;
+            }
+
+            // Cancel button (undo move)
+            if pending_action.original_position.is_some() {
+                let is_selected = current_idx == menu_state.selected_index;
+                let button_text = if is_selected { "> Cancel" } else { "Cancel" };
+                let button = egui::Button::new(egui::RichText::new(button_text).size(16.0))
+                    .min_size(egui::vec2(180.0, 35.0))
+                    .fill(if is_selected { egui::Color32::from_rgb(80, 40, 40) } else { egui::Color32::from_rgb(50, 30, 30) });
+
+                if ui.add(button).clicked() {
+                    cancel_clicked = true;
                 }
                 current_idx += 1;
             }
@@ -1657,12 +1678,42 @@ fn draw_action_menu(
                 pending_action.capture_tile = None;
                 pending_action.can_join = false;
                 pending_action.join_target = None;
+                pending_action.original_position = None;
                 turn_state.phase = TurnPhase::Select;
+            }
+            MenuAction::Cancel => {
+                cancel_clicked = true;
             }
             MenuAction::EndTurn => {
                 end_turn_clicked = true;
             }
         }
+    }
+
+    // Handle Cancel (undo move - return unit to original position)
+    if cancel_clicked {
+        if let Some((orig_x, orig_y)) = pending_action.original_position {
+            if let Ok((mut unit, _, pos_opt)) = units.get_mut(acting_entity) {
+                if let Some(mut pos) = pos_opt {
+                    // Move unit back to original position instantly
+                    pos.x = orig_x;
+                    pos.y = orig_y;
+                }
+                // Reset movement flags - unit can move again
+                unit.moved = false;
+                unit.attacked = false;
+                unit.exhausted = false;
+                info!("Cancelled move, unit returned to ({}, {})", orig_x, orig_y);
+            }
+        }
+        pending_action.unit = None;
+        pending_action.targets.clear();
+        pending_action.can_capture = false;
+        pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
+        pending_action.original_position = None;
+        turn_state.phase = TurnPhase::Select;
     }
 
     // Handle End Turn (from button or keyboard)
@@ -1677,6 +1728,7 @@ fn draw_action_menu(
         pending_action.capture_tile = None;
         pending_action.can_join = false;
         pending_action.join_target = None;
+        pending_action.original_position = None;
 
         // Reset all units of current faction
         for (mut unit, faction, _) in units.iter_mut() {
@@ -1731,6 +1783,7 @@ fn draw_action_menu(
         pending_action.capture_tile = None;
         pending_action.can_join = false;
         pending_action.join_target = None;
+        pending_action.original_position = None;
         turn_state.phase = TurnPhase::Select;
     }
 }

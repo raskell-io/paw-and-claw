@@ -299,6 +299,7 @@ pub struct PendingAction {
     pub capture_tile: Option<Entity>, // The tile entity that can be captured
     pub can_join: bool,            // Whether the unit can join another unit
     pub join_target: Option<Entity>, // The unit entity that can be joined
+    pub original_position: Option<(i32, i32)>, // Where unit was before moving (for cancel)
 }
 
 /// Tracks when production menu should be shown
@@ -770,8 +771,11 @@ fn handle_keyboard_input(
                     // Move the unit (with animation if actually moving)
                     let faction_copy;
                     let unit_copy;
+                    let original_pos;
                     if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
                         let start_pos = transform.translation;
+                        // Save original position before moving (for cancel)
+                        original_pos = (grid_pos.x, grid_pos.y);
                         grid_pos.x = cursor.x;
                         grid_pos.y = cursor.y;
 
@@ -845,8 +849,9 @@ fn handle_keyboard_input(
                     pending_action.capture_tile = capture_tile;
                     pending_action.can_join = can_join;
                     pending_action.join_target = join_target;
+                    pending_action.original_position = Some(original_pos);
                     turn_state.phase = TurnPhase::Action;
-                    info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
+                    info!("Entering action phase: {} targets, can_capture: {}, can_join: {}, original_pos: {:?}", pending_action.targets.len(), can_capture, can_join, original_pos);
                 }
             }
         } else {
@@ -1312,8 +1317,11 @@ fn handle_click_input(
 
             let faction_copy;
             let unit_copy;
+            let original_pos;
             if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
                 let start_pos = transform.translation;
+                // Save original position before moving (for cancel)
+                original_pos = (grid_pos.x, grid_pos.y);
                 grid_pos.x = grid_x;
                 grid_pos.y = grid_y;
 
@@ -1387,8 +1395,9 @@ fn handle_click_input(
             pending_action.capture_tile = capture_tile;
             pending_action.can_join = can_join;
             pending_action.join_target = join_target;
+            pending_action.original_position = Some(original_pos);
             turn_state.phase = TurnPhase::Action;
-            info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
+            info!("Entering action phase: {} targets, can_capture: {}, can_join: {}, original_pos: {:?}", pending_action.targets.len(), can_capture, can_join, original_pos);
             return;
         }
     }
