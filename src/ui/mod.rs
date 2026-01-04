@@ -963,17 +963,19 @@ fn draw_action_menu(
         return;
     };
 
-    // Reset selection when menu just opened
+    // Reset selection when menu just opened and skip input this frame
+    // (prevents Space/Enter from movement confirmation being read as menu confirm)
+    let skip_input = menu_state.just_opened;
     if menu_state.just_opened {
         menu_state.selected_index = 0;
         menu_state.just_opened = false;
     }
 
-    // Handle keyboard navigation
-    let nav_up = keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW);
-    let nav_down = keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS);
-    let nav_confirm = keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::Space);
-    let nav_cancel = keyboard.just_pressed(KeyCode::Escape);
+    // Handle keyboard navigation (skip if menu just opened this frame)
+    let nav_up = !skip_input && (keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW));
+    let nav_down = !skip_input && (keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS));
+    let nav_confirm = !skip_input && (keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::Space));
+    let nav_cancel = !skip_input && keyboard.just_pressed(KeyCode::Escape);
 
     // Get CO bonuses for damage calculation
     let attacker_co = commanders.get_bonuses(turn_state.current_faction);
