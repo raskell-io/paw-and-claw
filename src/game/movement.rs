@@ -748,15 +748,21 @@ fn handle_keyboard_input(
                 if !target_blocked {
                     let new_pos = GridPosition::new(cursor.x, cursor.y);
 
-                    // Get movement cost for stamina deduction
-                    // Use path total cost if available, otherwise fall back to tile cost
-                    let move_cost = if movement_path.total_cost > 0 {
+                    // Check if staying in place (no actual movement)
+                    let staying_in_place = units.get(selected_entity)
+                        .map(|(_, p, _, _, _)| p.x == cursor.x && p.y == cursor.y)
+                        .unwrap_or(false);
+
+                    // Get movement cost for stamina deduction (0 if staying in place)
+                    let move_cost = if staying_in_place {
+                        0
+                    } else if movement_path.total_cost > 0 {
                         movement_path.total_cost
                     } else {
                         highlights.tile_costs.get(&(cursor.x, cursor.y)).copied().unwrap_or(1)
                     };
 
-                    // Move the unit with animation following the path
+                    // Move the unit (with animation if actually moving)
                     let faction_copy;
                     let unit_copy;
                     if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
@@ -764,37 +770,43 @@ fn handle_keyboard_input(
                         grid_pos.x = cursor.x;
                         grid_pos.y = cursor.y;
 
-                        // Convert path to world positions for animation
-                        let waypoints: Vec<Vec3> = if movement_path.path.len() >= 2 {
-                            movement_path.path.iter().map(|p| {
-                                let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
-                                Vec3::new(world_pos.x, start_pos.y, world_pos.z)
-                            }).collect()
-                        } else {
-                            // Fallback: direct path if no drawn path
-                            let end_world = grid_pos.to_world(&map);
-                            vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
-                        };
+                        // Only create animation if actually moving
+                        if !staying_in_place {
+                            // Convert path to world positions for animation
+                            let waypoints: Vec<Vec3> = if movement_path.path.len() >= 2 {
+                                movement_path.path.iter().map(|p| {
+                                    let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
+                                    Vec3::new(world_pos.x, start_pos.y, world_pos.z)
+                                }).collect()
+                            } else {
+                                // Fallback: direct path if no drawn path
+                                let end_world = grid_pos.to_world(&map);
+                                vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
+                            };
 
-                        // Add animation component for smooth movement along path
-                        // Note: unit.moved is set when animation completes in animate_unit_movement
-                        commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
-                        // Deduct stamina based on path cost
-                        unit.stamina = unit.stamina.saturating_sub(move_cost);
+                            // Add animation component for smooth movement along path
+                            commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
+                            unit.moved = true;
+                            // Deduct stamina based on path cost
+                            unit.stamina = unit.stamina.saturating_sub(move_cost);
+                            info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", cursor.x, cursor.y, unit.stamina + move_cost, unit.stamina, move_cost);
+                        } else {
+                            info!("Unit staying in place at ({}, {})", cursor.x, cursor.y);
+                        }
+
                         faction_copy = faction.clone();
                         unit_copy = unit.clone();
-                        info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", cursor.x, cursor.y, unit.stamina + move_cost, unit.stamina, move_cost);
                     } else {
                         return;
                     }
 
-                    // Calculate attack targets from new position
+                    // Calculate attack targets from current/new position
                     let all_units: Vec<_> = units.iter()
                         .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
                         .collect();
                     let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units);
 
-                    // Check if unit can capture the tile it moved to
+                    // Check if unit can capture the tile
                     let (can_capture, capture_tile) = if unit_copy.unit_type.stats().can_capture {
                         tiles.iter()
                             .find(|(_, t)| t.position.x == cursor.x && t.position.y == cursor.y)
@@ -831,8 +843,14 @@ fn handle_keyboard_input(
                         pending_action.join_target = join_target;
                         turn_state.phase = TurnPhase::Action;
                         info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
+                    } else if staying_in_place {
+                        // No actions and staying in place - exhaust immediately
+                        if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
+                            unit.exhausted = true;
+                        }
+                        info!("No actions available, waiting in place");
                     } else {
-                        // No actions available - flag animation to exhaust when complete
+                        // No actions but moved - flag animation to exhaust when complete
                         commands.entity(selected_entity).insert(AutoExhaust);
                         info!("No actions available, will auto-wait after animation");
                     }
@@ -1227,11 +1245,17 @@ fn handle_click_input(
                 })
                 .map(|(e, _, _, _, _)| e);
 
-            // Move the unit with animation following the path
+            // Check if staying in place (no actual movement)
+            let staying_in_place = units.get(selected_entity)
+                .map(|(_, p, _, _, _)| p.x == grid_x && p.y == grid_y)
+                .unwrap_or(false);
+
             let new_pos = GridPosition::new(grid_x, grid_y);
 
-            // Use path total cost if available, otherwise fall back to tile cost
-            let move_cost = if input.movement_path.total_cost > 0 {
+            // Get movement cost (0 if staying in place)
+            let move_cost = if staying_in_place {
+                0
+            } else if input.movement_path.total_cost > 0 {
                 input.movement_path.total_cost
             } else {
                 highlights.tile_costs.get(&(grid_x, grid_y)).copied().unwrap_or(1)
@@ -1244,26 +1268,32 @@ fn handle_click_input(
                 grid_pos.x = grid_x;
                 grid_pos.y = grid_y;
 
-                // Convert path to world positions for animation
-                let waypoints: Vec<Vec3> = if input.movement_path.path.len() >= 2 {
-                    input.movement_path.path.iter().map(|p| {
-                        let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
-                        Vec3::new(world_pos.x, start_pos.y, world_pos.z)
-                    }).collect()
-                } else {
-                    // Fallback: direct path if no drawn path
-                    let end_world = grid_pos.to_world(&map);
-                    vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
-                };
+                // Only create animation if actually moving
+                if !staying_in_place {
+                    // Convert path to world positions for animation
+                    let waypoints: Vec<Vec3> = if input.movement_path.path.len() >= 2 {
+                        input.movement_path.path.iter().map(|p| {
+                            let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
+                            Vec3::new(world_pos.x, start_pos.y, world_pos.z)
+                        }).collect()
+                    } else {
+                        // Fallback: direct path if no drawn path
+                        let end_world = grid_pos.to_world(&map);
+                        vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
+                    };
 
-                // Add animation component for smooth movement along path
-                // Note: unit.moved is set when animation completes in animate_unit_movement
-                commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
-                // Deduct stamina based on path cost
-                unit.stamina = unit.stamina.saturating_sub(move_cost);
+                    // Add animation component for smooth movement along path
+                    commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
+                    unit.moved = true;
+                    // Deduct stamina based on path cost
+                    unit.stamina = unit.stamina.saturating_sub(move_cost);
+                    info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", grid_x, grid_y, unit.stamina + move_cost, unit.stamina, move_cost);
+                } else {
+                    info!("Unit staying in place at ({}, {})", grid_x, grid_y);
+                }
+
                 faction_copy = faction.clone();
                 unit_copy = unit.clone();
-                info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", grid_x, grid_y, unit.stamina + move_cost, unit.stamina, move_cost);
             } else {
                 return;
             }
@@ -1311,8 +1341,14 @@ fn handle_click_input(
                 pending_action.join_target = join_target;
                 turn_state.phase = TurnPhase::Action;
                 info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
+            } else if staying_in_place {
+                // No actions and staying in place - exhaust immediately
+                if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
+                    unit.exhausted = true;
+                }
+                info!("No actions available, waiting in place");
             } else {
-                // No actions available - flag animation to exhaust when complete
+                // No actions but moved - flag animation to exhaust when complete
                 commands.entity(selected_entity).insert(AutoExhaust);
                 info!("No actions available, will auto-wait after animation");
             }
