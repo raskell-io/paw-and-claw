@@ -831,6 +831,12 @@ fn handle_keyboard_input(
                         pending_action.join_target = join_target;
                         turn_state.phase = TurnPhase::Action;
                         info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
+                    } else {
+                        // No actions available - auto-wait and mark turn complete
+                        if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
+                            unit.moved = true;
+                        }
+                        info!("No actions available, auto-waiting");
                     }
                 }
             }
@@ -1307,6 +1313,12 @@ fn handle_click_input(
                 pending_action.join_target = join_target;
                 turn_state.phase = TurnPhase::Action;
                 info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
+            } else {
+                // No actions available - auto-wait and mark turn complete
+                if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
+                    unit.moved = true;
+                }
+                info!("No actions available, auto-waiting");
             }
             return;
         }
