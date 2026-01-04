@@ -6,6 +6,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass};
 use crate::states::GameState;
 
+/// Message to cancel a unit's move and return it to original position
+#[derive(Message)]
+pub struct CancelMoveEvent {
+    pub unit: Entity,
+    pub original_position: (i32, i32),
+}
+
 /// Bundled read-only game state for systems with many parameters
 #[derive(SystemParam)]
 pub struct GameStateContext<'w> {
@@ -197,7 +204,8 @@ pub struct MovementPlugin;
 
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MovementHighlights>()
+        app.add_message::<CancelMoveEvent>()
+            .init_resource::<MovementHighlights>()
             .init_resource::<GridCursor>()
             .init_resource::<PendingAction>()
             .init_resource::<ProductionState>()
@@ -229,7 +237,22 @@ impl Plugin for MovementPlugin {
                 draw_grid_cursor,
                 draw_action_targets,
                 draw_resource_warnings,
-            ).run_if(in_state(GameState::Battle)));
+            ).run_if(in_state(GameState::Battle)))
+            .add_systems(Update, handle_cancel_move.run_if(in_state(GameState::Battle)));
+    }
+}
+
+/// Handle cancel move messages - move unit back to original position
+fn handle_cancel_move(
+    mut events: MessageReader<CancelMoveEvent>,
+    mut units: Query<&mut GridPosition>,
+) {
+    for event in events.read() {
+        if let Ok(mut pos) = units.get_mut(event.unit) {
+            pos.x = event.original_position.0;
+            pos.y = event.original_position.1;
+            info!("Unit {:?} moved back to {:?}", event.unit, event.original_position);
+        }
     }
 }
 

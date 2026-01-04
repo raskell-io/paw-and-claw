@@ -10,7 +10,7 @@ use crate::game::{
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
     TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
-    InputMode, GameData,
+    InputMode, GameData, CancelMoveEvent,
 };
 use crate::states::GameState;
 
@@ -48,6 +48,7 @@ pub struct ActionEvents<'w> {
     pub resupply: MessageWriter<'w, ResupplyEvent>,
     pub load: MessageWriter<'w, LoadEvent>,
     pub unload: MessageWriter<'w, UnloadEvent>,
+    pub cancel_move: MessageWriter<'w, CancelMoveEvent>,
 }
 
 /// Resource to track battle setup (CO + Map selection)
@@ -169,7 +170,6 @@ impl Plugin for UiPlugin {
                 draw_main_menu.run_if(in_state(GameState::Menu)),
                 draw_battle_setup.run_if(in_state(GameState::Battle)),
                 draw_battle_ui.run_if(in_state(GameState::Battle)),
-                draw_action_menu.run_if(in_state(GameState::Battle)),
                 draw_production_menu.run_if(in_state(GameState::Battle)),
                 draw_victory_screen.run_if(in_state(GameState::Battle)),
                 draw_ingame_menu.run_if(in_state(GameState::Battle)),
@@ -178,6 +178,10 @@ impl Plugin for UiPlugin {
                 draw_unit_hp_numbers.run_if(in_state(GameState::Battle)),
                 draw_editor.run_if(in_state(GameState::Editor)),
             ).run_if(egui_is_ready))
+            // Action menu registered separately
+            .add_systems(EguiPrimaryContextPass,
+                draw_action_menu.run_if(in_state(GameState::Battle)).run_if(egui_is_ready)
+            )
             // Keep non-egui systems in Update
             .add_systems(Update, (
                 handle_ingame_menu_input.run_if(in_state(GameState::Battle)),
@@ -919,7 +923,7 @@ fn draw_action_menu(
     mut contexts: EguiContexts,
     mut pending_action: ResMut<PendingAction>,
     mut turn_state: ResMut<TurnState>,
-    mut units: Query<(&mut Unit, Option<&FactionMember>, Option<&mut GridPosition>)>,
+    mut units: Query<(&mut Unit, Option<&FactionMember>, Option<&GridPosition>)>,
     tiles: Query<&Tile>,
     mut events: ActionEvents,
     map: Res<GameMap>,
@@ -1693,18 +1697,18 @@ fn draw_action_menu(
     // Handle Cancel (undo move - return unit to original position)
     if cancel_clicked {
         if let Some((orig_x, orig_y)) = pending_action.original_position {
-            if let Ok((mut unit, _, pos_opt)) = units.get_mut(acting_entity) {
-                if let Some(mut pos) = pos_opt {
-                    // Move unit back to original position instantly
-                    pos.x = orig_x;
-                    pos.y = orig_y;
-                }
+            if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
                 // Reset movement flags - unit can move again
                 unit.moved = false;
                 unit.attacked = false;
                 unit.exhausted = false;
-                info!("Cancelled move, unit returned to ({}, {})", orig_x, orig_y);
             }
+            // Send event to update position (handled by separate system)
+            events.cancel_move.write(CancelMoveEvent {
+                unit: acting_entity,
+                original_position: (orig_x, orig_y),
+            });
+            info!("Cancelled move, returning to ({}, {})", orig_x, orig_y);
         }
         pending_action.unit = None;
         pending_action.targets.clear();
