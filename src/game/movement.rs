@@ -28,6 +28,8 @@ pub struct InputState<'w> {
     pub egui_wants_input: Res<'w, EguiWantsInput>,
     pub movement_path: ResMut<'w, MovementPath>,
     pub cursor: ResMut<'w, GridCursor>,
+    pub cursor_repeat: ResMut<'w, CursorRepeat>,
+    pub time: Res<'w, Time>,
 }
 
 /// Marker component for movement highlight mesh entities
@@ -207,6 +209,7 @@ impl Plugin for MovementPlugin {
         app.add_message::<CancelMoveEvent>()
             .init_resource::<MovementHighlights>()
             .init_resource::<GridCursor>()
+            .init_resource::<CursorRepeat>()
             .init_resource::<PendingAction>()
             .init_resource::<ProductionState>()
             .init_resource::<CameraZoom>()
@@ -221,13 +224,13 @@ impl Plugin for MovementPlugin {
                 handle_camera_angle_toggle,
                 update_camera_angle,
             ).run_if(in_state(GameState::Battle)))
-            // Input handling - keyboard and mouse must be ordered to avoid conflicts
+            // Input handling - registered separately due to parameter count limits
+            .add_systems(Update, handle_keyboard_input.run_if(in_state(GameState::Battle)))
+            .add_systems(Update, handle_keyboard_path_drawing.run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
-                handle_keyboard_input,
-                handle_keyboard_path_drawing.after(handle_keyboard_input),
-                handle_click_input.after(handle_keyboard_path_drawing),
-                handle_path_drawing.after(handle_click_input),
-                update_cursor_from_mouse.after(handle_path_drawing),
+                handle_click_input,
+                handle_path_drawing,
+                update_cursor_from_mouse,
             ).run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 spawn_movement_highlight_meshes,
@@ -308,6 +311,33 @@ impl Default for CameraZoom {
             min: 0.3,   // Zoomed in close
             max: 2.5,   // Zoomed out far
             speed: 0.15,
+        }
+    }
+}
+
+/// Resource for cursor key repeat timing
+#[derive(Resource)]
+pub struct CursorRepeat {
+    /// Time since key was first pressed
+    pub held_time: f32,
+    /// Time since last repeat
+    pub repeat_time: f32,
+    /// Initial delay before repeat starts (seconds)
+    pub initial_delay: f32,
+    /// Interval between repeats (seconds)
+    pub repeat_interval: f32,
+    /// Which direction is currently held (if any)
+    pub held_direction: Option<(i32, i32)>,
+}
+
+impl Default for CursorRepeat {
+    fn default() -> Self {
+        Self {
+            held_time: 0.0,
+            repeat_time: 0.0,
+            initial_delay: 0.35,
+            repeat_interval: 0.08,
+            held_direction: None,
         }
     }
 }
@@ -601,7 +631,6 @@ pub fn effective_movement(base_movement: u32, stamina: u32) -> u32 {
 fn handle_keyboard_input(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut cursor: ResMut<GridCursor>,
     mut highlights: ResMut<MovementHighlights>,
     mut pending_action: ResMut<PendingAction>,
     mut turn_state: ResMut<TurnState>,
@@ -609,14 +638,12 @@ fn handle_keyboard_input(
     tiles: Query<(Entity, &Tile)>,
     map: Res<GameMap>,
     mut attack_events: MessageWriter<AttackEvent>,
-    game_result: Res<GameResult>,
-    commanders: Res<Commanders>,
-    weather: Res<Weather>,
-    mut movement_path: ResMut<MovementPath>,
+    game_ctx: GameStateContext,
     game_data: Res<GameData>,
+    mut input: InputState,
 ) {
     // Don't process input if game is over
-    if game_result.game_over {
+    if game_ctx.game_result.game_over {
         return;
     }
 
@@ -643,27 +670,70 @@ fn handle_keyboard_input(
     // Cursor movement with WASD or Arrow keys (with Shift for cursor, without for camera)
     let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
-    if shift_held || cursor.visible {
-        if keyboard.just_pressed(KeyCode::KeyW) || keyboard.just_pressed(KeyCode::ArrowUp) {
-            cursor.y = (cursor.y - 1).max(0);  // Grid Y decreases going up visually
-            moved_cursor = true;
+    if shift_held || input.cursor.visible {
+        // Determine current direction being pressed
+        let up = keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp);
+        let down = keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown);
+        let left = keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft);
+        let right = keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight);
+
+        let current_dir = match (up, down, left, right) {
+            (true, false, false, false) => Some((0, -1)),  // Up
+            (false, true, false, false) => Some((0, 1)),   // Down
+            (false, false, true, false) => Some((-1, 0)),  // Left
+            (false, false, false, true) => Some((1, 0)),   // Right
+            _ => None,  // No direction or multiple
+        };
+
+        // Check if direction just changed or was just pressed
+        let just_pressed_up = keyboard.just_pressed(KeyCode::KeyW) || keyboard.just_pressed(KeyCode::ArrowUp);
+        let just_pressed_down = keyboard.just_pressed(KeyCode::KeyS) || keyboard.just_pressed(KeyCode::ArrowDown);
+        let just_pressed_left = keyboard.just_pressed(KeyCode::KeyA) || keyboard.just_pressed(KeyCode::ArrowLeft);
+        let just_pressed_right = keyboard.just_pressed(KeyCode::KeyD) || keyboard.just_pressed(KeyCode::ArrowRight);
+        let any_just_pressed = just_pressed_up || just_pressed_down || just_pressed_left || just_pressed_right;
+
+        if let Some((dx, dy)) = current_dir {
+            let should_move = if any_just_pressed || input.cursor_repeat.held_direction != current_dir {
+                // New key press or direction change - move immediately and reset timing
+                input.cursor_repeat.held_direction = current_dir;
+                input.cursor_repeat.held_time = 0.0;
+                input.cursor_repeat.repeat_time = 0.0;
+                true
+            } else {
+                // Key held - update timing and check for repeat
+                input.cursor_repeat.held_time += input.time.delta_secs();
+                input.cursor_repeat.repeat_time += input.time.delta_secs();
+
+                if input.cursor_repeat.held_time >= input.cursor_repeat.initial_delay
+                    && input.cursor_repeat.repeat_time >= input.cursor_repeat.repeat_interval
+                {
+                    input.cursor_repeat.repeat_time = 0.0;
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if should_move {
+                input.cursor.x = (input.cursor.x + dx).clamp(0, map.width as i32 - 1);
+                input.cursor.y = (input.cursor.y + dy).clamp(0, map.height as i32 - 1);
+                moved_cursor = true;
+            }
+        } else {
+            // No direction pressed - reset repeat state
+            input.cursor_repeat.held_direction = None;
+            input.cursor_repeat.held_time = 0.0;
+            input.cursor_repeat.repeat_time = 0.0;
         }
-        if keyboard.just_pressed(KeyCode::KeyS) || keyboard.just_pressed(KeyCode::ArrowDown) {
-            cursor.y = (cursor.y + 1).min(map.height as i32 - 1);
-            moved_cursor = true;
-        }
-        if keyboard.just_pressed(KeyCode::KeyA) || keyboard.just_pressed(KeyCode::ArrowLeft) {
-            cursor.x = (cursor.x - 1).max(0);
-            moved_cursor = true;
-        }
-        if keyboard.just_pressed(KeyCode::KeyD) || keyboard.just_pressed(KeyCode::ArrowRight) {
-            cursor.x = (cursor.x + 1).min(map.width as i32 - 1);
-            moved_cursor = true;
-        }
+    } else {
+        // Cursor not visible and shift not held - reset repeat state
+        input.cursor_repeat.held_direction = None;
+        input.cursor_repeat.held_time = 0.0;
+        input.cursor_repeat.repeat_time = 0.0;
     }
 
     if moved_cursor {
-        cursor.visible = true;
+        input.cursor.visible = true;
     }
 
     // Tab or N to cycle to next unmoved unit
@@ -698,19 +768,19 @@ fn handle_keyboard_input(
             highlights.tiles.clear();
             highlights.tile_costs.clear();
             highlights.attack_targets.clear();
-            movement_path.clear();
+            input.movement_path.clear();
 
             // Move cursor to the unit
-            cursor.x = next_x;
-            cursor.y = next_y;
-            cursor.visible = true;
+            input.cursor.x = next_x;
+            input.cursor.y = next_y;
+            input.cursor.visible = true;
 
             // Select the unit (same logic as Space/Enter selection)
             if let Ok((entity, pos, _, faction, unit)) = units.get(next_entity) {
                 let stats = unit.unit_type.stats();
-                let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+                let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
                 let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                let weather_movement = weather.apply_movement(base_movement);
+                let weather_movement = game_ctx.weather.apply_movement(base_movement);
                 let total_movement = effective_movement(weather_movement, unit.stamina);
 
                 // Build unit list for join-aware movement
@@ -734,8 +804,8 @@ fn handle_keyboard_input(
                 highlights.tiles = tiles;
                 highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
-                movement_path.start(IVec2::new(cursor.x, cursor.y));
-                info!("Cycled to unit at ({}, {})", cursor.x, cursor.y);
+                input.movement_path.start(IVec2::new(input.cursor.x, input.cursor.y));
+                info!("Cycled to unit at ({}, {})", input.cursor.x, input.cursor.y);
             }
         }
     }
@@ -747,22 +817,22 @@ fn handle_keyboard_input(
         highlights.tiles.clear();
         highlights.tile_costs.clear();
         highlights.attack_targets.clear();
-        movement_path.clear();
-        cursor.visible = false;
+        input.movement_path.clear();
+        input.cursor.visible = false;
         return;
     }
 
     // Space or Enter to select/move/attack
     if keyboard.just_pressed(KeyCode::Space) || keyboard.just_pressed(KeyCode::Enter) {
-        cursor.visible = true;
+        input.cursor.visible = true;
 
         if let Some(selected_entity) = highlights.selected_unit {
             // Use path destination if path exists, otherwise use cursor
-            let (target_x, target_y) = if movement_path.path.len() >= 2 {
-                let dest = movement_path.path.last().unwrap();
+            let (target_x, target_y) = if input.movement_path.path.len() >= 2 {
+                let dest = input.movement_path.path.last().unwrap();
                 (dest.x, dest.y)
             } else {
-                (cursor.x, cursor.y)
+                (input.cursor.x, input.cursor.y)
             };
 
             // Check if target is an attack target (before moving)
@@ -783,48 +853,48 @@ fn handle_keyboard_input(
                     unit.exhausted = true;
                 }
                 highlights.selected_unit = None;
-        highlights.selected_unit_class = None;
+                highlights.selected_unit_class = None;
                 highlights.tiles.clear();
                 highlights.tile_costs.clear();
                 highlights.attack_targets.clear();
-                movement_path.clear();
+                input.movement_path.clear();
                 return;
             }
 
             // Try to move to path destination or cursor position
             if highlights.tiles.contains(&(target_x, target_y)) {
                 // Update cursor to match target
-                cursor.x = target_x;
-                cursor.y = target_y;
+                input.cursor.x = target_x;
+                input.cursor.y = target_y;
                 // Check if target has a joinable unit (friendly same-type)
                 let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type));
                 let joinable_unit = units.iter()
                     .find(|(e, p, _, f, u)| {
                         *e != selected_entity
-                            && p.x == cursor.x && p.y == cursor.y
+                            && p.x == input.cursor.x && p.y == input.cursor.y
                             && selected_unit_info.map_or(false, |(sf, su)| f.faction == sf && u.unit_type == su)
                     })
                     .map(|(e, _, _, _, _)| e);
 
                 // Check if target is occupied by non-joinable unit
                 let target_blocked = units.iter()
-                    .any(|(e, p, _, _, _)| e != selected_entity && p.x == cursor.x && p.y == cursor.y && joinable_unit != Some(e));
+                    .any(|(e, p, _, _, _)| e != selected_entity && p.x == input.cursor.x && p.y == input.cursor.y && joinable_unit != Some(e));
 
                 if !target_blocked {
-                    let new_pos = GridPosition::new(cursor.x, cursor.y);
+                    let new_pos = GridPosition::new(input.cursor.x, input.cursor.y);
 
                     // Check if staying in place (no actual movement)
                     let staying_in_place = units.get(selected_entity)
-                        .map(|(_, p, _, _, _)| p.x == cursor.x && p.y == cursor.y)
+                        .map(|(_, p, _, _, _)| p.x == input.cursor.x && p.y == input.cursor.y)
                         .unwrap_or(false);
 
                     // Get movement cost for stamina deduction (0 if staying in place)
                     let move_cost = if staying_in_place {
                         0
-                    } else if movement_path.total_cost > 0 {
-                        movement_path.total_cost
+                    } else if input.movement_path.total_cost > 0 {
+                        input.movement_path.total_cost
                     } else {
-                        highlights.tile_costs.get(&(cursor.x, cursor.y)).copied().unwrap_or(1)
+                        highlights.tile_costs.get(&(input.cursor.x, input.cursor.y)).copied().unwrap_or(1)
                     };
 
                     // Move the unit (with animation if actually moving)
@@ -835,14 +905,14 @@ fn handle_keyboard_input(
                         let start_pos = transform.translation;
                         // Save original position before moving (for cancel)
                         original_pos = (grid_pos.x, grid_pos.y);
-                        grid_pos.x = cursor.x;
-                        grid_pos.y = cursor.y;
+                        grid_pos.x = input.cursor.x;
+                        grid_pos.y = input.cursor.y;
 
                         // Only create animation if actually moving
                         if !staying_in_place {
                             // Convert path to world positions for animation
-                            let waypoints: Vec<Vec3> = if movement_path.path.len() >= 2 {
-                                movement_path.path.iter().map(|p| {
+                            let waypoints: Vec<Vec3> = if input.movement_path.path.len() >= 2 {
+                                input.movement_path.path.iter().map(|p| {
                                     let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
                                     Vec3::new(world_pos.x, start_pos.y, world_pos.z)
                                 }).collect()
@@ -857,9 +927,9 @@ fn handle_keyboard_input(
                             unit.moved = true;
                             // Deduct stamina based on path cost
                             unit.stamina = unit.stamina.saturating_sub(move_cost);
-                            info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", cursor.x, cursor.y, unit.stamina + move_cost, unit.stamina, move_cost);
+                            info!("Moved unit via path to ({}, {}), stamina {} -> {} (path cost: {})", input.cursor.x, input.cursor.y, unit.stamina + move_cost, unit.stamina, move_cost);
                         } else {
-                            info!("Unit staying in place at ({}, {})", cursor.x, cursor.y);
+                            info!("Unit staying in place at ({}, {})", input.cursor.x, input.cursor.y);
                         }
 
                         faction_copy = faction.clone();
@@ -877,7 +947,7 @@ fn handle_keyboard_input(
                     // Check if unit can capture the tile
                     let (can_capture, capture_tile) = if unit_copy.unit_type.stats().can_capture {
                         tiles.iter()
-                            .find(|(_, t)| t.position.x == cursor.x && t.position.y == cursor.y)
+                            .find(|(_, t)| t.position.x == input.cursor.x && t.position.y == input.cursor.y)
                             .map(|(e, tile)| {
                                 let capturable = tile.terrain.is_capturable() && tile.owner != Some(faction_copy.faction);
                                 (capturable, if capturable { Some(e) } else { None })
@@ -895,11 +965,11 @@ fn handle_keyboard_input(
                     };
 
                     highlights.selected_unit = None;
-        highlights.selected_unit_class = None;
+                    highlights.selected_unit_class = None;
                     highlights.tiles.clear();
                     highlights.tile_costs.clear();
                     highlights.attack_targets.clear();
-                    movement_path.clear();
+                    input.movement_path.clear();
 
                     // Set up pending action (action menu shown after animation completes)
                     pending_action.unit = Some(selected_entity);
@@ -924,14 +994,14 @@ fn handle_keyboard_input(
             // Try to select unit at cursor
             let mut found_unit = None;
             for (entity, pos, _, faction, unit) in units.iter() {
-                if pos.x == cursor.x && pos.y == cursor.y
+                if pos.x == input.cursor.x && pos.y == input.cursor.y
                     && !unit.exhausted
                     && faction.faction == turn_state.current_faction
                 {
                     let stats = unit.unit_type.stats();
-                    let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+                    let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
                     let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                    let weather_movement = weather.apply_movement(base_movement);
+                    let weather_movement = game_ctx.weather.apply_movement(base_movement);
                     // Limit movement by stamina
                     let total_movement = effective_movement(weather_movement, unit.stamina);
 
@@ -962,8 +1032,8 @@ fn handle_keyboard_input(
                 highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
                 // Start path from unit's position
-                movement_path.start(IVec2::new(cursor.x, cursor.y));
-                info!("Selected unit at ({}, {})", cursor.x, cursor.y);
+                input.movement_path.start(IVec2::new(input.cursor.x, input.cursor.y));
+                info!("Selected unit at ({}, {})", input.cursor.x, input.cursor.y);
             }
         }
     }
@@ -1719,6 +1789,8 @@ fn handle_keyboard_path_drawing(
     input_mode: Res<InputMode>,
     turn_state: Res<TurnState>,
     game_data: Res<GameData>,
+    time: Res<Time>,
+    mut cursor_repeat: ResMut<CursorRepeat>,
 ) {
     // Skip during non-select phases
     if turn_state.phase != TurnPhase::Select {
@@ -1743,37 +1815,69 @@ fn handle_keyboard_path_drawing(
         }
     }
 
-    // Direction input
-    let mut dx = 0i32;
-    let mut dy = 0i32;
+    // Determine current direction being pressed
+    let up = keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp);
+    let down = keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown);
+    let left = keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft);
+    let right = keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight);
 
-    if keyboard.just_pressed(KeyCode::KeyW) || keyboard.just_pressed(KeyCode::ArrowUp) {
-        dy = -1;  // Grid Y decreases going up visually
-    }
-    if keyboard.just_pressed(KeyCode::KeyS) || keyboard.just_pressed(KeyCode::ArrowDown) {
-        dy = 1;
-    }
-    if keyboard.just_pressed(KeyCode::KeyA) || keyboard.just_pressed(KeyCode::ArrowLeft) {
-        dx = -1;
-    }
-    if keyboard.just_pressed(KeyCode::KeyD) || keyboard.just_pressed(KeyCode::ArrowRight) {
-        dx = 1;
-    }
+    let current_dir: Option<(i32, i32)> = match (up, down, left, right) {
+        (true, false, false, false) => Some((0, -1)),
+        (false, true, false, false) => Some((0, 1)),
+        (false, false, true, false) => Some((-1, 0)),
+        (false, false, false, true) => Some((1, 0)),
+        _ => None,
+    };
 
-    if dx != 0 || dy != 0 {
-        if let Some(last_pos) = movement_path.path.last().copied() {
-            let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
+    // Check if direction just changed or was just pressed
+    let just_pressed_up = keyboard.just_pressed(KeyCode::KeyW) || keyboard.just_pressed(KeyCode::ArrowUp);
+    let just_pressed_down = keyboard.just_pressed(KeyCode::KeyS) || keyboard.just_pressed(KeyCode::ArrowDown);
+    let just_pressed_left = keyboard.just_pressed(KeyCode::KeyA) || keyboard.just_pressed(KeyCode::ArrowLeft);
+    let just_pressed_right = keyboard.just_pressed(KeyCode::KeyD) || keyboard.just_pressed(KeyCode::ArrowRight);
+    let any_just_pressed = just_pressed_up || just_pressed_down || just_pressed_left || just_pressed_right;
 
-            // Try to extend path
-            if let Some(unit_class) = highlights.selected_unit_class {
-                if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
-                    // Update cursor to follow path
-                    cursor.x = new_pos.x;
-                    cursor.y = new_pos.y;
-                    cursor.visible = true;
+    if let Some((dx, dy)) = current_dir {
+        let should_move = if any_just_pressed || cursor_repeat.held_direction != current_dir {
+            // New key press or direction change - move immediately and reset timing
+            cursor_repeat.held_direction = current_dir;
+            cursor_repeat.held_time = 0.0;
+            cursor_repeat.repeat_time = 0.0;
+            true
+        } else {
+            // Key held - update timing and check for repeat
+            cursor_repeat.held_time += time.delta_secs();
+            cursor_repeat.repeat_time += time.delta_secs();
+
+            if cursor_repeat.held_time >= cursor_repeat.initial_delay
+                && cursor_repeat.repeat_time >= cursor_repeat.repeat_interval
+            {
+                cursor_repeat.repeat_time = 0.0;
+                true
+            } else {
+                false
+            }
+        };
+
+        if should_move {
+            if let Some(last_pos) = movement_path.path.last().copied() {
+                let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
+
+                // Try to extend path
+                if let Some(unit_class) = highlights.selected_unit_class {
+                    if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
+                        // Update cursor to follow path
+                        cursor.x = new_pos.x;
+                        cursor.y = new_pos.y;
+                        cursor.visible = true;
+                    }
                 }
             }
         }
+    } else {
+        // No direction pressed - reset repeat state
+        cursor_repeat.held_direction = None;
+        cursor_repeat.held_time = 0.0;
+        cursor_repeat.repeat_time = 0.0;
     }
 }
 
