@@ -600,6 +600,80 @@ fn handle_keyboard_input(
         cursor.visible = true;
     }
 
+    // Tab or N to cycle to next unmoved unit
+    if keyboard.just_pressed(KeyCode::Tab) || keyboard.just_pressed(KeyCode::KeyN) {
+        // Collect all unmoved units for current faction, sorted by position
+        let mut unmoved_units: Vec<_> = units.iter()
+            .filter(|(_, _, _, faction, unit)| {
+                faction.faction == turn_state.current_faction && !unit.moved
+            })
+            .map(|(entity, pos, _, _, _)| (entity, pos.x, pos.y))
+            .collect();
+
+        // Sort by Y then X for consistent ordering
+        unmoved_units.sort_by_key(|(_, x, y)| (*y, *x));
+
+        if !unmoved_units.is_empty() {
+            // Find current selection index
+            let current_idx = highlights.selected_unit
+                .and_then(|selected| unmoved_units.iter().position(|(e, _, _)| *e == selected));
+
+            // Get next unit (wrap around)
+            let next_idx = match current_idx {
+                Some(idx) => (idx + 1) % unmoved_units.len(),
+                None => 0,
+            };
+
+            let (next_entity, next_x, next_y) = unmoved_units[next_idx];
+
+            // Clear current selection
+            highlights.selected_unit = None;
+            highlights.selected_unit_class = None;
+            highlights.tiles.clear();
+            highlights.tile_costs.clear();
+            highlights.attack_targets.clear();
+            movement_path.clear();
+
+            // Move cursor to the unit
+            cursor.x = next_x;
+            cursor.y = next_y;
+            cursor.visible = true;
+
+            // Select the unit (same logic as Space/Enter selection)
+            if let Ok((entity, pos, _, faction, unit)) = units.get(next_entity) {
+                let stats = unit.unit_type.stats();
+                let co_bonuses = commanders.get_bonuses(turn_state.current_faction);
+                let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
+                let weather_movement = weather.apply_movement(base_movement);
+                let total_movement = effective_movement(weather_movement, unit.stamina);
+
+                // Build unit list for join-aware movement
+                let all_unit_info: Vec<_> = units.iter()
+                    .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
+                    .collect();
+                let unit_class = stats.class;
+                let (tiles, tile_costs) = calculate_movement_range_with_joins(
+                    &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
+                    unit_class, &game_data
+                );
+
+                // Calculate attack targets
+                let all_units: Vec<_> = units.iter()
+                    .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                    .collect();
+                let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+
+                highlights.selected_unit = Some(entity);
+                highlights.selected_unit_class = Some(unit_class);
+                highlights.tiles = tiles;
+                highlights.tile_costs = tile_costs;
+                highlights.attack_targets = attack_targets;
+                movement_path.start(IVec2::new(cursor.x, cursor.y));
+                info!("Cycled to unit at ({}, {})", cursor.x, cursor.y);
+            }
+        }
+    }
+
     // ESC to deselect
     if keyboard.just_pressed(KeyCode::Escape) {
         highlights.selected_unit = None;
@@ -883,13 +957,13 @@ fn handle_camera_zoom(
     }
 }
 
-/// Handle keyboard toggle for camera angle (T key or Tab)
+/// Handle keyboard toggle for camera angle (T key)
 fn handle_camera_angle_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut angle: ResMut<CameraAngle>,
 ) {
-    // Toggle with T or Tab key
-    if keyboard.just_pressed(KeyCode::KeyT) || keyboard.just_pressed(KeyCode::Tab) {
+    // Toggle with T key (Tab is used for unit cycling)
+    if keyboard.just_pressed(KeyCode::KeyT) {
         angle.mode = match angle.mode {
             CameraMode::Perspective => CameraMode::TopDown,
             CameraMode::TopDown => CameraMode::Perspective,
