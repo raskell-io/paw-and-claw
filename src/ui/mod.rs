@@ -24,6 +24,7 @@ pub enum MenuAction {
     Load((i32, i32)),  // Position of transport
     Unload((i32, i32)), // Position to unload to
     Wait,
+    EndTurn,
 }
 
 /// Resource to track action menu keyboard navigation
@@ -927,6 +928,8 @@ fn draw_action_menu(
     game_data: Res<GameData>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<ActionMenuState>,
+    mut highlights: ResMut<MovementHighlights>,
+    mut turn_start_events: MessageWriter<TurnStartEvent>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
@@ -1026,6 +1029,7 @@ fn draw_action_menu(
     let mut load_target: Option<(i32, i32)> = None;  // Position of transport to load into
     let mut unload_position: Option<(i32, i32)> = None;
     let mut wait_clicked = false;
+    let mut end_turn_clicked = false;
 
     // Check if this is a Supplier unit that can resupply
     let is_supplier = attacker_unit.unit_type == UnitType::Supplier;
@@ -1153,8 +1157,11 @@ fn draw_action_menu(
         menu_state.actions.push(MenuAction::Unload(*pos));
     }
 
-    // Always add Wait as the last option
+    // Always add Wait
     menu_state.actions.push(MenuAction::Wait);
+
+    // End Turn is always the last option
+    menu_state.actions.push(MenuAction::EndTurn);
 
     let action_count = menu_state.actions.len();
 
@@ -1388,6 +1395,22 @@ fn draw_action_menu(
 
                 if ui.add(button).clicked() {
                     wait_clicked = true;
+                }
+                current_idx += 1;
+            }
+
+            ui.separator();
+
+            // End Turn button
+            {
+                let is_selected = current_idx == menu_state.selected_index;
+                let button_text = if is_selected { "> End Turn" } else { "End Turn" };
+                let button = egui::Button::new(egui::RichText::new(button_text).size(16.0))
+                    .min_size(egui::vec2(180.0, 35.0))
+                    .fill(if is_selected { egui::Color32::from_rgb(80, 60, 40) } else { egui::Color32::from_rgb(60, 40, 40) });
+
+                if ui.add(button).clicked() {
+                    end_turn_clicked = true;
                 }
                 current_idx += 1;
             }
@@ -1636,7 +1659,65 @@ fn draw_action_menu(
                 pending_action.join_target = None;
                 turn_state.phase = TurnPhase::Select;
             }
+            MenuAction::EndTurn => {
+                end_turn_clicked = true;
+            }
         }
+    }
+
+    // Handle End Turn (from button or keyboard)
+    if end_turn_clicked {
+        // Cancel current action
+        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
+            unit.exhausted = true;
+        }
+        pending_action.unit = None;
+        pending_action.targets.clear();
+        pending_action.can_capture = false;
+        pending_action.capture_tile = None;
+        pending_action.can_join = false;
+        pending_action.join_target = None;
+
+        // Reset all units of current faction
+        for (mut unit, faction, _) in units.iter_mut() {
+            if let Some(faction) = faction {
+                if faction.faction == turn_state.current_faction {
+                    unit.moved = false;
+                    unit.attacked = false;
+                    unit.exhausted = false;
+                }
+            }
+        }
+
+        // Switch to next faction
+        let old_faction = turn_state.current_faction;
+        turn_state.current_faction = match turn_state.current_faction {
+            Faction::Eastern => Faction::Northern,
+            Faction::Northern => {
+                turn_state.turn_number += 1;
+                Faction::Eastern
+            }
+            _ => Faction::Eastern,
+        };
+        turn_state.phase = TurnPhase::Select;
+
+        // Clear selection
+        highlights.selected_unit = None;
+        highlights.tiles.clear();
+        highlights.attack_targets.clear();
+
+        // Calculate income for the new faction and fire event
+        let income: u32 = tiles.iter()
+            .filter(|t| t.owner == Some(turn_state.current_faction))
+            .map(|t| t.terrain.income_value())
+            .sum();
+
+        turn_start_events.write(TurnStartEvent {
+            faction: turn_state.current_faction,
+            income,
+        });
+
+        info!("Turn ended via action menu. {} -> {}", game_data.faction_name(old_faction), game_data.faction_name(turn_state.current_faction));
     }
 
     // Handle cancel (ESC) - same as Wait
