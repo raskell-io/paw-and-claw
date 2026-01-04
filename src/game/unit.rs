@@ -10,8 +10,18 @@ impl Plugin for UnitPlugin {
         app.add_systems(Update, (
             update_hp_displays,
             animate_unit_movement,
+            update_moved_unit_visuals,
         ));
     }
+}
+
+/// Component to track unit's visual state for moved indicator
+#[derive(Component)]
+pub struct UnitVisuals {
+    /// The unit's base color (faction color)
+    pub base_color: Color,
+    /// Handle to the unit's material for updating
+    pub material_handle: Handle<StandardMaterial>,
 }
 
 /// Component for smooth unit movement animation along a path
@@ -116,6 +126,27 @@ fn animate_unit_movement(
             // Lerp position (only X and Z, preserve Y height)
             transform.translation.x = start.x + (target.x - start.x) * t_smooth;
             transform.translation.z = start.z + (target.z - start.z) * t_smooth;
+        }
+    }
+}
+
+/// System to gray out moved units (like Advance Wars)
+fn update_moved_unit_visuals(
+    units: Query<(&Unit, &UnitVisuals), Changed<Unit>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (unit, visuals) in units.iter() {
+        if let Some(material) = materials.get_mut(&visuals.material_handle) {
+            if unit.moved {
+                // Gray out the unit - desaturate and darken
+                let base = visuals.base_color.to_srgba();
+                // Convert to grayscale and darken
+                let gray = (base.red * 0.3 + base.green * 0.5 + base.blue * 0.2) * 0.6;
+                material.base_color = Color::srgba(gray, gray, gray, base.alpha);
+            } else {
+                // Restore original color
+                material.base_color = visuals.base_color;
+            }
         }
     }
 }
@@ -853,23 +884,30 @@ pub fn spawn_unit(
 
     let unit_mesh = meshes.add(Rectangle::new(unit_size.x, unit_size.y));
 
+    // Create material with handle so we can update it for moved indicator
+    let unit_material = materials.add(StandardMaterial {
+        base_color: unit_color,
+        unlit: true,  // No lighting effects, flat color
+        alpha_mode: AlphaMode::Blend,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+
     // Unit as 3D mesh with billboard behavior
     commands.spawn((
         Mesh3d(unit_mesh.clone()),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: unit_color,
-            unlit: true,  // No lighting effects, flat color
-            alpha_mode: AlphaMode::Blend,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        })),
+        MeshMaterial3d(unit_material.clone()),
         // Offset units forward (negative Z) so they render in front of terrain features
         Transform::from_xyz(world_pos.x, unit_height, world_pos.z - 10.0),
         Unit::new(unit_type),
         GridPosition::new(x, y),
         FactionMember { faction },
         Billboard,  // Face the camera
+        UnitVisuals {
+            base_color: unit_color,
+            material_handle: unit_material,
+        },
     )).with_children(|parent| {
         // Dark outline/border around the unit for contrast
         // Positioned slightly in front so it's visible as a frame
@@ -939,22 +977,29 @@ pub fn spawn_unit_with_state(
 
     let unit_mesh = meshes.add(Rectangle::new(unit_size.x, unit_size.y));
 
+    // Create material with handle so we can update it for moved indicator
+    let unit_material = materials.add(StandardMaterial {
+        base_color: unit_color,
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+
     commands.spawn((
         Mesh3d(unit_mesh.clone()),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: unit_color,
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        })),
+        MeshMaterial3d(unit_material.clone()),
         // Offset units forward (negative Z) so they render in front of terrain features
         Transform::from_xyz(world_pos.x, unit_height, world_pos.z - 10.0),
         unit,  // Use provided unit with existing state
         GridPosition::new(x, y),
         FactionMember { faction },
         Billboard,
+        UnitVisuals {
+            base_color: unit_color,
+            material_handle: unit_material,
+        },
     )).with_children(|parent| {
         let border_mesh = meshes.add(Rectangle::new(unit_size.x + 6.0, unit_size.y + 6.0));
         parent.spawn((
