@@ -131,14 +131,14 @@ fn animate_unit_movement(
     }
 }
 
-/// System to darken moved units (like Advance Wars)
+/// System to darken exhausted units (like Advance Wars)
 fn update_moved_unit_visuals(
     units: Query<(&Unit, &UnitVisuals), Changed<Unit>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (unit, visuals) in units.iter() {
         if let Some(material) = materials.get_mut(&visuals.material_handle) {
-            if unit.moved {
+            if unit.exhausted {
                 // Darken the unit while preserving hue
                 let base = visuals.base_color.to_srgba();
                 let darken_factor = 0.5; // 50% darker
@@ -722,8 +722,12 @@ pub struct Unit {
     pub hp: i32,
     pub stamina: u32,
     pub ammo: u32,
+    /// Whether the unit has physically moved this turn
     pub moved: bool,
+    /// Whether the unit has performed an action (attack, capture, etc.) this turn
     pub attacked: bool,
+    /// Whether the unit's turn is complete (darkened, can't be selected)
+    pub exhausted: bool,
     /// Cargo - for transport units, stores the type and HP of the loaded unit
     /// We store unit info rather than Entity to avoid complex entity relationships
     pub cargo: Option<CargoUnit>,
@@ -754,8 +758,9 @@ impl CargoUnit {
             hp: self.hp,
             stamina: self.stamina,
             ammo: self.ammo,
-            moved: true, // Unloaded units can't move again this turn
+            moved: true,      // Unloaded units have "moved" (were transported)
             attacked: false,
+            exhausted: true,  // Unloaded units can't act this turn
             cargo: None,
         }
     }
@@ -771,6 +776,7 @@ impl Unit {
             ammo: stats.max_ammo,
             moved: false,
             attacked: false,
+            exhausted: false,
             cargo: None,
         }
     }

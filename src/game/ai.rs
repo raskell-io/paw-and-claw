@@ -1970,6 +1970,7 @@ fn ai_turn_system(
                 if faction.faction == Faction::Northern {
                     unit.moved = false;
                     unit.attacked = false;
+                    unit.exhausted = false;
                 }
             }
 
@@ -2036,6 +2037,7 @@ fn execute_action(
                 commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.attacked = true;
+                unit.exhausted = true;
             }
             attack_events.write(AttackEvent { attacker: entity, defender: target });
         }
@@ -2052,6 +2054,7 @@ fn execute_action(
                 commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.attacked = true;
+                unit.exhausted = true;
             }
             capture_events.write(CaptureEvent { unit: entity, tile });
         }
@@ -2068,12 +2071,13 @@ fn execute_action(
                 // Add animation component for smooth movement
                 commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
+                unit.exhausted = true;
             }
         }
         AiAction::Wait => {
             if let Ok((_, _, _, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} waits", unit.unit_type);
-                unit.moved = true;
+                unit.exhausted = true;
             }
         }
     }

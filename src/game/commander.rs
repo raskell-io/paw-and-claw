@@ -795,10 +795,11 @@ fn apply_power_effects(
             }
 
             PowerEffect::ExtraMove => {
-                // Reset moved flag on all units of this faction
+                // Reset moved/exhausted flags on all units of this faction
                 for (mut unit, faction, _pos) in units.iter_mut() {
                     if faction.faction == event.faction {
                         unit.moved = false;
+                        unit.exhausted = false;
                     }
                 }
                 info!("Charge! activated - all units can move again!");

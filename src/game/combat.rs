@@ -481,7 +481,7 @@ fn process_joins(
         target_unit.hp = combined_hp;
         target_unit.stamina = combined_stamina;
         target_unit.ammo = combined_ammo;
-        target_unit.moved = true;  // Unit has acted this turn
+        target_unit.exhausted = true;  // Unit's turn is complete after joining
 
         // Despawn source unit (with children like shadows/borders)
         commands.entity(event.source).despawn();

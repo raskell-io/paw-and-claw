@@ -609,6 +609,7 @@ fn draw_battle_ui(
                         if faction.faction == turn_state.current_faction {
                             unit.moved = false;
                             unit.attacked = false;
+                            unit.exhausted = false;
                         }
                     }
 
@@ -1239,7 +1240,7 @@ fn draw_action_menu(
 
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
             unit.attacked = true;
-            unit.moved = true;
+            unit.exhausted = true;
         }
 
         pending_action.unit = None;
@@ -1258,7 +1259,7 @@ fn draw_action_menu(
 
             if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
                 unit.attacked = true; // Capturing ends the unit's turn
-                unit.moved = true;
+                unit.exhausted = true;
             }
 
             pending_action.unit = None;
@@ -1294,7 +1295,7 @@ fn draw_action_menu(
         });
 
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-            unit.moved = true;
+            unit.exhausted = true;
         }
 
         pending_action.unit = None;
@@ -1311,9 +1312,9 @@ fn draw_action_menu(
             passenger: acting_entity,
         });
 
-        // Mark passenger as moved (will be hidden inside transport anyway)
+        // Mark passenger as exhausted (will be hidden inside transport anyway)
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-            unit.moved = true;
+            unit.exhausted = true;
         }
 
         pending_action.unit = None;
@@ -1330,9 +1331,9 @@ fn draw_action_menu(
             position: pos,
         });
 
-        // Mark transport as moved after unloading
+        // Mark transport as exhausted after unloading
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-            unit.moved = true;
+            unit.exhausted = true;
         }
 
         pending_action.unit = None;
@@ -1343,9 +1344,9 @@ fn draw_action_menu(
         pending_action.join_target = None;
         turn_state.phase = TurnPhase::Select;
     } else if wait_clicked {
-        // Mark unit as moved when waiting
+        // Mark unit as exhausted when waiting
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-            unit.moved = true;
+            unit.exhausted = true;
         }
 
         pending_action.unit = None;

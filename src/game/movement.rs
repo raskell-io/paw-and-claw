@@ -562,7 +562,7 @@ fn handle_keyboard_input(
             if let Some(entity) = pending_action.unit {
                 if let Ok((_, _, _, _, mut unit)) = units.get_mut(entity) {
                     unit.attacked = false; // Wait action
-                    unit.moved = true;     // Mark turn complete
+                    unit.exhausted = true; // Mark turn complete
                 }
             }
             pending_action.unit = None;
@@ -603,10 +603,10 @@ fn handle_keyboard_input(
 
     // Tab or N to cycle to next unmoved unit
     if keyboard.just_pressed(KeyCode::Tab) || keyboard.just_pressed(KeyCode::KeyN) {
-        // Collect all unmoved units for current faction, sorted by position
+        // Collect all non-exhausted units for current faction, sorted by position
         let mut unmoved_units: Vec<_> = units.iter()
             .filter(|(_, _, _, faction, unit)| {
-                faction.faction == turn_state.current_faction && !unit.moved
+                faction.faction == turn_state.current_faction && !unit.exhausted
             })
             .map(|(entity, pos, _, _, _)| (entity, pos.x, pos.y))
             .collect();
@@ -712,10 +712,10 @@ fn handle_keyboard_input(
                     defender: target,
                 });
 
-                // Mark as attacked and clear selection
+                // Mark as attacked and exhausted
                 if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
                     unit.attacked = true;
-                    unit.moved = true;
+                    unit.exhausted = true;
                 }
                 highlights.selected_unit = None;
         highlights.selected_unit_class = None;
@@ -834,7 +834,7 @@ fn handle_keyboard_input(
                     } else {
                         // No actions available - auto-wait and mark turn complete
                         if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
-                            unit.moved = true;
+                            unit.exhausted = true;
                         }
                         info!("No actions available, auto-waiting");
                     }
@@ -845,7 +845,7 @@ fn handle_keyboard_input(
             let mut found_unit = None;
             for (entity, pos, _, faction, unit) in units.iter() {
                 if pos.x == cursor.x && pos.y == cursor.y
-                    && !unit.moved
+                    && !unit.exhausted
                     && faction.faction == turn_state.current_faction
                 {
                     let stats = unit.unit_type.stats();
@@ -1142,10 +1142,10 @@ fn handle_click_input(
                 defender: target,
             });
 
-            // Mark as attacked and clear selection
+            // Mark as attacked and exhausted
             if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
                 unit.attacked = true;
-                unit.moved = true;
+                unit.exhausted = true;
             }
             highlights.selected_unit = None;
         highlights.selected_unit_class = None;
@@ -1183,7 +1183,7 @@ fn handle_click_input(
             let mut switch_to = None;
             for (entity, pos, _, faction, unit) in units.iter() {
                 if pos.x == grid_x && pos.y == grid_y
-                    && !unit.moved
+                    && !unit.exhausted
                     && faction.faction == turn_state.current_faction
                     && entity != selected_entity
                 {
@@ -1316,7 +1316,7 @@ fn handle_click_input(
             } else {
                 // No actions available - auto-wait and mark turn complete
                 if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
-                    unit.moved = true;
+                    unit.exhausted = true;
                 }
                 info!("No actions available, auto-waiting");
             }
@@ -1328,7 +1328,7 @@ fn handle_click_input(
     let mut select_unit = None;
     for (entity, pos, _, faction, unit) in units.iter() {
         if pos.x == grid_x && pos.y == grid_y
-            && !unit.moved
+            && !unit.exhausted
             && faction.faction == turn_state.current_faction
         {
             let stats = unit.unit_type.stats();
