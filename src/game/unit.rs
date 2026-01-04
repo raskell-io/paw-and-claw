@@ -87,14 +87,15 @@ impl UnitAnimation {
 fn animate_unit_movement(
     mut commands: Commands,
     time: Res<Time>,
-    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation)>,
+    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation, &mut Unit)>,
 ) {
-    for (entity, mut transform, mut animation) in units.iter_mut() {
+    for (entity, mut transform, mut animation, mut unit) in units.iter_mut() {
         if animation.is_complete() {
-            // Animation done - snap to final position and remove component
+            // Animation done - snap to final position, mark as moved, and remove component
             let final_pos = animation.final_position();
             transform.translation.x = final_pos.x;
             transform.translation.z = final_pos.z;
+            unit.moved = true;
             commands.entity(entity).remove::<UnitAnimation>();
             continue;
         }
@@ -113,6 +114,7 @@ fn animate_unit_movement(
             let final_pos = animation.final_position();
             transform.translation.x = final_pos.x;
             transform.translation.z = final_pos.z;
+            unit.moved = true;
             commands.entity(entity).remove::<UnitAnimation>();
         } else {
             // Interpolate within current segment
@@ -130,7 +132,7 @@ fn animate_unit_movement(
     }
 }
 
-/// System to gray out moved units (like Advance Wars)
+/// System to darken moved units (like Advance Wars)
 fn update_moved_unit_visuals(
     units: Query<(&Unit, &UnitVisuals), Changed<Unit>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -138,11 +140,15 @@ fn update_moved_unit_visuals(
     for (unit, visuals) in units.iter() {
         if let Some(material) = materials.get_mut(&visuals.material_handle) {
             if unit.moved {
-                // Gray out the unit - desaturate and darken
+                // Darken the unit while preserving hue
                 let base = visuals.base_color.to_srgba();
-                // Convert to grayscale and darken
-                let gray = (base.red * 0.3 + base.green * 0.5 + base.blue * 0.2) * 0.6;
-                material.base_color = Color::srgba(gray, gray, gray, base.alpha);
+                let darken_factor = 0.5; // 50% darker
+                material.base_color = Color::srgba(
+                    base.red * darken_factor,
+                    base.green * darken_factor,
+                    base.blue * darken_factor,
+                    base.alpha,
+                );
             } else {
                 // Restore original color
                 material.base_color = visuals.base_color;

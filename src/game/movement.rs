@@ -776,8 +776,8 @@ fn handle_keyboard_input(
                         };
 
                         // Add animation component for smooth movement along path
+                        // Note: unit.moved is set when animation completes in animate_unit_movement
                         commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
-                        unit.moved = true;
                         // Deduct stamina based on path cost
                         unit.stamina = unit.stamina.saturating_sub(move_cost);
                         faction_copy = faction.clone();
@@ -1252,8 +1252,8 @@ fn handle_click_input(
                 };
 
                 // Add animation component for smooth movement along path
+                // Note: unit.moved is set when animation completes in animate_unit_movement
                 commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
-                unit.moved = true;
                 // Deduct stamina based on path cost
                 unit.stamina = unit.stamina.saturating_sub(move_cost);
                 faction_copy = faction.clone();
