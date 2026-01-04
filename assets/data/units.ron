@@ -1,12 +1,35 @@
 // Paw & Claw - Unit Definitions
-// Modify this file to customize unit names, stats, and properties
+// Stats based on Advance Wars 2: Black Hole Rising
+//
+// Unit Mappings (Paw & Claw -> AW2):
+//   Scout -> Infantry
+//   Shocktrooper -> Mech
+//   Recon -> Recon
+//   Ironclad -> Tank
+//   Juggernaut -> Md Tank
+//   Behemoth -> Neotank
+//   Flak -> Anti-Air
+//   Siege -> Artillery
+//   Barrage -> Rockets
+//   Stinger -> Missiles
+//   Carrier -> APC
+//   Supplier -> APC (with resupply)
+//   Ferrier -> T Copter
+//   Skywing -> B Copter
+//   Raptor -> Fighter
+//   Talon -> Bomber
+//   Barge -> Lander
+//   Frigate -> Cruiser
+//   Lurker -> Sub
+//   Dreadnought -> Battleship
 
 (
     units: {
         // ========== FOOT UNITS ==========
+        // Infantry: Cost 1000, Move 3, Vision 2, Fuel 99
         "scout": (
             name: "Scout",
-            description: "Light foot soldier, cheap and captures buildings",
+            description: "Light infantry, cheap and captures buildings",
             symbol: 'S',
             asset_name: "scout",
             stats: (
@@ -23,15 +46,16 @@
                 max_ammo: 0,
             ),
         ),
+        // Mech: Cost 3000, Move 2, Vision 2, Fuel 70, Ammo 3
         "shocktrooper": (
             name: "Shocktrooper",
-            description: "Heavy foot soldier, anti-armor capability",
+            description: "Heavy infantry with bazooka, anti-armor capability",
             symbol: 'T',
             asset_name: "shocktrooper",
             stats: (
                 max_hp: 100,
                 attack: 65,
-                defense: 110,
+                defense: 100,
                 movement: 2,
                 attack_range: (1, 1),
                 vision: 2,
@@ -44,15 +68,16 @@
         ),
 
         // ========== GROUND VEHICLES ==========
+        // Recon: Cost 4000, Move 8, Vision 5, Fuel 80
         "recon": (
             name: "Recon",
-            description: "Fast wheeled vehicle, good vision",
+            description: "Fast wheeled scout, excellent vision",
             symbol: 'R',
             asset_name: "recon",
             stats: (
                 max_hp: 100,
                 attack: 70,
-                defense: 130,
+                defense: 100,
                 movement: 8,
                 attack_range: (1, 1),
                 vision: 5,
@@ -63,15 +88,16 @@
                 max_ammo: 0,
             ),
         ),
+        // Tank: Cost 7000, Move 6, Vision 3, Fuel 70, Ammo 9
         "ironclad": (
             name: "Ironclad",
-            description: "Main battle armor, strong all-around",
+            description: "Main battle tank, balanced firepower and armor",
             symbol: 'I',
             asset_name: "ironclad",
             stats: (
                 max_hp: 100,
                 attack: 75,
-                defense: 160,
+                defense: 100,
                 movement: 6,
                 attack_range: (1, 1),
                 vision: 3,
@@ -82,18 +108,19 @@
                 max_ammo: 9,
             ),
         ),
+        // Md Tank: Cost 16000, Move 5, Vision 1, Fuel 50, Ammo 8
         "juggernaut": (
             name: "Juggernaut",
-            description: "Heavy battle armor, powerful but slow",
+            description: "Medium tank, powerful but slower",
             symbol: 'J',
             asset_name: "juggernaut",
             stats: (
                 max_hp: 100,
                 attack: 85,
-                defense: 180,
+                defense: 100,
                 movement: 5,
                 attack_range: (1, 1),
-                vision: 2,
+                vision: 1,
                 can_capture: false,
                 cost: 16000,
                 class: Treads,
@@ -101,25 +128,27 @@
                 max_ammo: 8,
             ),
         ),
+        // Neotank: Cost 22000, Move 6, Vision 1, Fuel 99, Ammo 9
         "behemoth": (
             name: "Behemoth",
-            description: "Super-heavy armor, devastating firepower",
+            description: "Advanced heavy tank, devastating firepower",
             symbol: 'B',
             asset_name: "behemoth",
             stats: (
                 max_hp: 100,
                 attack: 95,
-                defense: 200,
-                movement: 4,
+                defense: 100,
+                movement: 6,
                 attack_range: (1, 1),
-                vision: 2,
+                vision: 1,
                 can_capture: false,
                 cost: 22000,
                 class: Treads,
-                max_stamina: 40,
-                max_ammo: 6,
+                max_stamina: 99,
+                max_ammo: 9,
             ),
         ),
+        // Anti-Air: Cost 8000, Move 6, Vision 2, Fuel 60, Ammo 9
         "flak": (
             name: "Flak",
             description: "Anti-air vehicle, shreds aircraft",
@@ -128,10 +157,10 @@
             stats: (
                 max_hp: 100,
                 attack: 65,
-                defense: 140,
+                defense: 100,
                 movement: 6,
                 attack_range: (1, 1),
-                vision: 3,
+                vision: 2,
                 can_capture: false,
                 cost: 8000,
                 class: Treads,
@@ -139,9 +168,10 @@
                 max_ammo: 9,
             ),
         ),
+        // Artillery: Cost 6000, Move 5, Vision 1, Fuel 50, Ammo 9, Range 2-3
         "siege": (
             name: "Siege",
-            description: "Indirect fire, medium range bombardment",
+            description: "Indirect fire artillery, medium range",
             symbol: 'G',
             asset_name: "siege",
             stats: (
@@ -150,14 +180,15 @@
                 defense: 100,
                 movement: 5,
                 attack_range: (2, 3),
-                vision: 2,
+                vision: 1,
                 can_capture: false,
                 cost: 6000,
                 class: Treads,
                 max_stamina: 50,
-                max_ammo: 6,
+                max_ammo: 9,
             ),
         ),
+        // Rockets: Cost 15000, Move 5, Vision 1, Fuel 50, Ammo 6, Range 3-5
         "barrage": (
             name: "Barrage",
             description: "Long-range rocket artillery",
@@ -166,17 +197,18 @@
             stats: (
                 max_hp: 100,
                 attack: 95,
-                defense: 90,
+                defense: 100,
                 movement: 5,
                 attack_range: (3, 5),
-                vision: 2,
+                vision: 1,
                 can_capture: false,
                 cost: 15000,
                 class: Wheels,
                 max_stamina: 50,
-                max_ammo: 5,
+                max_ammo: 6,
             ),
         ),
+        // Missiles: Cost 12000, Move 4, Vision 5, Fuel 50, Ammo 6, Range 3-5
         "stinger": (
             name: "Stinger",
             description: "Long-range anti-air missiles",
@@ -185,10 +217,10 @@
             stats: (
                 max_hp: 100,
                 attack: 100,
-                defense: 90,
+                defense: 100,
                 movement: 4,
                 attack_range: (3, 5),
-                vision: 4,
+                vision: 5,
                 can_capture: false,
                 cost: 12000,
                 class: Wheels,
@@ -198,15 +230,16 @@
         ),
 
         // ========== GROUND SUPPORT ==========
+        // APC: Cost 5000, Move 6, Vision 1, Fuel 70
         "carrier": (
             name: "Carrier",
-            description: "Transports foot units",
+            description: "Armored transport for foot units",
             symbol: 'C',
             asset_name: "carrier",
             stats: (
                 max_hp: 100,
                 attack: 0,
-                defense: 120,
+                defense: 100,
                 movement: 6,
                 attack_range: (0, 0),
                 vision: 1,
@@ -217,15 +250,16 @@
                 max_ammo: 0,
             ),
         ),
+        // APC variant for resupply
         "supplier": (
             name: "Supplier",
-            description: "Resupplies and repairs adjacent units",
+            description: "Supply truck, resupplies adjacent units",
             symbol: 'U',
             asset_name: "supplier",
             stats: (
                 max_hp: 100,
                 attack: 0,
-                defense: 120,
+                defense: 100,
                 movement: 6,
                 attack_range: (0, 0),
                 vision: 1,
@@ -238,6 +272,7 @@
         ),
 
         // ========== AIR UNITS ==========
+        // T Copter: Cost 5000, Move 6, Vision 2, Fuel 99
         "ferrier": (
             name: "Ferrier",
             description: "Transport helicopter, carries foot units",
@@ -257,15 +292,16 @@
                 max_ammo: 0,
             ),
         ),
+        // B Copter: Cost 9000, Move 6, Vision 3, Fuel 99, Ammo 6
         "skywing": (
             name: "Skywing",
-            description: "Light attack helicopter, versatile",
+            description: "Attack helicopter, versatile but fragile",
             symbol: 'K',
             asset_name: "skywing",
             stats: (
                 max_hp: 100,
                 attack: 75,
-                defense: 120,
+                defense: 100,
                 movement: 6,
                 attack_range: (1, 1),
                 vision: 3,
@@ -276,18 +312,19 @@
                 max_ammo: 6,
             ),
         ),
+        // Fighter: Cost 20000, Move 9, Vision 2, Fuel 99, Ammo 9
         "raptor": (
             name: "Raptor",
-            description: "Air superiority fighter, dominates skies",
+            description: "Air superiority fighter, dominates the skies",
             symbol: 'P',
             asset_name: "raptor",
             stats: (
                 max_hp: 100,
                 attack: 85,
-                defense: 130,
+                defense: 100,
                 movement: 9,
                 attack_range: (1, 1),
-                vision: 4,
+                vision: 2,
                 can_capture: false,
                 cost: 20000,
                 class: Air,
@@ -295,6 +332,7 @@
                 max_ammo: 9,
             ),
         ),
+        // Bomber: Cost 22000, Move 7, Vision 2, Fuel 99, Ammo 9
         "talon": (
             name: "Talon",
             description: "Heavy bomber, devastating ground attacks",
@@ -303,10 +341,10 @@
             stats: (
                 max_hp: 100,
                 attack: 100,
-                defense: 110,
+                defense: 100,
                 movement: 7,
                 attack_range: (1, 1),
-                vision: 3,
+                vision: 2,
                 can_capture: false,
                 cost: 22000,
                 class: Air,
@@ -316,6 +354,7 @@
         ),
 
         // ========== NAVAL UNITS ==========
+        // Lander: Cost 12000, Move 6, Vision 1, Fuel 99
         "barge": (
             name: "Barge",
             description: "Naval transport, carries ground units",
@@ -324,7 +363,7 @@
             stats: (
                 max_hp: 100,
                 attack: 0,
-                defense: 110,
+                defense: 100,
                 movement: 6,
                 attack_range: (0, 0),
                 vision: 1,
@@ -335,18 +374,19 @@
                 max_ammo: 0,
             ),
         ),
+        // Cruiser: Cost 18000, Move 6, Vision 3, Fuel 99, Ammo 9
         "frigate": (
             name: "Frigate",
-            description: "Fast naval unit, anti-air and anti-sub",
+            description: "Fast warship, anti-air and anti-sub",
             symbol: 'Q',
             asset_name: "frigate",
             stats: (
                 max_hp: 100,
                 attack: 75,
-                defense: 130,
-                movement: 7,
+                defense: 100,
+                movement: 6,
                 attack_range: (1, 1),
-                vision: 4,
+                vision: 3,
                 can_capture: false,
                 cost: 18000,
                 class: Naval,
@@ -354,15 +394,16 @@
                 max_ammo: 9,
             ),
         ),
+        // Sub: Cost 20000, Move 5, Vision 5, Fuel 60, Ammo 6
         "lurker": (
             name: "Lurker",
-            description: "Submarine, stealth attacks",
+            description: "Submarine, stealthy ship hunter",
             symbol: 'W',
             asset_name: "lurker",
             stats: (
                 max_hp: 100,
                 attack: 85,
-                defense: 110,
+                defense: 100,
                 movement: 5,
                 attack_range: (1, 1),
                 vision: 5,
@@ -373,18 +414,19 @@
                 max_ammo: 6,
             ),
         ),
+        // Battleship: Cost 28000, Move 5, Vision 2, Fuel 99, Ammo 9, Range 2-6
         "dreadnought": (
             name: "Dreadnought",
-            description: "Battleship, massive indirect fire",
+            description: "Battleship, massive indirect bombardment",
             symbol: 'D',
             asset_name: "dreadnought",
             stats: (
                 max_hp: 100,
                 attack: 100,
-                defense: 150,
+                defense: 100,
                 movement: 5,
                 attack_range: (2, 6),
-                vision: 3,
+                vision: 2,
                 can_capture: false,
                 cost: 28000,
                 class: Naval,

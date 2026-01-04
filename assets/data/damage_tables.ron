@@ -1,15 +1,20 @@
-// Damage Tables - Base damage percentages for unit vs unit matchups
-// Values are base damage percentages (0-100+)
-// 100 = can one-shot a full HP target with full HP attacker
+// Damage Tables - Exact Advance Wars 2: Black Hole Rising values
+// Base damage percentages for unit vs unit matchups
+// Values are base damage percentages (0-180)
 // Missing entries = unit cannot attack that target type
 //
-// Inspired by Advance Wars damage charts
+// Unit Mappings (Paw & Claw -> AW2):
+//   scout -> Infantry, shocktrooper -> Mech
+//   recon -> Recon, ironclad -> Tank, juggernaut -> Md Tank, behemoth -> Neotank
+//   flak -> Anti-Air, siege -> Artillery, barrage -> Rockets, stinger -> Missiles
+//   carrier/supplier -> APC, ferrier -> T Copter
+//   skywing -> B Copter, raptor -> Fighter, talon -> Bomber
+//   barge -> Lander, frigate -> Cruiser, lurker -> Sub, dreadnought -> Battleship
 (
     tables: {
-        // === FOOT UNITS ===
-
+        // ========== INFANTRY (Scout) ==========
+        // Machine gun only - weak against everything armored
         "scout": {
-            // Light infantry - weak against everything, but can attack
             "scout": 55,
             "shocktrooper": 45,
             "recon": 12,
@@ -19,19 +24,20 @@
             "flak": 5,
             "siege": 15,
             "barrage": 25,
-            "stinger": 25,
+            "stinger": 26,
             "carrier": 14,
             "supplier": 14,
         },
 
+        // ========== MECH (Shocktrooper) ==========
+        // Bazooka (primary) + Machine gun (secondary)
         "shocktrooper": {
-            // Heavy infantry with anti-armor weapons
             "scout": 65,
             "shocktrooper": 55,
             "recon": 85,
             "ironclad": 55,
-            "juggernaut": 35,
-            "behemoth": 25,
+            "juggernaut": 15,
+            "behemoth": 15,
             "flak": 65,
             "siege": 70,
             "barrage": 85,
@@ -40,10 +46,9 @@
             "supplier": 75,
         },
 
-        // === GROUND VEHICLES ===
-
+        // ========== RECON ==========
+        // Machine gun only
         "recon": {
-            // Fast scout vehicle - good vs infantry, weak vs armor
             "scout": 70,
             "shocktrooper": 65,
             "recon": 35,
@@ -58,89 +63,97 @@
             "supplier": 45,
         },
 
+        // ========== TANK (Ironclad) ==========
+        // Main cannon + Machine gun
         "ironclad": {
-            // Main battle tank - strong all-around
             "scout": 75,
             "shocktrooper": 70,
             "recon": 85,
             "ironclad": 55,
-            "juggernaut": 35,
-            "behemoth": 20,
+            "juggernaut": 15,
+            "behemoth": 15,
             "flak": 65,
             "siege": 70,
-            "barrage": 85,
+            "barrage": 80,
             "stinger": 85,
             "carrier": 75,
             "supplier": 75,
-            "skywing": 10,  // Limited anti-air
-            "ferrier": 30,
-        },
-
-        "juggernaut": {
-            // Heavy tank - devastating ground power
-            "scout": 105,
-            "shocktrooper": 95,
-            "recon": 105,
-            "ironclad": 75,
-            "juggernaut": 55,
-            "behemoth": 35,
-            "flak": 85,
-            "siege": 90,
-            "barrage": 105,
-            "stinger": 105,
-            "carrier": 95,
-            "supplier": 95,
-            "skywing": 15,
+            // Machine gun vs air (weak)
+            "skywing": 10,
             "ferrier": 40,
         },
 
+        // ========== MD TANK (Juggernaut) ==========
+        // Heavy cannon + Machine gun
+        "juggernaut": {
+            "scout": 105,
+            "shocktrooper": 95,
+            "recon": 105,
+            "ironclad": 55,
+            "juggernaut": 35,
+            "behemoth": 45,
+            "flak": 105,
+            "siege": 105,
+            "barrage": 105,
+            "stinger": 105,
+            "carrier": 105,
+            "supplier": 105,
+            // Machine gun vs air
+            "skywing": 12,
+            "ferrier": 45,
+        },
+
+        // ========== NEOTANK (Behemoth) ==========
+        // Advanced cannon + Machine gun
         "behemoth": {
-            // Super-heavy tank - destroys everything on ground
             "scout": 125,
             "shocktrooper": 115,
             "recon": 125,
-            "ironclad": 95,
+            "ironclad": 105,
             "juggernaut": 75,
             "behemoth": 55,
-            "flak": 105,
+            "flak": 115,
             "siege": 115,
             "barrage": 125,
             "stinger": 125,
-            "carrier": 115,
-            "supplier": 115,
-            "skywing": 20,
-            "ferrier": 50,
+            "carrier": 125,
+            "supplier": 125,
+            // Machine gun vs air
+            "skywing": 22,
+            "ferrier": 55,
         },
 
+        // ========== ANTI-AIR (Flak) ==========
+        // Vulcan cannon - excellent vs air, decent vs soft targets
         "flak": {
-            // Anti-air specialist - shreds aircraft, decent vs soft targets
-            "scout": 55,
-            "shocktrooper": 45,
-            "recon": 50,
-            "ironclad": 10,
-            "juggernaut": 5,
-            "behemoth": 1,
+            "scout": 105,
+            "shocktrooper": 105,
+            "recon": 60,
+            "ironclad": 25,
+            "juggernaut": 10,
+            "behemoth": 5,
             "flak": 45,
-            "siege": 55,
-            "barrage": 65,
+            "siege": 50,
+            "barrage": 55,
             "stinger": 55,
             "carrier": 50,
             "supplier": 50,
-            // Anti-air primary role
+            // Primary anti-air role
             "skywing": 120,
             "raptor": 65,
             "talon": 75,
             "ferrier": 120,
         },
 
+        // ========== ARTILLERY (Siege) ==========
+        // Indirect fire - cannot attack adjacent (range 2-3)
         "siege": {
-            // Indirect fire artillery - can't attack adjacent
             "scout": 90,
             "shocktrooper": 85,
             "recon": 80,
             "ironclad": 70,
-            "juggernaut": 55,
-            "behemoth": 45,
+            "juggernaut": 45,
+            "behemoth": 40,
             "flak": 75,
             "siege": 75,
             "barrage": 80,
@@ -149,14 +162,15 @@
             "supplier": 70,
         },
 
+        // ========== ROCKETS (Barrage) ==========
+        // Long-range indirect fire (range 3-5)
         "barrage": {
-            // Long-range rockets - powerful but limited ammo
             "scout": 95,
             "shocktrooper": 90,
             "recon": 90,
             "ironclad": 80,
-            "juggernaut": 65,
-            "behemoth": 55,
+            "juggernaut": 55,
+            "behemoth": 50,
             "flak": 85,
             "siege": 80,
             "barrage": 85,
@@ -165,98 +179,105 @@
             "supplier": 80,
         },
 
+        // ========== MISSILES (Stinger) ==========
+        // Anti-air only - cannot hit ground units (range 3-5)
         "stinger": {
-            // Anti-air missiles - dedicated anti-air, can't hit ground
             "skywing": 120,
             "raptor": 100,
             "talon": 100,
             "ferrier": 120,
         },
 
-        // === AIR UNITS ===
-
+        // ========== B COPTER (Skywing) ==========
+        // Rockets + Machine gun
         "skywing": {
-            // Attack helicopter - versatile but fragile
             "scout": 75,
             "shocktrooper": 75,
             "recon": 55,
             "ironclad": 55,
-            "juggernaut": 35,
-            "behemoth": 25,
+            "juggernaut": 25,
+            "behemoth": 20,
             "flak": 25,
             "siege": 65,
             "barrage": 65,
             "stinger": 55,
             "carrier": 60,
             "supplier": 60,
+            // Air-to-air
             "skywing": 65,
             "ferrier": 95,
         },
 
+        // ========== FIGHTER (Raptor) ==========
+        // Air superiority - can only attack air units
         "raptor": {
-            // Air superiority fighter - dominates skies
             "skywing": 100,
             "raptor": 55,
-            "talon": 75,
+            "talon": 100,
             "ferrier": 100,
         },
 
+        // ========== BOMBER (Talon) ==========
+        // Bombs - devastating vs ground, cannot attack air
         "talon": {
-            // Heavy bomber - devastating ground attacks
             "scout": 110,
             "shocktrooper": 110,
             "recon": 105,
             "ironclad": 105,
             "juggernaut": 95,
-            "behemoth": 85,
+            "behemoth": 90,
             "flak": 95,
             "siege": 105,
             "barrage": 105,
-            "stinger": 95,
+            "stinger": 105,
             "carrier": 105,
             "supplier": 105,
+            // Naval targets
+            "frigate": 85,
+            "lurker": 95,
+            "dreadnought": 75,
+            "barge": 95,
         },
 
-        // === NAVAL UNITS ===
-
+        // ========== CRUISER (Frigate) ==========
+        // Anti-air missiles + Anti-sub torpedoes
         "frigate": {
-            // Naval combat vessel
-            "scout": 65,
-            "shocktrooper": 60,
-            "recon": 55,
-            "ironclad": 45,
-            "juggernaut": 30,
-            "behemoth": 20,
-            "frigate": 55,
-            "lurker": 40,
-            "dreadnought": 20,
-            "barge": 65,
-            "skywing": 55,
-            "ferrier": 65,
+            // Anti-air
+            "skywing": 115,
+            "raptor": 55,
+            "talon": 65,
+            "ferrier": 115,
+            // Anti-sub
+            "lurker": 90,
         },
 
+        // ========== SUB (Lurker) ==========
+        // Torpedoes - anti-ship only
         "lurker": {
-            // Submarine - anti-ship specialist
-            "frigate": 75,
+            "frigate": 55,
             "lurker": 55,
-            "dreadnought": 45,
-            "barge": 85,
+            "dreadnought": 55,
+            "barge": 95,
         },
 
+        // ========== BATTLESHIP (Dreadnought) ==========
+        // Massive indirect bombardment (range 2-6)
         "dreadnought": {
-            // Battleship - long-range naval bombardment
             "scout": 95,
             "shocktrooper": 90,
             "recon": 90,
             "ironclad": 80,
-            "juggernaut": 65,
-            "behemoth": 55,
+            "juggernaut": 55,
+            "behemoth": 50,
             "flak": 85,
             "siege": 80,
             "barrage": 85,
             "stinger": 85,
-            "frigate": 75,
-            "lurker": 55,
+            "carrier": 80,
+            "supplier": 80,
+            // Naval targets (direct fire only at range 1)
+            "frigate": 95,
+            "lurker": 95,
             "dreadnought": 50,
             "barge": 95,
         },

@@ -1,12 +1,32 @@
 // Paw & Claw - Terrain Definitions
-// Modify this file to customize terrain names, properties, and colors
+// Defense values based on Advance Wars 2: Black Hole Rising
+//
+// AW2 Defense Stars:
+//   Plain: 1 star, Road: 0 stars, Wood: 2 stars, Mountain: 4 stars
+//   City: 3 stars, HQ/Base: 4 stars, River/Sea: 0 stars
+//
+// Terrain Mappings (Paw & Claw -> AW2):
+//   Grass -> Plain (1 star)
+//   Tall Grass -> Plain (1 star)
+//   Thicket -> Wood (2 stars)
+//   Brambles -> Mountain (4 stars)
+//   Log -> Road (0 stars)
+//   Boulder -> Mountain (4 stars)
+//   Hollow -> City-like (3 stars)
+//   Creek -> River (0 stars)
+//   Pond -> Sea (0 stars)
+//   Shore -> Shoal (0 stars)
+//   Base -> HQ (4 stars)
+//   Outpost -> City (3 stars)
+//   Storehouse -> City (3 stars)
 
 (
     terrain: {
-        // Ground terrain
+        // ========== GROUND TERRAIN ==========
+        // Plain: 1 star defense
         "grass": (
             name: "Grass",
-            description: "Open grass - easy movement, no cover",
+            description: "Open grassland - minimal cover",
             defense: 1,
             movement_cost: 1,
             capturable: false,
@@ -17,10 +37,11 @@
             tile_height: 0.0,
             asset_name: "grass",
         ),
+        // Plain: 1 star defense
         "tall_grass": (
             name: "Tall Grass",
-            description: "Some concealment, slightly slower",
-            defense: 2,
+            description: "Tall grass - some concealment",
+            defense: 1,
             movement_cost: 1,
             capturable: false,
             capture_points: 0,
@@ -30,10 +51,11 @@
             tile_height: 0.0,
             asset_name: "tall_grass",
         ),
+        // Wood: 2 stars defense (AW2 Forest)
         "thicket": (
             name: "Thicket",
-            description: "Dense shrubs and bushes - good cover, slow movement",
-            defense: 3,
+            description: "Dense woods - good cover, slows vehicles",
+            defense: 2,
             movement_cost: 2,
             capturable: false,
             capture_points: 0,
@@ -43,11 +65,12 @@
             tile_height: 2.0,
             asset_name: "thicket",
         ),
+        // Mountain: 4 stars defense
         "brambles": (
             name: "Brambles",
-            description: "Thorny brambles - excellent defense, very slow",
+            description: "Thorny terrain - excellent defense, infantry only",
             defense: 4,
-            movement_cost: 3,
+            movement_cost: 2,
             capturable: false,
             capture_points: 0,
             income: 0,
@@ -56,9 +79,10 @@
             tile_height: 1.5,
             asset_name: "brambles",
         ),
+        // Road: 0 stars defense
         "log": (
             name: "Log",
-            description: "Fallen log - like a road, fast movement along it",
+            description: "Fallen log - fast movement, no cover",
             defense: 0,
             movement_cost: 1,
             capturable: false,
@@ -69,11 +93,12 @@
             tile_height: 1.0,
             asset_name: "log",
         ),
+        // Mountain: 4 stars defense
         "boulder": (
             name: "Boulder",
-            description: "Large boulder - high defense, hard to traverse",
+            description: "Large boulder - excellent cover, infantry only",
             defense: 4,
-            movement_cost: 3,
+            movement_cost: 2,
             capturable: false,
             capture_points: 0,
             income: 0,
@@ -82,9 +107,10 @@
             tile_height: 3.0,
             asset_name: "boulder",
         ),
+        // City-like: 3 stars defense
         "hollow": (
             name: "Hollow",
-            description: "Hollow stump or log - provides shelter and cover",
+            description: "Hollow stump - provides shelter",
             defense: 3,
             movement_cost: 1,
             capturable: false,
@@ -96,10 +122,11 @@
             asset_name: "hollow",
         ),
 
-        // Water terrain
+        // ========== WATER TERRAIN ==========
+        // River: 0 stars defense
         "creek": (
             name: "Creek",
-            description: "Shallow creek - slows ground units",
+            description: "Shallow water - slows ground units",
             defense: 0,
             movement_cost: 2,
             capturable: false,
@@ -110,9 +137,10 @@
             tile_height: -1.0,
             asset_name: "creek",
         ),
+        // Sea: 0 stars defense
         "pond": (
             name: "Pond",
-            description: "Deep pond - impassable for ground, naval units only",
+            description: "Deep water - naval units only",
             defense: 0,
             movement_cost: 99,
             capturable: false,
@@ -123,11 +151,12 @@
             tile_height: -2.0,
             asset_name: "pond",
         ),
+        // Shoal: 0 stars defense
         "shore": (
             name: "Shore",
-            description: "Muddy shore/bank - slow movement, no defense",
+            description: "Muddy shore - slow movement, no cover",
             defense: 0,
-            movement_cost: 2,
+            movement_cost: 1,
             capturable: false,
             capture_points: 0,
             income: 0,
@@ -137,10 +166,11 @@
             asset_name: "shore",
         ),
 
-        // Special terrain
+        // ========== PROPERTIES ==========
+        // HQ: 4 stars defense
         "base": (
             name: "Base",
-            description: "Fortified base - spawn point, high defense",
+            description: "Headquarters - spawn point, excellent defense",
             defense: 4,
             movement_cost: 1,
             capturable: true,
@@ -151,9 +181,10 @@
             tile_height: 3.0,
             asset_name: "base",
         ),
+        // City: 3 stars defense
         "outpost": (
             name: "Outpost",
-            description: "Small fortified outpost - can be captured for income",
+            description: "Small outpost - generates income",
             defense: 3,
             movement_cost: 1,
             capturable: true,
@@ -164,14 +195,15 @@
             tile_height: 2.0,
             asset_name: "outpost",
         ),
+        // City: 3 stars defense
         "storehouse": (
             name: "Storehouse",
-            description: "Supply cache - can be captured for resources",
-            defense: 2,
+            description: "Supply cache - generates income",
+            defense: 3,
             movement_cost: 1,
             capturable: true,
             capture_points: 20,
-            income: 500,
+            income: 1000,
             color: (0.48, 0.42, 0.35),
             feature_height: 32.0,
             tile_height: 1.5,
