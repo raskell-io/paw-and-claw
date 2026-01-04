@@ -3,7 +3,7 @@ use bevy::ecs::system::SystemParam;
 use bevy_egui::input::EguiWantsInput;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass, AutoExhaust};
 use crate::states::GameState;
 
 /// Bundled read-only game state for systems with many parameters
@@ -832,11 +832,9 @@ fn handle_keyboard_input(
                         turn_state.phase = TurnPhase::Action;
                         info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
                     } else {
-                        // No actions available - auto-wait and mark turn complete
-                        if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
-                            unit.exhausted = true;
-                        }
-                        info!("No actions available, auto-waiting");
+                        // No actions available - flag animation to exhaust when complete
+                        commands.entity(selected_entity).insert(AutoExhaust);
+                        info!("No actions available, will auto-wait after animation");
                     }
                 }
             }
@@ -1314,11 +1312,9 @@ fn handle_click_input(
                 turn_state.phase = TurnPhase::Action;
                 info!("Entering action phase: {} targets, can_capture: {}, can_join: {}", pending_action.targets.len(), can_capture, can_join);
             } else {
-                // No actions available - auto-wait and mark turn complete
-                if let Ok((_, _, _, _, mut unit)) = units.get_mut(selected_entity) {
-                    unit.exhausted = true;
-                }
-                info!("No actions available, auto-waiting");
+                // No actions available - flag animation to exhaust when complete
+                commands.entity(selected_entity).insert(AutoExhaust);
+                info!("No actions available, will auto-wait after animation");
             }
             return;
         }

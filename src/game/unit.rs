@@ -24,6 +24,10 @@ pub struct UnitVisuals {
     pub material_handle: Handle<StandardMaterial>,
 }
 
+/// Marker component: unit should be exhausted when animation completes (auto-wait)
+#[derive(Component)]
+pub struct AutoExhaust;
+
 /// Component for smooth unit movement animation along a path
 #[derive(Component)]
 pub struct UnitAnimation {
@@ -35,6 +39,8 @@ pub struct UnitAnimation {
     pub segment_progress: f32,
     /// Animation speed (segments per second, higher = faster)
     pub speed: f32,
+    /// Whether to mark the unit as exhausted when animation completes
+    pub exhaust_on_complete: bool,
 }
 
 impl UnitAnimation {
@@ -45,6 +51,7 @@ impl UnitAnimation {
             current_waypoint: 1,
             segment_progress: 0.0,
             speed: 5.0, // Complete each tile in ~0.2 seconds
+            exhaust_on_complete: false,
         }
     }
 
@@ -55,6 +62,18 @@ impl UnitAnimation {
             current_waypoint: 1,
             segment_progress: 0.0,
             speed: 5.0,
+            exhaust_on_complete: false,
+        }
+    }
+
+    /// Create animation that exhausts the unit when complete (auto-wait)
+    pub fn from_path_and_exhaust(waypoints: Vec<Vec3>) -> Self {
+        Self {
+            waypoints,
+            current_waypoint: 1,
+            segment_progress: 0.0,
+            speed: 5.0,
+            exhaust_on_complete: true,
         }
     }
 
@@ -87,15 +106,19 @@ impl UnitAnimation {
 fn animate_unit_movement(
     mut commands: Commands,
     time: Res<Time>,
-    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation)>,
+    mut units: Query<(Entity, &mut Transform, &mut UnitAnimation, &mut Unit, Option<&AutoExhaust>)>,
 ) {
-    for (entity, mut transform, mut animation) in units.iter_mut() {
+    for (entity, mut transform, mut animation, mut unit, auto_exhaust) in units.iter_mut() {
         if animation.is_complete() {
             // Animation done - snap to final position and remove component
-            // Note: unit.moved is set when an action is finalized (wait/capture/attack/join)
             let final_pos = animation.final_position();
             transform.translation.x = final_pos.x;
             transform.translation.z = final_pos.z;
+            // If flagged for auto-exhaust (no actions available), mark unit done
+            if auto_exhaust.is_some() {
+                unit.exhausted = true;
+                commands.entity(entity).remove::<AutoExhaust>();
+            }
             commands.entity(entity).remove::<UnitAnimation>();
             continue;
         }
@@ -114,6 +137,11 @@ fn animate_unit_movement(
             let final_pos = animation.final_position();
             transform.translation.x = final_pos.x;
             transform.translation.z = final_pos.z;
+            // If flagged for auto-exhaust (no actions available), mark unit done
+            if auto_exhaust.is_some() {
+                unit.exhausted = true;
+                commands.entity(entity).remove::<AutoExhaust>();
+            }
             commands.entity(entity).remove::<UnitAnimation>();
         } else {
             // Interpolate within current segment
