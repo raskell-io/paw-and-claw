@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use super::{
     Faction, UnitType, AiPersonality, Unit, FactionMember, GridPosition,
     FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, Terrain, SpriteAssets,
+    BattleConfig,
 };
 
 pub struct CommanderPlugin;
@@ -718,6 +719,7 @@ fn apply_power_effects(
     images: Res<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    battle_config: Res<BattleConfig>,
 ) {
     for event in events.read() {
         info!("Applying power effect for {:?}", event.faction);
@@ -807,13 +809,7 @@ fn apply_power_effects(
 
             PowerEffect::StealFunds { steal_percent, attack_boost: _ } => {
                 // Determine enemy faction and steal their funds
-                let enemy_faction = match event.faction {
-                    Faction::Eastern => Faction::Northern,
-                    Faction::Northern => Faction::Eastern,
-                    Faction::Western => Faction::Southern,
-                    Faction::Southern => Faction::Western,
-                    Faction::Nether => Faction::Northern,  // Nether antagonizes everyone
-                };
+                let enemy_faction = battle_config.next_faction(event.faction);
 
                 let enemy_funds = funds.get(enemy_faction);
                 let stolen = (enemy_funds as f32 * steal_percent).round() as u32;

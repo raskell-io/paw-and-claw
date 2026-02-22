@@ -5,12 +5,12 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass, input::E
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition,
     MovementHighlights, PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent, ResupplyEvent, LoadEvent, UnloadEvent,
-    TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit,
+    TurnStartEvent, FactionFunds, GameMap, Terrain, Tile, UnitType, spawn_unit_with_state,
     estimate_damage, AiState, GameResult, VictoryType, FogOfWar, Commanders,
     PowerActivatedEvent, CommanderId, MapId, get_builtin_map,
     spawn_map_from_data, spawn_units_from_data, MapData, UnitPlacement, PropertyOwnership,
     TILE_SIZE, Weather, WeatherType, SpriteAssets, screen_to_grid, TilesetTheme,
-    InputMode, GameData, CancelMoveEvent, GridCursor,
+    InputMode, GameData, CancelMoveEvent, GridCursor, BattleConfig, advance_turn,
 };
 use crate::states::GameState;
 
@@ -49,6 +49,16 @@ pub struct ActionEvents<'w> {
     pub load: MessageWriter<'w, LoadEvent>,
     pub unload: MessageWriter<'w, UnloadEvent>,
     pub cancel_move: MessageWriter<'w, CancelMoveEvent>,
+}
+
+/// SystemParam bundle for action menu read-only context (reduces parameter count)
+#[derive(SystemParam)]
+pub struct ActionMenuContext<'w> {
+    pub game_result: Res<'w, GameResult>,
+    pub commanders: Res<'w, Commanders>,
+    pub weather: Res<'w, Weather>,
+    pub game_data: Res<'w, GameData>,
+    pub battle_config: Res<'w, BattleConfig>,
 }
 
 /// Resource to track battle setup (CO + Map selection)
@@ -479,6 +489,14 @@ fn draw_battle_setup(
                                     ai_faction, ai_co);
                             }
 
+                            // Configure battle: player and AI factions
+                            commands.insert_resource(BattleConfig::new(player_faction, ai_faction));
+                            commands.insert_resource(TurnState {
+                                current_faction: player_faction,
+                                turn_number: 1,
+                                phase: TurnPhase::Select,
+                            });
+
                             // Load and spawn the selected map
                             let map_data = get_builtin_map(setup_state.selected_map);
                             spawn_map_from_data(&mut commands, &mut game_map, &mut meshes, &mut materials, &sprite_assets, &images, &map_data, *tileset_theme);
@@ -513,6 +531,7 @@ fn draw_battle_ui(
     selection_state: Res<BattleSetupState>,
     weather: Res<Weather>,
     game_data: Res<GameData>,
+    battle_config: Res<BattleConfig>,
 ) {
     // Don't show battle UI controls if game is over (victory screen handles it)
     if game_result.game_over {
@@ -526,7 +545,7 @@ fn draw_battle_ui(
 
     let Ok(ctx) = contexts.ctx_mut() else { return };
 
-    let is_ai_turn = ai_state.enabled && turn_state.current_faction == Faction::Northern;
+    let is_ai_turn = ai_state.enabled && battle_config.is_ai_faction(turn_state.current_faction);
 
     // Top panel - turn info (bigger header with two rows)
     egui::TopBottomPanel::top("turn_info")
@@ -561,7 +580,7 @@ fn draw_battle_ui(
             ui.separator();
 
             // CO Power meter
-            let player_faction = Faction::Eastern;
+            let player_faction = battle_config.player_faction;
             let co_id = commanders.get_active(player_faction);
             let co = co_id.get_commander();
             let charge = commanders.get_charge(player_faction);
@@ -655,22 +674,8 @@ fn draw_battle_ui(
                         }
                     }
 
-                    // Switch to next faction
                     let old_faction = turn_state.current_faction;
-                    turn_state.current_faction = match turn_state.current_faction {
-                        Faction::Eastern => Faction::Northern,
-                        Faction::Northern => {
-                            turn_state.turn_number += 1;
-                            Faction::Eastern
-                        }
-                        _ => Faction::Eastern,
-                    };
-                    turn_state.phase = TurnPhase::Select;
-
-                    // Clear selection
-                    highlights.selected_unit = None;
-                    highlights.tiles.clear();
-                    highlights.attack_targets.clear();
+                    advance_turn(&mut turn_state, &battle_config, &mut highlights);
 
                     // Calculate income for the new faction and fire event
                     let income: u32 = tiles.iter()
@@ -927,18 +932,19 @@ fn draw_action_menu(
     tiles: Query<&Tile>,
     mut events: ActionEvents,
     map: Res<GameMap>,
-    game_result: Res<GameResult>,
-    commanders: Res<Commanders>,
-    weather: Res<Weather>,
-    game_data: Res<GameData>,
+    ctx_res: ActionMenuContext,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<ActionMenuState>,
     mut highlights: ResMut<MovementHighlights>,
     mut turn_start_events: MessageWriter<TurnStartEvent>,
     mut cursor: ResMut<GridCursor>,
 ) {
+    // Unpack context for convenience
+    let game_data = &ctx_res.game_data;
+    let battle_config = &ctx_res.battle_config;
+
     // Don't show if game is over
-    if game_result.game_over {
+    if ctx_res.game_result.game_over {
         return;
     }
 
@@ -979,14 +985,10 @@ fn draw_action_menu(
     let nav_cancel = !skip_input && keyboard.just_pressed(KeyCode::Escape);
 
     // Get CO bonuses for damage calculation
-    let attacker_co = commanders.get_bonuses(turn_state.current_faction);
+    let attacker_co = ctx_res.commanders.get_bonuses(turn_state.current_faction);
     // Defender faction - opposite of current
-    let defender_faction = match turn_state.current_faction {
-        Faction::Eastern => Faction::Northern,
-        Faction::Northern => Faction::Eastern,
-        _ => Faction::Northern,
-    };
-    let defender_co = commanders.get_bonuses(defender_faction);
+    let defender_faction = ctx_res.battle_config.next_faction(turn_state.current_faction);
+    let defender_co = ctx_res.commanders.get_bonuses(defender_faction);
 
     // Collect target info with damage estimates (min-max range due to luck)
     let target_info: Vec<_> = pending_action.targets.iter()
@@ -996,7 +998,7 @@ fn draw_action_menu(
 
                 // Calculate damage estimate range (with CO bonuses and weather)
                 let defender_terrain = map.get(pos_xy.0, pos_xy.1).unwrap_or(Terrain::Grass);
-                let (damage_min, damage_max) = estimate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &weather, &game_data);
+                let (damage_min, damage_max) = estimate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &ctx_res.weather, &ctx_res.game_data);
 
                 // Calculate counter-attack damage range (if defender can counter)
                 let defender_stats = unit.unit_type.stats();
@@ -1009,7 +1011,7 @@ fn draw_action_menu(
                         // Create a temporary unit with reduced HP for counter calculation
                         let mut temp_defender = unit.clone();
                         temp_defender.hp = defender_hp_after;
-                        let (counter_min, counter_max) = estimate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather, &game_data);
+                        let (counter_min, counter_max) = estimate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &ctx_res.weather, &ctx_res.game_data);
                         Some((counter_min, counter_max))
                     } else {
                         None // Defender will be destroyed, no counter
@@ -1751,22 +1753,8 @@ fn draw_action_menu(
             }
         }
 
-        // Switch to next faction
         let old_faction = turn_state.current_faction;
-        turn_state.current_faction = match turn_state.current_faction {
-            Faction::Eastern => Faction::Northern,
-            Faction::Northern => {
-                turn_state.turn_number += 1;
-                Faction::Eastern
-            }
-            _ => Faction::Eastern,
-        };
-        turn_state.phase = TurnPhase::Select;
-
-        // Clear selection
-        highlights.selected_unit = None;
-        highlights.tiles.clear();
-        highlights.attack_targets.clear();
+        advance_turn(&mut turn_state, &battle_config, &mut highlights);
 
         // Calculate income for the new faction and fire event
         let income: u32 = tiles.iter()
@@ -1813,9 +1801,17 @@ fn draw_production_menu(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     game_data: Res<GameData>,
+    battle_config: Res<BattleConfig>,
+    ai_state: Res<AiState>,
 ) {
     // Don't show if game is over
     if game_result.game_over {
+        return;
+    }
+
+    // Don't show during AI turn
+    if ai_state.enabled && battle_config.is_ai_faction(turn_state.current_faction) {
+        production_state.active = false;
         return;
     }
 
@@ -1909,7 +1905,10 @@ fn draw_production_menu(
     if let Some(unit_type) = spawn_unit_type {
         if funds.spend(turn_state.current_faction, spawn_cost) {
             let (x, y) = production_state.base_position;
-            spawn_unit(
+            // Create unit with exhausted=true so it can't act on the build turn
+            let mut new_unit = Unit::new(unit_type);
+            new_unit.exhausted = true;
+            spawn_unit_with_state(
                 &mut commands,
                 &map,
                 &mut meshes,
@@ -1917,7 +1916,7 @@ fn draw_production_menu(
                 &sprite_assets,
                 &images,
                 turn_state.current_faction,
-                unit_type,
+                new_unit,
                 x,
                 y,
             );
@@ -1943,6 +1942,7 @@ fn draw_victory_screen(
     units: Query<Entity, With<Unit>>,
     tiles: Query<Entity, With<Tile>>,
     game_data: Res<GameData>,
+    battle_config: Res<BattleConfig>,
 ) {
     if !game_result.game_over {
         return;
@@ -1952,8 +1952,8 @@ fn draw_victory_screen(
         return;
     };
 
-    // Determine if player won or lost (player is Eastern)
-    let player_won = winner == Faction::Eastern;
+    // Determine if player won or lost
+    let player_won = winner == battle_config.player_faction;
 
     let title = if player_won { "Victory!" } else { "Defeat" };
     let title_color = if player_won {

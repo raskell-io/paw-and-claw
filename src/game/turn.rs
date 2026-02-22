@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition};
+use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition, MovementHighlights};
 
 pub struct TurnPlugin;
 
@@ -10,9 +10,65 @@ impl Plugin for TurnPlugin {
         app.init_resource::<TurnState>()
             .init_resource::<FactionFunds>()
             .init_resource::<GameResult>()
+            .init_resource::<BattleConfig>()
             .add_event::<TurnStartEvent>()
             .add_systems(Update, (check_victory_condition, generate_income, resupply_units));
     }
+}
+
+/// Configuration for the current battle - tracks which faction is player vs AI
+#[derive(Resource)]
+pub struct BattleConfig {
+    pub player_faction: Faction,
+    pub ai_faction: Faction,
+}
+
+impl Default for BattleConfig {
+    fn default() -> Self {
+        Self {
+            player_faction: Faction::Eastern,
+            ai_faction: Faction::Northern,
+        }
+    }
+}
+
+impl BattleConfig {
+    pub fn new(player_faction: Faction, ai_faction: Faction) -> Self {
+        Self { player_faction, ai_faction }
+    }
+
+    pub fn is_ai_faction(&self, faction: Faction) -> bool {
+        faction == self.ai_faction
+    }
+
+    /// Returns the faction that plays after the given one
+    pub fn next_faction(&self, current: Faction) -> Faction {
+        if current == self.player_faction {
+            self.ai_faction
+        } else {
+            self.player_faction
+        }
+    }
+}
+
+/// Switch to the next faction's turn. Callers should reset units before calling this.
+pub fn advance_turn(
+    turn_state: &mut TurnState,
+    battle_config: &BattleConfig,
+    highlights: &mut MovementHighlights,
+) {
+    // Switch to next faction
+    let next = battle_config.next_faction(turn_state.current_faction);
+    if next == battle_config.player_faction {
+        turn_state.turn_number += 1;
+    }
+    turn_state.current_faction = next;
+    turn_state.phase = TurnPhase::Select;
+
+    // Clear selection
+    highlights.selected_unit = None;
+    highlights.tiles.clear();
+    highlights.attack_targets.clear();
 }
 
 /// Result of the game - tracks win/lose state
@@ -112,16 +168,7 @@ impl TurnState {
             unit.reset_turn();
         }
 
-        // Switch to other faction (simple 2-player for now)
-        self.current_faction = match self.current_faction {
-            Faction::Eastern => Faction::Northern,
-            Faction::Northern => {
-                self.turn_number += 1;
-                Faction::Eastern
-            }
-            _ => Faction::Eastern,
-        };
-
+        // Note: For proper faction switching, use advance_turn() with BattleConfig
         self.phase = TurnPhase::Select;
     }
 }
@@ -130,61 +177,65 @@ fn check_victory_condition(
     units: Query<(&Unit, &FactionMember)>,
     tiles: Query<&Tile>,
     mut game_result: ResMut<GameResult>,
+    battle_config: Res<BattleConfig>,
 ) {
     // Skip if game is already over
     if game_result.game_over {
         return;
     }
 
+    let player = battle_config.player_faction;
+    let ai = battle_config.ai_faction;
+
     // Count units per faction
-    let mut eastern_units = 0;
-    let mut northern_units = 0;
+    let mut player_units = 0;
+    let mut ai_units = 0;
 
     for (_unit, faction) in units.iter() {
-        match faction.faction {
-            Faction::Eastern => eastern_units += 1,
-            Faction::Northern => northern_units += 1,
-            _ => {}
+        if faction.faction == player {
+            player_units += 1;
+        } else if faction.faction == ai {
+            ai_units += 1;
         }
     }
 
     // Check elimination victory
-    if eastern_units == 0 && northern_units > 0 {
+    if player_units == 0 && ai_units > 0 {
         game_result.game_over = true;
-        game_result.winner = Some(Faction::Northern);
+        game_result.winner = Some(ai);
         game_result.victory_type = VictoryType::Elimination;
-        info!("Northern Realm wins by elimination!");
+        info!("{:?} wins by elimination!", ai);
         return;
-    } else if northern_units == 0 && eastern_units > 0 {
+    } else if ai_units == 0 && player_units > 0 {
         game_result.game_over = true;
-        game_result.winner = Some(Faction::Eastern);
+        game_result.winner = Some(player);
         game_result.victory_type = VictoryType::Elimination;
-        info!("Eastern Empire wins by elimination!");
+        info!("{:?} wins by elimination!", player);
         return;
     }
 
     // Check HQ capture victory - count bases owned by each faction
-    let eastern_bases = tiles.iter()
-        .filter(|t| t.terrain == Terrain::Base && t.owner == Some(Faction::Eastern))
+    let player_bases = tiles.iter()
+        .filter(|t| t.terrain == Terrain::Base && t.owner == Some(player))
         .count();
-    let northern_bases = tiles.iter()
-        .filter(|t| t.terrain == Terrain::Base && t.owner == Some(Faction::Northern))
+    let ai_bases = tiles.iter()
+        .filter(|t| t.terrain == Terrain::Base && t.owner == Some(ai))
         .count();
 
     // If one faction owns all bases (2+), they win by HQ capture
     let total_bases = tiles.iter().filter(|t| t.terrain == Terrain::Base).count();
 
     if total_bases >= 2 {
-        if eastern_bases == total_bases {
+        if player_bases == total_bases {
             game_result.game_over = true;
-            game_result.winner = Some(Faction::Eastern);
+            game_result.winner = Some(player);
             game_result.victory_type = VictoryType::HQCapture;
-            info!("Eastern Empire wins by capturing all HQs!");
-        } else if northern_bases == total_bases {
+            info!("{:?} wins by capturing all HQs!", player);
+        } else if ai_bases == total_bases {
             game_result.game_over = true;
-            game_result.winner = Some(Faction::Northern);
+            game_result.winner = Some(ai);
             game_result.victory_type = VictoryType::HQCapture;
-            info!("Northern Realm wins by capturing all HQs!");
+            info!("{:?} wins by capturing all HQs!", ai);
         }
     }
 }

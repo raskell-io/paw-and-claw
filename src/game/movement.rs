@@ -3,7 +3,7 @@ use bevy::ecs::system::SystemParam;
 use bevy_egui::input::EguiWantsInput;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass};
+use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass, BattleConfig, AiState};
 use crate::states::GameState;
 
 /// Message to cancel a unit's move and return it to original position
@@ -641,9 +641,17 @@ fn handle_keyboard_input(
     game_ctx: GameStateContext,
     game_data: Res<GameData>,
     mut input: InputState,
+    battle_config: Res<BattleConfig>,
+    ai_state: Res<AiState>,
+    mut production_state: ResMut<ProductionState>,
 ) {
     // Don't process input if game is over
     if game_ctx.game_result.game_over {
+        return;
+    }
+
+    // Don't process player input during AI turn
+    if ai_state.enabled && battle_config.is_ai_faction(turn_state.current_faction) {
         return;
     }
 
@@ -1034,6 +1042,24 @@ fn handle_keyboard_input(
                 // Start path from unit's position
                 input.movement_path.start(IVec2::new(input.cursor.x, input.cursor.y));
                 info!("Selected unit at ({}, {})", input.cursor.x, input.cursor.y);
+            } else {
+                // No unit found - check if cursor is on an owned empty base for production
+                let unit_positions: HashSet<(i32, i32)> = units.iter()
+                    .map(|(_, p, _, _, _)| (p.x, p.y))
+                    .collect();
+                for (tile_entity, tile) in tiles.iter() {
+                    if tile.position.x == input.cursor.x && tile.position.y == input.cursor.y
+                        && tile.terrain == Terrain::Base
+                        && tile.owner == Some(turn_state.current_faction)
+                        && !unit_positions.contains(&(input.cursor.x, input.cursor.y))
+                    {
+                        production_state.active = true;
+                        production_state.base_entity = Some(tile_entity);
+                        production_state.base_position = (input.cursor.x, input.cursor.y);
+                        info!("Opened production menu at base ({}, {}) via keyboard", input.cursor.x, input.cursor.y);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -1245,6 +1271,8 @@ fn handle_click_input(
     game_ctx: GameStateContext,
     mut input: InputState,
     game_data: Res<GameData>,
+    battle_config: Res<BattleConfig>,
+    ai_state: Res<AiState>,
 ) {
     // Don't process input if egui wants it (UI is being clicked)
     if input.egui_wants_input.wants_any_pointer_input() {
@@ -1253,6 +1281,11 @@ fn handle_click_input(
 
     // Don't process input if game is over
     if game_ctx.game_result.game_over {
+        return;
+    }
+
+    // Don't process player input during AI turn
+    if ai_state.enabled && battle_config.is_ai_faction(turn_state.current_faction) {
         return;
     }
 

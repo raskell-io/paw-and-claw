@@ -7,7 +7,7 @@ use super::{
     TurnState, TurnPhase, FactionFunds, AttackEvent, CaptureEvent, GameResult,
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
     Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssetsParam,
-    UnitAnimation, effective_movement, GameData,
+    UnitAnimation, effective_movement, GameData, BattleConfig, TurnStartEvent,
 };
 
 /// Bundled AI-related resources to stay under Bevy's system parameter limit
@@ -17,6 +17,7 @@ struct AiResources<'w> {
     turn_plan: ResMut<'w, AiTurnPlan>,
     memory: ResMut<'w, AiMemory>,
     game_data: Res<'w, GameData>,
+    battle_config: Res<'w, BattleConfig>,
 }
 
 pub struct AiPlugin;
@@ -143,6 +144,7 @@ pub enum AiTurnPhase {
     Waiting,
     Planning,
     ExecutingActions,
+    WaitingForAnimation,
     Production,
     EndingTurn,
 }
@@ -248,6 +250,7 @@ fn build_influence_maps(
     map: &GameMap,
     tiles: &[(Entity, Tile)],
     game_data: &GameData,
+    ai_faction: Faction,
 ) -> InfluenceMaps {
     let mut maps = InfluenceMaps::new(map.width as i32, map.height as i32);
 
@@ -324,9 +327,9 @@ fn build_influence_maps(
         if tile.terrain.is_capturable() {
             let base_value = tile.terrain.income_value() as f32 * 2.0;
             let ownership_bonus = match tile.owner {
-                Some(Faction::Northern) => 5.0,  // Defend our stuff
-                Some(_) => 15.0,                  // Enemy property = high value target
-                None => 10.0,                     // Neutral = capture opportunity
+                Some(f) if f == ai_faction => 5.0,  // Defend our stuff
+                Some(_) => 15.0,                     // Enemy property = high value target
+                None => 10.0,                        // Neutral = capture opportunity
             };
             *maps.strategic_value.entry((x, y)).or_insert(0.0) += base_value + ownership_bonus;
 
@@ -359,7 +362,7 @@ fn build_influence_maps(
     // === RETREAT VALUE ===
     // Paths back to our bases
     for (_entity, tile) in tiles {
-        if tile.terrain == Terrain::Base && tile.owner == Some(Faction::Northern) {
+        if tile.terrain == Terrain::Base && tile.owner == Some(ai_faction) {
             project_influence(
                 &mut maps.retreat_value,
                 tile.position.x,
@@ -974,6 +977,7 @@ fn score_action(
     map: &GameMap,
     config: &AiConfig,
     game_data: &GameData,
+    ai_faction: Faction,
 ) -> f32 {
     let primary_goal = goals.first().cloned().unwrap_or(StrategicGoal::Attack { priority: 50.0 });
 
@@ -982,7 +986,7 @@ fn score_action(
             score_attack_action(unit, *move_to, *target, analysis, influence, &primary_goal, predictions, map, config, game_data)
         }
         AiAction::Capture { move_to, tile } => {
-            score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map, config)
+            score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map, config, ai_faction)
         }
         AiAction::Move { move_to } => {
             score_move_action(unit, *move_to, analysis, influence, &primary_goal, predictions, map, config)
@@ -1135,6 +1139,7 @@ fn score_capture_action(
     predictions: &[PredictedAction],
     _map: &GameMap,
     config: &AiConfig,
+    ai_faction: Faction,
 ) -> f32 {
     let tile = match analysis.capturable_tiles.iter().find(|t| t.entity == tile_entity) {
         Some(t) => t,
@@ -1142,7 +1147,7 @@ fn score_capture_action(
     };
 
     // Progress toward capture (unit HP = capture power)
-    let progress = if tile.capturing_faction == Some(Faction::Northern) {
+    let progress = if tile.capturing_faction == Some(ai_faction) {
         tile.capture_progress
     } else {
         0
@@ -1167,7 +1172,7 @@ fn score_capture_action(
         }
         AiStrategy::Blitz => {
             // Only care about enemy HQ
-            if is_base && tile.owner == Some(Faction::Eastern) {
+            if is_base && tile.owner.is_some() && tile.owner != Some(ai_faction) {
                 score += 200.0; // This is the win condition!
             } else {
                 score *= 0.3; // Ignore other captures
@@ -1185,7 +1190,7 @@ fn score_capture_action(
     }
 
     // === ENEMY BASE = VICTORY CONDITION ===
-    if is_base && tile.owner.is_some() && tile.owner != Some(Faction::Northern) {
+    if is_base && tile.owner.is_some() && tile.owner != Some(ai_faction) {
         score += 150.0; // Capturing enemy base is huge
     }
 
@@ -1207,7 +1212,7 @@ fn score_capture_action(
         }
         StrategicGoal::Defend { priority } => {
             // Capturing to deny enemy
-            if tile.capturing_faction.is_some() && tile.capturing_faction != Some(Faction::Northern) {
+            if tile.capturing_faction.is_some() && tile.capturing_faction != Some(ai_faction) {
                 score += priority * 0.5;
             }
         }
@@ -1429,6 +1434,7 @@ fn plan_turn_advanced(
     map: &GameMap,
     config: &AiConfig,
     game_data: &GameData,
+    ai_faction: Faction,
 ) -> Vec<PlannedAction> {
     let mut actions: Vec<PlannedAction> = Vec::new();
     let mut planned_positions: HashSet<(i32, i32)> = HashSet::new();
@@ -1473,7 +1479,7 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             target: enemy.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data);
+                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1487,7 +1493,7 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             tile: tile.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data);
+                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1495,13 +1501,13 @@ fn plan_turn_advanced(
 
             // Evaluate moves
             let action = AiAction::Move { move_to: (*mx, *my) };
-            let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data);
+            let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
             all_possible.push((ai_unit.entity, action, score));
         }
 
         // Wait action
         let wait = AiAction::Wait;
-        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config, game_data);
+        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
         all_possible.push((ai_unit.entity, wait, score));
     }
 
@@ -1827,12 +1833,16 @@ fn ai_turn_system(
     mut commanders: ResMut<Commanders>,
     mut power_events: MessageWriter<PowerActivatedEvent>,
     mut sprite_param: SpriteAssetsParam,
+    mut turn_start_events: MessageWriter<TurnStartEvent>,
+    animations_query: Query<(), With<UnitAnimation>>,
 ) {
     if game_result.game_over {
         return;
     }
 
-    if !ai_res.ai_state.enabled || turn_state.current_faction != Faction::Northern {
+    let ai_faction = ai_res.battle_config.ai_faction;
+
+    if !ai_res.ai_state.enabled || turn_state.current_faction != ai_faction {
         ai_res.ai_state.phase = AiTurnPhase::Waiting;
         return;
     }
@@ -1847,7 +1857,7 @@ fn ai_turn_system(
     }
 
     // Get AI config from CO personality
-    let co = commanders.get_active(Faction::Northern).get_commander();
+    let co = commanders.get_active(ai_faction).get_commander();
     let config = AiConfig {
         personality: co.personality,
         strategy: ai_res.ai_state.config.strategy, // Keep strategy from state
@@ -1856,9 +1866,19 @@ fn ai_turn_system(
     match ai_res.ai_state.phase {
         AiTurnPhase::Waiting => {
             // Update memory with player positions from last turn
-            update_memory(&mut ai_res.memory, &units);
+            update_memory(&mut ai_res.memory, &units, ai_faction);
             ai_res.memory.turn_count += 1;
             ai_res.ai_state.phase = AiTurnPhase::Planning;
+
+            // Fire TurnStartEvent for AI faction (income + resupply)
+            let income: u32 = tiles.iter()
+                .filter(|(_, t)| t.owner == Some(ai_faction))
+                .map(|(_, t)| t.terrain.income_value())
+                .sum();
+            turn_start_events.write(TurnStartEvent {
+                faction: ai_faction,
+                income,
+            });
 
             // Log AI configuration at start of turn
             info!("AI Turn ({}) - Strategy: {:?}, Personality: {:?}",
@@ -1867,19 +1887,19 @@ fn ai_turn_system(
 
         AiTurnPhase::Planning => {
             // Check if AI should activate CO power
-            if commanders.can_activate(Faction::Northern) {
+            if commanders.can_activate(ai_faction) {
                 let should_activate = should_ai_activate_power(
                     &commanders,
                     &units,
                     &tiles,
-                    Faction::Northern,
+                    ai_faction,
                 );
 
                 if should_activate {
-                    if let Some(effect) = commanders.activate_power(Faction::Northern) {
+                    if let Some(effect) = commanders.activate_power(ai_faction) {
                         info!("AI activated CO Power: {}!", co.power.name);
                         power_events.write(PowerActivatedEvent {
-                            faction: Faction::Northern,
+                            faction: ai_faction,
                             effect,
                         });
                     }
@@ -1895,15 +1915,15 @@ fn ai_turn_system(
                 .collect();
 
             // Full analysis pipeline
-            let analysis = analyze_game_state(&all_units, &all_tiles, Faction::Northern);
-            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data);
+            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction);
+            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data, ai_faction);
             let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config);
             let predictions = predict_enemy_actions(&analysis, &influence, &ai_res.memory, &map, &ai_res.game_data);
 
             info!("AI Strategic Goals: {:?}", goals.iter().take(2).collect::<Vec<_>>());
 
             // Plan with all systems
-            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, &ai_res.game_data);
+            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, &ai_res.game_data, ai_faction);
 
             ai_res.turn_plan.actions = actions;
             ai_res.turn_plan.current_index = 0;
@@ -1931,7 +1951,17 @@ fn ai_turn_system(
             );
 
             ai_res.turn_plan.current_index += 1;
+            // Wait for animation to complete before next action
+            ai_res.ai_state.phase = AiTurnPhase::WaitingForAnimation;
             ai_res.ai_state.action_delay.reset();
+        }
+
+        AiTurnPhase::WaitingForAnimation => {
+            // Wait until all unit animations have completed
+            if animations_query.is_empty() {
+                ai_res.ai_state.phase = AiTurnPhase::ExecutingActions;
+                ai_res.ai_state.action_delay.reset();
+            }
         }
 
         AiTurnPhase::Production => {
@@ -1943,15 +1973,15 @@ fn ai_turn_system(
                 .map(|(e, t)| (e, t.clone()))
                 .collect();
 
-            let analysis = analyze_game_state(&all_units, &all_tiles, Faction::Northern);
-            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data);
+            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction);
+            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data, ai_faction);
             let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config);
 
-            let co_bonuses = commanders.get_bonuses(Faction::Northern);
+            let co_bonuses = commanders.get_bonuses(ai_faction);
             smart_production(
                 &config,
                 &mut funds,
-                Faction::Northern,
+                ai_faction,
                 &analysis,
                 &all_tiles,
                 &mut commands,
@@ -1966,18 +1996,33 @@ fn ai_turn_system(
         }
 
         AiTurnPhase::EndingTurn => {
+            // Reset AI faction units
             for (_, _, _, faction, mut unit) in units.iter_mut() {
-                if faction.faction == Faction::Northern {
+                if faction.faction == ai_faction {
                     unit.moved = false;
                     unit.attacked = false;
                     unit.exhausted = false;
                 }
             }
 
-            turn_state.current_faction = Faction::Eastern;
-            turn_state.turn_number += 1;
+            // Switch to player faction
+            let next = ai_res.battle_config.next_faction(ai_faction);
+            if next == ai_res.battle_config.player_faction {
+                turn_state.turn_number += 1;
+            }
+            turn_state.current_faction = next;
             turn_state.phase = TurnPhase::Select;
             ai_res.ai_state.phase = AiTurnPhase::Waiting;
+
+            // Fire TurnStartEvent for player's turn (income + resupply)
+            let income: u32 = tiles.iter()
+                .filter(|(_, t)| t.owner == Some(next))
+                .map(|(_, t)| t.terrain.income_value())
+                .sum();
+            turn_start_events.write(TurnStartEvent {
+                faction: next,
+                income,
+            });
 
             info!("AI ended turn {}", turn_state.turn_number - 1);
         }
@@ -1987,13 +2032,14 @@ fn ai_turn_system(
 fn update_memory(
     memory: &mut AiMemory,
     units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
+    ai_faction: Faction,
 ) {
     // Track player unit movements for aggression calculation
     let attacks_detected = 0; // TODO: Track actual attacks in future
     let mut total_moves = 0;
 
     for (entity, pos, _, faction, _) in units.iter() {
-        if faction.faction == Faction::Eastern {
+        if faction.faction != ai_faction {
             if let Some(&(old_x, old_y)) = memory.player_last_positions.get(&entity) {
                 let moved = (pos.x != old_x) || (pos.y != old_y);
                 if moved {
