@@ -18,7 +18,8 @@ fn main() {
     app
         // Deep forest floor around the board
         .insert_resource(ClearColor(Color::srgb_u8(0x1F, 0x2B, 0x21)))
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
+        // Pixel-art sprites must stay crisp when scaled up
+        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Paw & Claw".into(),
                 resolution: (1280, 720).into(),

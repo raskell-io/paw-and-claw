@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use super::{Faction, UnitType, Terrain, GameData};
+use super::{CommanderId, Faction, UnitType, Terrain, GameData};
 
 /// System parameter that bundles sprite assets and mesh/material stores for 3D rendering
 #[derive(SystemParam)]
@@ -23,32 +23,20 @@ impl Plugin for AssetPlugin {
     }
 }
 
-/// Source for a sprite - either a loaded image or procedural fallback
-#[derive(Clone)]
-pub enum SpriteSource {
-    /// Loaded image asset
-    Image(Handle<Image>),
-    /// Procedural fallback color
-    Procedural { color: Color },
-}
-
-/// Resource that caches loaded sprite handles
+/// Handles to every optional sprite. Paths follow `assets/sprites/manifest.json`;
+/// anything that doesn't exist is simply absent and callers fall back to tokens
+/// and flat colors.
 #[derive(Resource, Default)]
 pub struct SpriteAssets {
-    /// Unit sprites: (Faction, UnitType) -> Handle<Image>
     pub unit_sprites: HashMap<(Faction, UnitType), Handle<Image>>,
-    /// Terrain tile sprites: Terrain -> Handle<Image>
     pub terrain_tiles: HashMap<Terrain, Handle<Image>>,
-    /// Terrain feature sprites (vertical elements): Terrain -> Handle<Image>
     pub terrain_features: HashMap<Terrain, Handle<Image>>,
-    /// Track which assets failed to load (for fallback)
-    failed_assets: HashSet<String>,
-    /// Whether initial loading is complete
+    pub portraits: HashMap<CommanderId, Handle<Image>>,
+    /// Every requested sprite has finished loading (or failed)
     pub loading_complete: bool,
 }
 
 impl SpriteAssets {
-    /// Get unit sprite path
     pub fn unit_sprite_path(game_data: &GameData, faction: Faction, unit_type: UnitType) -> String {
         format!(
             "sprites/units/{}/{}.png",
@@ -57,236 +45,110 @@ impl SpriteAssets {
         )
     }
 
-    /// Get terrain tile path
     pub fn terrain_tile_path(game_data: &GameData, terrain: Terrain) -> String {
         format!("sprites/terrain/tiles/{}.png", game_data.terrain(terrain).asset_name)
     }
 
-    /// Get terrain feature path
     pub fn terrain_feature_path(game_data: &GameData, terrain: Terrain) -> String {
         format!("sprites/terrain/features/{}.png", game_data.terrain(terrain).asset_name)
     }
 
-    /// Get unit sprite or fallback to procedural
-    pub fn get_unit_sprite(
-        &self,
-        images: &Assets<Image>,
-        game_data: &GameData,
-        faction: Faction,
-        unit_type: UnitType,
-    ) -> SpriteSource {
-        let key = (faction, unit_type);
-        let path = Self::unit_sprite_path(game_data, faction, unit_type);
-
-        if let Some(handle) = self.unit_sprites.get(&key) {
-            // Check if the asset is actually loaded and not failed
-            if images.contains(handle) && !self.failed_assets.contains(&path) {
-                return SpriteSource::Image(handle.clone());
-            }
-        }
-
-        // Fallback to procedural sprite
-        SpriteSource::Procedural {
-            color: game_data.faction_color(faction),
-        }
+    pub fn portrait_path(id: CommanderId) -> String {
+        format!("sprites/portraits/{}.png", super::modding::commander_to_key(id))
     }
 
-
-    /// Get terrain feature sprite or fallback to procedural
-    pub fn get_terrain_feature_sprite(
-        &self,
-        images: &Assets<Image>,
-        game_data: &GameData,
-        terrain: Terrain,
-    ) -> SpriteSource {
-        let path = Self::terrain_feature_path(game_data, terrain);
-
-        if let Some(handle) = self.terrain_features.get(&terrain) {
-            if images.contains(handle) && !self.failed_assets.contains(&path) {
-                return SpriteSource::Image(handle.clone());
-            }
-        }
-
-        // Fallback to procedural sprite
-        let (color, _) = super::sprites::get_procedural_feature_params(terrain);
-        SpriteSource::Procedural { color }
+    /// A handle is usable once its image has actually loaded
+    fn ready(images: &Assets<Image>, handle: Option<&Handle<Image>>) -> Option<Handle<Image>> {
+        handle.filter(|h| images.contains(*h)).cloned()
     }
 
+    pub fn unit_sprite(&self, images: &Assets<Image>, faction: Faction, unit_type: UnitType) -> Option<Handle<Image>> {
+        Self::ready(images, self.unit_sprites.get(&(faction, unit_type)))
+    }
 
-    /// Mark an asset path as failed
-    pub fn mark_failed(&mut self, path: String) {
-        self.failed_assets.insert(path);
+    pub fn tile_sprite(&self, images: &Assets<Image>, terrain: Terrain) -> Option<Handle<Image>> {
+        Self::ready(images, self.terrain_tiles.get(&terrain))
+    }
+
+    pub fn feature_sprite(&self, images: &Assets<Image>, terrain: Terrain) -> Option<Handle<Image>> {
+        Self::ready(images, self.terrain_features.get(&terrain))
+    }
+
+    pub fn portrait(&self, images: &Assets<Image>, id: CommanderId) -> Option<Handle<Image>> {
+        Self::ready(images, self.portraits.get(&id))
+    }
+
+    fn all_handles(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.unit_sprites.values()
+            .chain(self.terrain_tiles.values())
+            .chain(self.terrain_features.values())
+            .chain(self.portraits.values())
     }
 }
 
-/// System to start loading all game assets at startup
-fn start_asset_loading(
-    asset_server: Res<AssetServer>,
-    mut sprite_assets: ResMut<SpriteAssets>,
-    game_data: Res<GameData>,
-) {
-    info!("Starting asset loading...");
+/// Whether a sprite file is worth requesting. Native builds skip files that
+/// don't exist so the log isn't flooded with "path not found" errors; the web
+/// build can't check, so it requests everything and missing files just fail.
+fn sprite_exists(path: &str) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        bevy::asset::io::file::FileAssetReader::get_base_path().join("assets").join(path).exists()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        true
+    }
+}
 
-    // Load unit sprites for all faction/unit combinations
-    for faction in Faction::all() {
-        for unit_type in UnitType::all() {
-            let path = SpriteAssets::unit_sprite_path(&game_data, *faction, *unit_type);
-            let handle = asset_server.load(&path);
-            sprite_assets.unit_sprites.insert((*faction, *unit_type), handle);
+/// Request every sprite that exists at startup
+fn start_asset_loading(asset_server: Res<AssetServer>, mut sprites: ResMut<SpriteAssets>, game_data: Res<GameData>) {
+    let load = |path: String| sprite_exists(&path).then(|| asset_server.load(path));
+
+    for &faction in Faction::all() {
+        for &unit_type in UnitType::all() {
+            if let Some(handle) = load(SpriteAssets::unit_sprite_path(&game_data, faction, unit_type)) {
+                sprites.unit_sprites.insert((faction, unit_type), handle);
+            }
         }
     }
-
-    // Load terrain tile sprites
-    for terrain in Terrain::all() {
-        let path = SpriteAssets::terrain_tile_path(&game_data, *terrain);
-        let handle = asset_server.load(&path);
-        sprite_assets.terrain_tiles.insert(*terrain, handle);
+    for &terrain in Terrain::all() {
+        if let Some(handle) = load(SpriteAssets::terrain_tile_path(&game_data, terrain)) {
+            sprites.terrain_tiles.insert(terrain, handle);
+        }
+        if game_data.terrain_has_feature(terrain) {
+            if let Some(handle) = load(SpriteAssets::terrain_feature_path(&game_data, terrain)) {
+                sprites.terrain_features.insert(terrain, handle);
+            }
+        }
     }
-
-    // Load terrain feature sprites (only for terrain with features)
-    for terrain in Terrain::all() {
-        if game_data.terrain_has_feature(*terrain) {
-            let path = SpriteAssets::terrain_feature_path(&game_data, *terrain);
-            let handle = asset_server.load(&path);
-            sprite_assets.terrain_features.insert(*terrain, handle);
+    for &id in CommanderId::all() {
+        if let Some(handle) = load(SpriteAssets::portrait_path(id)) {
+            sprites.portraits.insert(id, handle);
         }
     }
 
     info!(
-        "Queued {} unit sprites, {} terrain tiles, {} terrain features",
-        sprite_assets.unit_sprites.len(),
-        sprite_assets.terrain_tiles.len(),
-        sprite_assets.terrain_features.len()
+        "Requested sprites: {} units, {} terrain tiles, {} terrain features, {} portraits",
+        sprites.unit_sprites.len(), sprites.terrain_tiles.len(), sprites.terrain_features.len(), sprites.portraits.len()
     );
 }
 
-/// System to check loading state and detect failed assets
-fn check_asset_loading_state(
-    asset_server: Res<AssetServer>,
-    mut sprite_assets: ResMut<SpriteAssets>,
-    game_data: Res<GameData>,
-) {
-    if sprite_assets.loading_complete {
+/// Flag when every requested sprite has resolved, so battles can start with
+/// all available art in place
+fn check_asset_loading_state(asset_server: Res<AssetServer>, mut sprites: ResMut<SpriteAssets>) {
+    if sprites.loading_complete {
         return;
     }
-
-    let mut all_done = true;
-    let mut loaded_count = 0;
-    let mut failed_count = 0;
-
-    // Check unit sprites
-    for ((faction, unit_type), handle) in sprite_assets.unit_sprites.iter() {
+    let mut loaded = 0;
+    let mut failed = 0;
+    for handle in sprites.all_handles() {
         match asset_server.get_load_state(handle) {
-            Some(bevy::asset::LoadState::Loaded) => {
-                loaded_count += 1;
-            }
-            Some(bevy::asset::LoadState::Failed(_)) => {
-                let path = SpriteAssets::unit_sprite_path(&game_data, *faction, *unit_type);
-                if !sprite_assets.failed_assets.contains(&path) {
-                    // Will mark as failed after iteration
-                    failed_count += 1;
-                }
-            }
-            _ => {
-                all_done = false;
-            }
+            Some(bevy::asset::LoadState::Loaded) => loaded += 1,
+            Some(bevy::asset::LoadState::Failed(_)) => failed += 1,
+            _ => return,
         }
     }
-
-    // Check terrain tiles
-    for (terrain, handle) in sprite_assets.terrain_tiles.iter() {
-        match asset_server.get_load_state(handle) {
-            Some(bevy::asset::LoadState::Loaded) => {
-                loaded_count += 1;
-            }
-            Some(bevy::asset::LoadState::Failed(_)) => {
-                let path = SpriteAssets::terrain_tile_path(&game_data, *terrain);
-                if !sprite_assets.failed_assets.contains(&path) {
-                    failed_count += 1;
-                }
-            }
-            _ => {
-                all_done = false;
-            }
-        }
-    }
-
-    // Check terrain features
-    for (terrain, handle) in sprite_assets.terrain_features.iter() {
-        match asset_server.get_load_state(handle) {
-            Some(bevy::asset::LoadState::Loaded) => {
-                loaded_count += 1;
-            }
-            Some(bevy::asset::LoadState::Failed(_)) => {
-                let path = SpriteAssets::terrain_feature_path(&game_data, *terrain);
-                if !sprite_assets.failed_assets.contains(&path) {
-                    failed_count += 1;
-                }
-            }
-            _ => {
-                all_done = false;
-            }
-        }
-    }
-
-    // Mark failed assets (we need to collect paths first to avoid borrow issues)
-    let failed_unit_paths: Vec<_> = sprite_assets
-        .unit_sprites
-        .iter()
-        .filter_map(|((faction, unit_type), handle)| {
-            if let Some(bevy::asset::LoadState::Failed(_)) = asset_server.get_load_state(handle) {
-                let path = SpriteAssets::unit_sprite_path(&game_data, *faction, *unit_type);
-                if !sprite_assets.failed_assets.contains(&path) {
-                    return Some(path);
-                }
-            }
-            None
-        })
-        .collect();
-
-    let failed_tile_paths: Vec<_> = sprite_assets
-        .terrain_tiles
-        .iter()
-        .filter_map(|(terrain, handle)| {
-            if let Some(bevy::asset::LoadState::Failed(_)) = asset_server.get_load_state(handle) {
-                let path = SpriteAssets::terrain_tile_path(&game_data, *terrain);
-                if !sprite_assets.failed_assets.contains(&path) {
-                    return Some(path);
-                }
-            }
-            None
-        })
-        .collect();
-
-    let failed_feature_paths: Vec<_> = sprite_assets
-        .terrain_features
-        .iter()
-        .filter_map(|(terrain, handle)| {
-            if let Some(bevy::asset::LoadState::Failed(_)) = asset_server.get_load_state(handle) {
-                let path = SpriteAssets::terrain_feature_path(&game_data, *terrain);
-                if !sprite_assets.failed_assets.contains(&path) {
-                    return Some(path);
-                }
-            }
-            None
-        })
-        .collect();
-
-    for path in failed_unit_paths {
-        sprite_assets.mark_failed(path);
-    }
-    for path in failed_tile_paths {
-        sprite_assets.mark_failed(path);
-    }
-    for path in failed_feature_paths {
-        sprite_assets.mark_failed(path);
-    }
-
-    if all_done && !sprite_assets.loading_complete {
-        sprite_assets.loading_complete = true;
-        info!(
-            "Asset loading complete: {} loaded, {} failed (using procedural fallback)",
-            loaded_count, failed_count
-        );
-    }
+    sprites.loading_complete = true;
+    info!("Sprite loading complete: {loaded} loaded, {failed} failed");
 }

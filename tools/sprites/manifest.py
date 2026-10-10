@@ -10,7 +10,7 @@ Commands:
   render              Rebuild every "prompt" field from style + subject (rewrites the manifest)
   check               Verify the manifest matches the game data and prompts are up to date
   status [--faction F]  Show which sprite files exist and which are missing
-  prompts [--faction F] [--kind units|tiles|features|portraits] [--missing]
+  prompts [--faction F] [--kind units|battle|tiles|features|portraits] [--missing]
                       Print prompts (with target path and size) ready to paste into the generator
 
 Standard library only. Run from anywhere: paths are resolved from the repo root.
@@ -62,14 +62,19 @@ def entries(manifest):
     for unit in manifest["units"]:
         for fkey, sprite in unit["sprites"].items():
             folder = factions[fkey]["asset_folder"]
-            path = ASSETS / "sprites" / "units" / folder / f"{unit['id']}.png"
-            yield "units", unit["id"], fkey, sprite, styles["units"], path
+            # Same subject, two renderings: the small map sprite and the detailed battle sprite
+            yield "units", unit["id"], fkey, sprite, styles["units"], ASSETS / "sprites" / "units" / folder / f"{unit['id']}.png"
+            yield "battle", unit["id"], fkey, sprite, styles["battle"], ASSETS / "sprites" / "battle" / folder / f"{unit['id']}.png"
     for tile in manifest["terrain"]["tiles"]:
         yield "tiles", tile["id"], None, tile, styles["tiles"], ASSETS / "sprites" / "terrain" / "tiles" / f"{tile['id']}.png"
     for feature in manifest["terrain"]["features"]:
         yield "features", feature["id"], None, feature, styles["features"], ASSETS / "sprites" / "terrain" / "features" / f"{feature['id']}.png"
     for co in manifest["commanders"]:
         yield "portraits", co["id"], co["faction"], co, styles["portraits"], ASSETS / "sprites" / "portraits" / f"{co['id']}.png"
+
+
+def prompt_field(kind):
+    return "battle_prompt" if kind == "battle" else "prompt"
 
 
 def expected_prompt(manifest, kind, fkey, entry, style):
@@ -82,8 +87,8 @@ def cmd_render(_args):
     changed = 0
     for kind, key, fkey, entry, style, _path in entries(manifest):
         prompt = expected_prompt(manifest, kind, fkey, entry, style)
-        if entry.get("prompt") != prompt:
-            entry["prompt"] = prompt
+        if entry.get(prompt_field(kind)) != prompt:
+            entry[prompt_field(kind)] = prompt
             changed += 1
     save(manifest)
     print(f"Rendered prompts ({changed} changed)")
@@ -163,7 +168,7 @@ def cmd_check(_args):
         problems.append(f"commanders differ: {sorted(co_ids ^ set(commanders_ron))}")
 
     for kind, key, fkey, entry, style, _ in entries(manifest):
-        if entry.get("prompt") != expected_prompt(manifest, kind, fkey, entry, style):
+        if entry.get(prompt_field(kind)) != expected_prompt(manifest, kind, fkey, entry, style):
             problems.append(f"{kind} {key}{'/' + fkey if fkey else ''}: prompt out of date (run `render`)")
 
     if problems:
@@ -192,7 +197,7 @@ def cmd_status(args):
     totals = {}
     missing = []
     for kind, key, fkey, entry, style, path in selected(manifest, args):
-        group = f"{kind}/{fkey}" if kind == "units" else kind
+        group = f"{kind}/{fkey}" if kind in ("units", "battle") else kind
         have, total = totals.get(group, (0, 0))
         exists = path.exists()
         totals[group] = (have + exists, total + 1)
@@ -216,7 +221,10 @@ def cmd_prompts(args):
         w, h = style["size"]
         print(f"## {kind}: {name}{' (' + fkey + ')' if fkey else ''}")
         print(f"file: {path.relative_to(ROOT)}   size: {w}x{h}")
-        print(entry["prompt"])
+        settings = style.get("pixellab")
+        if settings:
+            print("pixellab: " + ", ".join(f"{k}={v}" for k, v in settings.items()))
+        print(entry[prompt_field(kind)])
         print()
 
 
@@ -227,12 +235,12 @@ def main():
     sub.add_parser("check").set_defaults(func=cmd_check)
     status = sub.add_parser("status")
     status.add_argument("--faction")
-    status.add_argument("--kind", choices=["units", "tiles", "features", "portraits"])
+    status.add_argument("--kind", choices=["units", "battle", "tiles", "features", "portraits"])
     status.add_argument("-v", "--verbose", action="store_true", help="list missing files")
     status.set_defaults(func=cmd_status)
     prompts = sub.add_parser("prompts")
     prompts.add_argument("--faction")
-    prompts.add_argument("--kind", choices=["units", "tiles", "features", "portraits"])
+    prompts.add_argument("--kind", choices=["units", "battle", "tiles", "features", "portraits"])
     prompts.add_argument("--missing", action="store_true", help="only sprites without a file yet")
     prompts.set_defaults(func=cmd_prompts)
     args = parser.parse_args()

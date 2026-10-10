@@ -6,7 +6,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use super::input::MenuInput;
 use super::theme::{self, Tone};
-use super::BattleSetupState;
+use super::{BattleSetupState, PortraitTextures};
 use crate::game::{
     get_builtin_map, spawn_map_from_data, spawn_units_from_data, BattleConfig, CommanderData, CommanderId,
     Commanders, Faction, FactionFunds, GameData, GameMap, MapData, MapId, SpriteAssets, TilesetTheme,
@@ -99,6 +99,7 @@ pub fn draw_battle_setup(
     game_data: Res<GameData>,
     input: MenuInput,
     time: Res<Time>,
+    portraits: Res<PortraitTextures>,
     mut column: Local<Column>,
     mut maps: Local<Vec<(MapId, MapData)>>,
     mut shown: Local<bool>,
@@ -156,6 +157,7 @@ pub fn draw_battle_setup(
     }
     }
 
+    let sprites_ready = spawner.sprite_assets.loading_complete;
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let opponent = opponent_for(setup.player_faction);
 
@@ -189,7 +191,7 @@ pub fn draw_battle_setup(
                     for &co_id in &commanders {
                         let co = game_data.commander(co_id);
                         if commander_row(ui, co, theme::faction_color(&game_data, setup.player_faction),
-                            setup.player_co == Some(co_id)).clicked()
+                            setup.player_co == Some(co_id), portraits.get(co_id)).clicked()
                         {
                             setup.player_co = Some(co_id);
                             *column = Column::Commander;
@@ -233,7 +235,8 @@ pub fn draw_battle_setup(
                     ui.add_space(12.0);
                     matchup_side(ui, &game_data, opponent, "Random commander".into());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::primary_button(ui, "Begin Battle", setup.player_co.is_some(), true).clicked() {
+                        let label = if sprites_ready { "Begin Battle" } else { "Loading art…" };
+                        if theme::primary_button(ui, label, setup.player_co.is_some() && sprites_ready, true).clicked() {
                             start = true;
                         }
                     });
@@ -250,7 +253,8 @@ pub fn draw_battle_setup(
         });
     });
 
-    if start {
+    // Wait for sprites so every unit and tile spawns with its art
+    if start && sprites_ready {
         if let Some(co) = setup.player_co {
             spawner.start(&game_data, setup.player_faction, co, setup.selected_map);
             setup.needs_setup = false;
@@ -296,7 +300,7 @@ fn faction_row(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, select
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, selected: bool) -> egui::Response {
+fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, selected: bool, image: Option<egui::TextureId>) -> egui::Response {
     let frame = egui::Frame::new()
         .fill(if selected { theme::GOLD_LIGHT } else { theme::PARCHMENT_DEEP })
         .stroke(theme::stroke(if selected { 2.0 } else { 0.0 }, theme::WOOD))
@@ -305,7 +309,7 @@ fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, se
     let inner = frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal_top(|ui| {
-            theme::portrait(ui, 52.0, color, &co.name);
+            theme::portrait(ui, 52.0, color, &co.name, image);
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(theme::display(&co.name, 20.0));
@@ -364,7 +368,7 @@ pub fn passive_bonuses(co: &CommanderData) -> Vec<(String, bool)> {
 
 fn matchup_side(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, commander: String) {
     let color = theme::faction_color(game_data, faction);
-    theme::portrait(ui, 44.0, color, game_data.faction_name(faction));
+    theme::portrait(ui, 44.0, color, game_data.faction_name(faction), None);
     ui.vertical(|ui| {
         ui.label(theme::display(game_data.faction_name(faction), 20.0));
         ui.label(theme::body(commander, 15.0).color(theme::INK_SOFT));

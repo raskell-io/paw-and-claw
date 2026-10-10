@@ -350,11 +350,22 @@ pub fn meter(ui: &mut egui::Ui, width: f32, height: f32, fraction: f32, fill: Co
     response
 }
 
-/// Round commander portrait placeholder: initial on a faction-colored medallion
-pub fn portrait(ui: &mut egui::Ui, size: f32, color: Color32, name: &str) -> egui::Response {
+/// Round portrait in a faction-colored frame. Uses the commander's portrait
+/// sprite when there is one, otherwise their initial on a medallion.
+pub fn portrait(ui: &mut egui::Ui, size: f32, color: Color32, name: &str, image: Option<egui::TextureId>) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
-    let painter = ui.painter();
     let c = rect.center();
+    if let Some(texture) = image {
+        let inner = rect.shrink(3.0);
+        egui::Image::new((texture, inner.size()))
+            .corner_radius(CornerRadius::same((inner.width() / 2.0) as u8))
+            .paint_at(ui, inner);
+        let painter = ui.painter();
+        painter.circle_stroke(c, size / 2.0 - 1.5, stroke(3.0, shade(color, 0.55)));
+        painter.circle_stroke(c, size / 2.0 - 3.5, stroke(1.5, color));
+        return response;
+    }
+    let painter = ui.painter();
     painter.circle(c, size / 2.0, shade(color, 0.55), Stroke::NONE);
     painter.circle(c, size / 2.0 - 3.0, color, stroke(1.5, shade(color, 1.25)));
     let initial: String = name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();

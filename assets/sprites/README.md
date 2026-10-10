@@ -28,8 +28,11 @@ manifest.json ──render──▶ prompts ──generate (PixelLab)──▶ P
   (see `factions` in the manifest and `prompts/art-direction.md`).
 - **Readable at small size:** a clear silhouette, a 1px dark outline, 3-4 tone
   shading and light from the upper left.
-- Units face **right**, in three-quarter side view. The game mirrors them as
-  needed.
+- **Advance Wars Dual Strike spirit on the map.** Every unit has two sprites:
+  a small, chunky **map sprite** (32×32, few colors, bold outline) for the board,
+  and a detailed **battle sprite** (64×64) for battle scenes. Both come from the
+  same subject in the manifest.
+- Units face **right** in a low top-down view. The game mirrors them as needed.
 
 ## Roster
 
@@ -64,15 +67,36 @@ The full subjects live in the manifest. This table is a summary.
 
 ## Sprite specs
 
+Everything on the board shares one 32px grid, so a map sprite, a feature and a
+tile all have the same pixel size, and one sprite spans one tile.
+
 | Kind | Canvas | View | Background | Path |
 |---|---|---|---|---|
-| Units | 48×48 | 3/4 side, facing right | transparent | `units/{faction}/{id}.png` |
+| Unit map sprites | 32×32 | low top-down, facing right | transparent | `units/{faction}/{id}.png` |
+| Unit battle sprites | 64×64 | low top-down, facing right | transparent | `battle/{faction}/{id}.png` |
 | Terrain tiles | 32×32 | top-down, seamless | opaque | `terrain/tiles/{id}.png` |
-| Terrain features | 48×48 | 3/4 from above | transparent | `terrain/features/{id}.png` |
+| Terrain features | 32×32 | low top-down | transparent | `terrain/features/{id}.png` |
 | Commander portraits | 64×64 | head and shoulders | `#4E321C` | `portraits/{id}.png` |
 
-PNG, no anti-aliased edges. If the generator works better at a larger size,
-generate at 2× or 4× and downscale with **nearest-neighbor** only.
+Battle sprites aren't used in game yet (no battle scenes so far); they're
+generated now so each unit's two sprites match.
+
+### PixelLab settings
+
+Use **Create image → Pixen** (1 generation per image). Each style in the
+manifest has a `pixellab` block with the settings that worked, and `prompts`
+prints them with every prompt. For unit map sprites: transparent background,
+direction East (facing right), view Low top-down, Low detail, Black outline,
+32×32.
+
+Lessons from the first tests:
+- **16×16 doesn't work.** The model can't draw a readable creature at that size.
+  32×32 still gives chunky pixels at board scale.
+- The detailed 64×64 look ("Highly detailed") is great for battle sprites but
+  too fine for the map.
+- Check the downloaded PNG really is transparent. If it isn't, run
+  `python3 tools/sprites/remove_bg.py IN.png OUT.png`, which clears the flat
+  background up to the sprite's outline.
 
 ## Workflow
 
@@ -94,18 +118,20 @@ manifest and `assets/data/units.ron`. `check` reports any mismatch.
 Consistency across about 130 sprites is the hard part. Before batch work:
 
 1. For each faction, generate one **anchor** unit (Militia is a good choice)
-   from its prompt. Iterate until it's right.
+   in both sizes from its prompts. Iterate until it's right.
 2. Generate every other sprite for that faction with the anchor as the
-   **style reference** (PixelLab supports reference images).
-3. Keep the approved anchors in `assets/sprites/anchors/{faction}.png` so a
-   later regeneration uses the same reference.
+   **style reference** (PixelLab's Pro model takes a style image; with Pixen,
+   use the anchor as the init image).
+3. Keep the approved anchors as `assets/sprites/anchors/{faction}-map.png` and
+   `{faction}-battle.png`, so a later regeneration uses the same reference.
 
 ### 3. Generate
 
 Print the prompts you need, with target path and size:
 
 ```sh
-python3 tools/sprites/manifest.py prompts --faction western --kind units
+python3 tools/sprites/manifest.py prompts --faction western --kind units    # map sprites
+python3 tools/sprites/manifest.py prompts --faction western --kind battle   # battle sprites
 python3 tools/sprites/manifest.py prompts --missing          # only what's still missing
 ```
 
@@ -122,6 +148,33 @@ PAW_SCRIPT="wait 90; key Enter; wait 30; key Enter; wait 60; shot board; quit" c
 
 Judge sprites on the real board at real size (`screenshots/board.png`), not
 in the generator. Reject anything that doesn't read at a glance.
+
+### How the game uses sprites
+
+- Sprites load at startup. Native builds only request files that exist.
+  "Begin Battle" waits until loading has finished, so every unit and tile
+  spawns with whatever art is available.
+- **Units:** drawn as camera-facing billboards. Player units face right and
+  enemies are mirrored. Units with art lose their letter token and keep an HP
+  pip, and stand on a faction-colored ground mark. Without art, a unit stays a
+  colored card with a letter token.
+- **Tiles:** the texture covers the tile top, and the sides continue it as a
+  thin strip. Owned properties are tinted toward their owner's color.
+- **Features** (trees, rocks, buildings) appear only when they have a sprite.
+  They stand at the back of their tile, and properties fly a pennant in the
+  owner's color, which updates on capture.
+- **Portraits** replace the commander initial medallions in setup and the HUD.
+- Textures use nearest-neighbor sampling, so pixel art stays crisp.
+
+### Testing without real art
+
+```sh
+python3 tools/sprites/placeholders.py /tmp/paw-placeholders --factions western,northern
+BEVY_ASSET_ROOT=/tmp/paw-placeholders cargo run
+```
+
+`BEVY_ASSET_ROOT` points the game at another asset folder, which is also handy
+for previewing a batch of new art before copying it into `assets/`.
 
 ### 5. Record decisions
 

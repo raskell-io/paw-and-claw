@@ -397,11 +397,7 @@ fn handle_load_game(
             let world_x = saved_tile.x as f32 * super::TILE_SIZE + offset_x;
             let world_z = saved_tile.y as f32 * super::TILE_SIZE + offset_z;
 
-            let tile_color = if let Some(faction) = saved_tile.owner {
-                blend_color(game_data.terrain_color(saved_tile.terrain), game_data.faction_color(faction), 0.3)
-            } else {
-                game_data.terrain_color(saved_tile.terrain)
-            };
+            let tile_color = super::tile_tint(&game_data, saved_tile.terrain, saved_tile.owner, false);
 
             commands.spawn((
                 Mesh3d(tile_mesh.clone()),
@@ -421,16 +417,17 @@ fn handle_load_game(
             ));
 
             // Spawn terrain features
-            if game_data.terrain_has_feature(saved_tile.terrain) {
+            // Loaded boards use flat tiles, so features stand at ground level
+            if let Some(feature) = sprite_assets.feature_sprite(&images, saved_tile.terrain) {
                 super::spawn_terrain_feature(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
-                    &sprite_assets,
-                    &images,
                     &game_data,
+                    feature,
                     saved_tile.x as u32,
                     saved_tile.y as u32,
+                    0.0,
                     saved_tile.terrain,
                     saved_tile.owner,
                     offset_x,
@@ -490,14 +487,3 @@ fn save_load_keyboard(
     }
 }
 
-/// Blend two colors together
-fn blend_color(base: Color, tint: Color, amount: f32) -> Color {
-    let base_rgba = base.to_srgba();
-    let tint_rgba = tint.to_srgba();
-    Color::srgba(
-        base_rgba.red * (1.0 - amount) + tint_rgba.red * amount,
-        base_rgba.green * (1.0 - amount) + tint_rgba.green * amount,
-        base_rgba.blue * (1.0 - amount) + tint_rgba.blue * amount,
-        1.0,
-    )
-}

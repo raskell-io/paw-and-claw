@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
 use super::theme;
-use super::{BattleSetupState, HoveredUnit, InGameMenuState, SelectedTile};
+use super::{BattleSetupState, HoveredUnit, InGameMenuState, PortraitTextures, SelectedTile};
 use crate::game::{
     advance_turn, AiState, BattleConfig, Commanders, FactionFunds, FactionMember, FogOfWar, GameData, GameMap,
     GameResult, GridCursor, GridPosition, MovementHighlights, PowerActivatedEvent, Terrain, Tile,
@@ -77,6 +77,7 @@ pub fn draw_hud(
     mut power_events: MessageWriter<PowerActivatedEvent>,
     keyboard: Res<ButtonInput<KeyCode>>,
     modal: Res<crate::game::ModalOpen>,
+    portraits: Res<PortraitTextures>,
 ) {
     if !hud.battle_active() {
         return;
@@ -134,7 +135,7 @@ pub fn draw_hud(
         .show(ctx, |ui| {
             theme::hud_card().show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    theme::portrait(ui, 54.0, theme::faction_color(game_data, player), &co.name);
+                    theme::portrait(ui, 54.0, theme::faction_color(game_data, player), &co.name, portraits.get(co_id));
                     ui.vertical(|ui| {
                         ui.label(theme::display(&co.name, 22.0).color(theme::WOOD_DARK));
                         let fill = if power_active || can_activate { theme::GOLD } else { theme::SKY };
@@ -353,7 +354,7 @@ fn terrain_section(ui: &mut egui::Ui, game_data: &GameData, terrain: Terrain, ow
 pub fn draw_unit_tokens(
     mut contexts: EguiContexts,
     hud: HudContext,
-    units: Query<(Entity, &Unit, &GlobalTransform, &FactionMember, &GridPosition)>,
+    units: Query<(Entity, &Unit, &GlobalTransform, &FactionMember, &GridPosition, Has<crate::game::UnitSprite>)>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut screen_positions: ResMut<UnitScreenPositions>,
 ) {
@@ -372,19 +373,22 @@ pub fn draw_unit_tokens(
         .interactable(false)
         .show(ctx, |ui| {
             let painter = ui.painter();
-            for (entity, unit, transform, faction, pos) in units.iter() {
+            for (entity, unit, transform, faction, pos, has_sprite) in units.iter() {
                 if faction.faction != player && !hud.visible_to_player(pos.x, pos.y) {
                     continue;
                 }
                 let Ok(screen) = camera.world_to_viewport(camera_transform, transform.translation()) else { continue };
                 let center = egui::pos2(screen.x, screen.y);
                 screen_positions.0.insert(entity, center);
-                let color = theme::faction_color(game_data, faction.faction);
-                unit_medallion(painter, center, 15.0, color, game_data.unit(unit.unit_type).symbol, unit.exhausted);
+                // Units with art need only their HP; cards get a type token
+                if !has_sprite {
+                    let color = theme::faction_color(game_data, faction.faction);
+                    unit_medallion(painter, center, 15.0, color, game_data.unit(unit.unit_type).symbol, unit.exhausted);
+                }
 
                 let hp = display_hp(unit.hp);
                 if hp < 10 {
-                    let pip = center + egui::vec2(13.0, 11.0);
+                    let pip = center + if has_sprite { egui::vec2(16.0, 14.0) } else { egui::vec2(13.0, 11.0) };
                     painter.circle(pip, 8.0, theme::PARCHMENT, theme::stroke(1.5, theme::WOOD_DARK));
                     painter.text(pip, egui::Align2::CENTER_CENTER, hp.to_string(),
                         egui::FontId::new(12.0, theme::bold_family()), theme::health_color(hp as f32 / 10.0).gamma_multiply(1.0));

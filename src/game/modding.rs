@@ -562,7 +562,8 @@ fn terrain_to_key(terrain: Terrain) -> &'static str {
     }
 }
 
-fn commander_to_key(id: CommanderId) -> &'static str {
+/// Data key for a commander (also its portrait file name)
+pub fn commander_to_key(id: CommanderId) -> &'static str {
     match id {
         CommanderId::Kira => "kira",
         CommanderId::Tanuki => "tanuki",

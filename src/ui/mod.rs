@@ -183,9 +183,10 @@ impl Plugin for UiPlugin {
             .init_resource::<ActionMenuState>()
             .init_resource::<EguiReady>()
             .init_resource::<hud::UnitScreenPositions>()
+            .init_resource::<PortraitTextures>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(PreUpdate, update_modal_state)
-            .add_systems(EguiPrimaryContextPass, theme::apply_theme)
+            .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits))
             .add_systems(EguiPrimaryContextPass, (
                 menu::draw_main_menu.run_if(in_state(GameState::Menu)),
                 setup::draw_battle_setup.run_if(in_state(GameState::Battle)),
@@ -212,6 +213,38 @@ impl Plugin for UiPlugin {
             .add_systems(OnExit(GameState::Battle), overlays::cleanup_battle_on_exit)
             .add_systems(OnEnter(GameState::Editor), editor::setup_editor);
     }
+}
+
+/// egui texture ids for commander portrait sprites (empty until any are loaded)
+#[derive(Resource, Default)]
+pub struct PortraitTextures {
+    textures: std::collections::HashMap<CommanderId, egui::TextureId>,
+    registered: bool,
+}
+
+impl PortraitTextures {
+    pub fn get(&self, id: CommanderId) -> Option<egui::TextureId> {
+        self.textures.get(&id).copied()
+    }
+}
+
+/// Hand loaded portrait sprites to egui once sprite loading has finished
+fn register_portraits(
+    mut contexts: EguiContexts,
+    sprites: Res<crate::game::SpriteAssets>,
+    images: Res<Assets<Image>>,
+    mut portraits: ResMut<PortraitTextures>,
+) {
+    if portraits.registered || !sprites.loading_complete {
+        return;
+    }
+    for &id in CommanderId::all() {
+        if let Some(handle) = sprites.portrait(&images, id) {
+            let texture = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle));
+            portraits.textures.insert(id, texture);
+        }
+    }
+    portraits.registered = true;
 }
 
 /// Tell the board whether a modal screen currently owns input

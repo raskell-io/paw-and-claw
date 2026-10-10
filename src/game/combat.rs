@@ -373,9 +373,8 @@ fn process_captures(
 
             // Update tile color to show new ownership
             if let Some(material) = materials.get_mut(&tile_material.0) {
-                let base_color = game_data.terrain_color(tile.terrain);
-                let faction_color = game_data.faction_color(faction_member.faction);
-                material.base_color = blend_color(base_color, faction_color, 0.3);
+                let textured = material.base_color_texture.is_some();
+                material.base_color = super::tile_tint(&game_data, tile.terrain, Some(faction_member.faction), textured);
             }
 
             info!(
@@ -384,18 +383,6 @@ fn process_captures(
             );
         }
     }
-}
-
-/// Blend two colors together (used for capture visuals)
-fn blend_color(base: Color, tint: Color, amount: f32) -> Color {
-    let base_rgba = base.to_srgba();
-    let tint_rgba = tint.to_srgba();
-    Color::srgba(
-        base_rgba.red * (1.0 - amount) + tint_rgba.red * amount,
-        base_rgba.green * (1.0 - amount) + tint_rgba.green * amount,
-        base_rgba.blue * (1.0 - amount) + tint_rgba.blue * amount,
-        1.0,
-    )
 }
 
 /// Process unit joining/merging

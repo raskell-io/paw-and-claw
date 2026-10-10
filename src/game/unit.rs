@@ -11,7 +11,59 @@ impl Plugin for UnitPlugin {
             update_hp_displays,
             animate_unit_movement,
             update_moved_unit_visuals,
+            orient_unit_sprites,
+            place_units_on_ground,
         ));
+    }
+}
+
+/// World size of a sprite quad. Map sprites (units and features) are 32x32,
+/// the same pixel grid as the 32x32 terrain tiles, so one sprite spans one tile.
+pub const SPRITE_WORLD_SIZE: f32 = TILE_SIZE;
+
+/// Marker for units drawn with a sprite (instead of a colored card + token)
+#[derive(Component)]
+pub struct UnitSprite;
+
+/// Sprites are drawn facing right: the player's units keep that, enemies are
+/// mirrored to face them (as in Advance Wars)
+fn orient_unit_sprites(
+    battle_config: Res<super::BattleConfig>,
+    mut units: Query<(&FactionMember, &mut Transform), With<UnitSprite>>,
+) {
+    for (faction, mut transform) in units.iter_mut() {
+        let facing = if faction.faction == battle_config.player_faction { 1.0 } else { -1.0 };
+        if transform.scale.x != facing {
+            transform.scale.x = facing;
+        }
+    }
+}
+
+/// Height of a unit's center above the ground it stands on (half its sprite,
+/// plus a hover height for flyers)
+#[derive(Component)]
+pub struct GroundOffset(pub f32);
+
+/// Keep units standing on top of whichever tile they're over, including mid-move,
+/// since tiles have different heights
+fn place_units_on_ground(
+    map: Res<GameMap>,
+    game_data: Res<GameData>,
+    mut units: Query<(&mut Transform, &GroundOffset)>,
+) {
+    if map.width == 0 {
+        return;
+    }
+    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    for (mut transform, ground) in units.iter_mut() {
+        let x = ((transform.translation.x - offset_x) / TILE_SIZE).round() as i32;
+        let y = ((transform.translation.z - offset_z) / TILE_SIZE).round() as i32;
+        let Some(terrain) = map.get(x, y) else { continue };
+        let target = game_data.terrain(terrain).tile_height + ground.0;
+        if (transform.translation.y - target).abs() > 0.01 {
+            transform.translation.y = target;
+        }
     }
 }
 
@@ -432,7 +484,12 @@ pub fn spawn_unit_with_state(
     let world_pos = grid_pos.to_world(map);
 
     let unit_type = unit.unit_type;
-    let unit_size = Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.6);
+    let sprite = sprite_assets.unit_sprite(images, faction, unit_type);
+    let unit_size = if sprite.is_some() {
+        Vec2::splat(SPRITE_WORLD_SIZE)
+    } else {
+        Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.6)
+    };
 
     // Position so bottom of sprite is at ground level (sprite is centered on transform)
     let ground_offset = unit_size.y / 2.0 + 1.0;
@@ -441,29 +498,37 @@ pub fn spawn_unit_with_state(
         _ => ground_offset,
     };
 
-    // Get color from sprite assets or use faction color as fallback
-    let unit_color = match sprite_assets.get_unit_sprite(images, game_data, faction, unit_type) {
-        super::SpriteSource::Image(_handle) => game_data.faction_color(faction), // TODO: Use texture when available
-        super::SpriteSource::Procedural { color, .. } => color,
-    };
+    // Sprites are drawn as-is (white tint); without one the card takes the faction color
+    let unit_color = if sprite.is_some() { Color::WHITE } else { game_data.faction_color(faction) };
 
     let unit_mesh = meshes.add(Rectangle::new(unit_size.x, unit_size.y));
 
-    // Create material with handle so we can update it for moved indicator
+    // Create material with handle so we can update it for moved indicator.
+    // Sprites use alpha masking so they write depth and sort correctly
+    // against terrain features.
     let unit_material = materials.add(StandardMaterial {
         base_color: unit_color,
+        base_color_texture: sprite.clone(),
         unlit: true,
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: if sprite.is_some() { AlphaMode::Mask(0.5) } else { AlphaMode::Blend },
         double_sided: true,
         cull_mode: None,
         ..default()
     });
+    // Sprites stand on the ground in faction color, so sides stay readable
+    let shadow_color = if sprite.is_some() {
+        game_data.faction_color(faction).with_alpha(0.55)
+    } else {
+        Color::srgba(0.0, 0.0, 0.0, 0.3)
+    };
 
-    commands.spawn((
+    let ground = map.get(x, y).map_or(0.0, |t| game_data.terrain(t).tile_height);
+    let mut entity = commands.spawn((
         Mesh3d(unit_mesh.clone()),
         MeshMaterial3d(unit_material.clone()),
-        // Offset units forward (negative Z) so they render in front of terrain features
-        Transform::from_xyz(world_pos.x, unit_height, world_pos.z - 10.0),
+        // Tile center; terrain features sit slightly behind, so units draw in front
+        Transform::from_xyz(world_pos.x, ground + unit_height, world_pos.z),
+        GroundOffset(unit_height),
         unit,  // Use provided unit with existing state
         GridPosition::new(x, y),
         FactionMember { faction },
@@ -472,26 +537,33 @@ pub fn spawn_unit_with_state(
             base_color: unit_color,
             material_handle: unit_material,
         },
-    )).with_children(|parent| {
-        let border_mesh = meshes.add(Rectangle::new(unit_size.x + 6.0, unit_size.y + 6.0));
-        parent.spawn((
-            Mesh3d(border_mesh),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgba(0.1, 0.1, 0.1, 0.9),
-                unlit: true,
-                alpha_mode: AlphaMode::Blend,
-                double_sided: true,
-                cull_mode: None,
-                ..default()
-            })),
-            Transform::from_xyz(0.0, 0.0, -1.0),
-        ));
+    ));
+    if sprite.is_some() {
+        entity.insert(UnitSprite);
+    }
+    entity.with_children(|parent| {
+        // Colored cards get a dark frame for contrast; sprites have their own outline
+        if sprite.is_none() {
+            let border_mesh = meshes.add(Rectangle::new(unit_size.x + 6.0, unit_size.y + 6.0));
+            parent.spawn((
+                Mesh3d(border_mesh),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgba(0.1, 0.1, 0.1, 0.9),
+                    unlit: true,
+                    alpha_mode: AlphaMode::Blend,
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                })),
+                Transform::from_xyz(0.0, 0.0, -1.0),
+            ));
+        }
 
-        let shadow_mesh = meshes.add(Ellipse::new(TILE_SIZE * 0.25, TILE_SIZE * 0.08));
+        let shadow_mesh = meshes.add(Ellipse::new(TILE_SIZE * 0.3, TILE_SIZE * 0.1));
         parent.spawn((
             Mesh3d(shadow_mesh),
             MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgba(0.0, 0.0, 0.0, 0.3),
+                base_color: shadow_color,
                 unlit: true,
                 alpha_mode: AlphaMode::Blend,
                 double_sided: true,

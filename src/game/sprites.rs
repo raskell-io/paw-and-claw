@@ -7,7 +7,7 @@ pub struct SpritePlugin;
 impl Plugin for SpritePlugin {
     fn build(&self, app: &mut App) {
         // Use billboard system instead of Y-sorting in 3D
-        app.add_systems(Update, update_billboards);
+        app.add_systems(Update, (update_billboards, sync_property_flags));
     }
 }
 
@@ -49,169 +49,95 @@ pub struct FactionFlag;
 #[derive(Component)]
 pub struct UnitShadow;
 
-/// Spawn a terrain feature as 3D mesh for terrain types that have vertical elements
-/// Uses 3D coordinates: grid Y -> world Z, feature height -> world Y
+/// Spawn a terrain feature sprite (tree, rock, building) standing on its tile.
+/// Grid Y maps to world Z; `ground_height` is the top of the tile block.
 pub fn spawn_terrain_feature(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    sprite_assets: &super::SpriteAssets,
-    images: &Assets<Image>,
     game_data: &GameData,
+    texture: Handle<Image>,
     x: u32,
     y: u32,
+    ground_height: f32,
     terrain: Terrain,
     owner: Option<Faction>,
     offset_x: f32,
     offset_z: f32,
 ) {
+    let size = super::SPRITE_WORLD_SIZE;
     let world_x = x as f32 * TILE_SIZE + offset_x;
-    let world_z = y as f32 * TILE_SIZE + offset_z;
-    let feature_height = game_data.terrain(terrain).feature_height;
+    // Toward the back of the tile, so a unit standing here (sprite or the
+    // shorter fallback card) is nearer the camera and draws in front
+    let world_z = y as f32 * TILE_SIZE + offset_z - TILE_SIZE * 0.3;
 
-    // Offset terrain features backward (positive Z) so units render in front
-    // Taller features need more offset to avoid occlusion from camera angle
-    let z_offset = (feature_height * 0.4).max(10.0);
-
-    // Get color from sprite assets or use procedural fallback
-    let feature_color = match sprite_assets.get_terrain_feature_sprite(images, game_data, terrain) {
-        super::SpriteSource::Image(_handle) => get_procedural_feature_color(terrain),
-        super::SpriteSource::Procedural { color, .. } => color,
-    };
-
-    // Get size for this terrain feature
-    let (_, size) = get_procedural_feature_params(terrain);
-
-    // Create vertical quad mesh for the feature
-    let feature_mesh = meshes.add(Rectangle::new(size.x, size.y));
-
-    let mut entity_commands = commands.spawn((
-        Mesh3d(feature_mesh),
+    let mut feature = commands.spawn((
+        Mesh3d(meshes.add(Rectangle::new(size, size))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: feature_color,
+            base_color_texture: Some(texture),
             unlit: true,
-            alpha_mode: AlphaMode::Blend,
+            alpha_mode: AlphaMode::Mask(0.5),
             double_sided: true,
             cull_mode: None,
             ..default()
         })),
-        Transform::from_xyz(world_x, feature_height * 0.5, world_z + z_offset),
+        Transform::from_xyz(world_x, ground_height + size / 2.0, world_z),
         TerrainFeature {
             grid_position: IVec2::new(x as i32, y as i32),
         },
         GridPosition::new(x as i32, y as i32),
-        Billboard,  // Face the camera
+        Billboard,
     ));
 
-    // Add faction flag for capturable buildings
+    // Properties fly a pennant showing their owner (kept in sync by `sync_property_flags`)
     if game_data.terrain_capturable(terrain) {
-        if let Some(faction) = owner {
-            entity_commands.with_children(|parent| {
-                spawn_faction_flag_3d(parent, meshes, materials, game_data, faction, terrain);
-            });
+        feature.with_children(|parent| {
+            parent.spawn((
+                Mesh3d(meshes.add(Rectangle::new(1.5, size * 0.35))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.3, 0.22, 0.15),
+                    unlit: true,
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                })),
+                Transform::from_xyz(size * 0.38, size * 0.38, 0.5),
+            ));
+            parent.spawn((
+                Mesh3d(meshes.add(Rectangle::new(9.0, 6.0))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: flag_color(game_data, owner),
+                    unlit: true,
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                })),
+                Transform::from_xyz(size * 0.38 + 5.0, size * 0.5, 0.6),
+                FactionFlag,
+            ));
+        });
+    }
+}
+
+fn flag_color(game_data: &GameData, owner: Option<Faction>) -> Color {
+    owner.map_or(Color::srgb(0.88, 0.84, 0.74), |f| game_data.faction_color(f))
+}
+
+/// Recolor property pennants when a tile changes hands
+fn sync_property_flags(
+    tiles: Query<&super::Tile, Changed<super::Tile>>,
+    features: Query<(&TerrainFeature, &Children)>,
+    flags: Query<&MeshMaterial3d<StandardMaterial>, With<FactionFlag>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    game_data: Res<GameData>,
+) {
+    for tile in tiles.iter() {
+        let Some((_, children)) = features.iter().find(|(f, _)| f.grid_position == tile.position) else { continue };
+        for child in children.iter() {
+            if let Some(material) = flags.get(child).ok().and_then(|m| materials.get_mut(&m.0)) {
+                material.base_color = flag_color(&game_data, tile.owner);
+            }
         }
     }
-}
-
-/// Get the color for a terrain feature
-fn get_procedural_feature_color(terrain: Terrain) -> Color {
-    match terrain {
-        Terrain::Thicket => Color::srgb(0.15, 0.35, 0.12),
-        Terrain::Brambles => Color::srgb(0.25, 0.32, 0.18),
-        Terrain::Boulder => Color::srgb(0.45, 0.45, 0.50),
-        Terrain::Hollow => Color::srgb(0.35, 0.25, 0.18),
-        Terrain::Log => Color::srgb(0.45, 0.32, 0.20),
-        Terrain::Base => Color::srgb(0.50, 0.45, 0.40),
-        Terrain::Outpost => Color::srgb(0.55, 0.50, 0.45),
-        Terrain::Storehouse => Color::srgb(0.48, 0.42, 0.35),
-        _ => Color::WHITE,
-    }
-}
-
-/// Get the color and size for a terrain feature
-pub(crate) fn get_procedural_feature_params(terrain: Terrain) -> (Color, Vec2) {
-    match terrain {
-        Terrain::Thicket => (
-            Color::srgb(0.15, 0.35, 0.12),
-            Vec2::new(TILE_SIZE * 0.8, 32.0)
-        ),
-        Terrain::Brambles => (
-            Color::srgb(0.25, 0.32, 0.18),
-            Vec2::new(TILE_SIZE * 0.9, 24.0)
-        ),
-        Terrain::Boulder => (
-            Color::srgb(0.45, 0.45, 0.50),
-            Vec2::new(TILE_SIZE * 0.7, 28.0)
-        ),
-        Terrain::Hollow => (
-            Color::srgb(0.35, 0.25, 0.18),
-            Vec2::new(TILE_SIZE * 0.6, 36.0)
-        ),
-        Terrain::Log => (
-            Color::srgb(0.45, 0.32, 0.20),
-            Vec2::new(TILE_SIZE * 1.2, 16.0)
-        ),
-        Terrain::Base => (
-            Color::srgb(0.50, 0.45, 0.40),
-            Vec2::new(TILE_SIZE * 0.85, 48.0)
-        ),
-        Terrain::Outpost => (
-            Color::srgb(0.55, 0.50, 0.45),
-            Vec2::new(TILE_SIZE * 0.75, 40.0)
-        ),
-        Terrain::Storehouse => (
-            Color::srgb(0.48, 0.42, 0.35),
-            Vec2::new(TILE_SIZE * 0.65, 32.0)
-        ),
-        _ => (Color::WHITE, Vec2::ZERO),
-    }
-}
-
-/// Spawn a faction flag as 3D mesh child of a building
-fn spawn_faction_flag_3d(
-    parent: &mut ChildSpawnerCommands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    game_data: &GameData,
-    faction: Faction,
-    terrain: Terrain,
-) {
-    let flag_height = match terrain {
-        Terrain::Base => 12.0,
-        Terrain::Outpost => 10.0,
-        Terrain::Storehouse => 8.0,
-        _ => 8.0,
-    };
-
-    let building_height = game_data.terrain(terrain).feature_height;
-
-    // Flag pole (thin vertical rectangle)
-    let pole_mesh = meshes.add(Rectangle::new(2.0, flag_height + 4.0));
-    parent.spawn((
-        Mesh3d(pole_mesh),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.25, 0.2),
-            unlit: true,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        })),
-        Transform::from_xyz(TILE_SIZE * 0.3, building_height * 0.3, 0.0),
-    ));
-
-    // Flag banner
-    let flag_mesh = meshes.add(Rectangle::new(8.0, flag_height));
-    parent.spawn((
-        Mesh3d(flag_mesh),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: game_data.faction_color(faction),
-            unlit: true,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        })),
-        Transform::from_xyz(TILE_SIZE * 0.3 + 5.0, building_height * 0.3 + 2.0, 0.0),
-        FactionFlag,
-    ));
 }
 

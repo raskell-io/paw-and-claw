@@ -47,8 +47,8 @@ pub fn spawn_map_from_data(
     game_map: &mut ResMut<GameMap>,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    _sprite_assets: &super::SpriteAssets,
-    _images: &Assets<Image>,
+    sprite_assets: &super::SpriteAssets,
+    images: &Assets<Image>,
     game_data: &GameData,
     map_data: &MapData,
     tileset_theme: TilesetTheme,
@@ -94,22 +94,20 @@ pub fn spawn_map_from_data(
 
             let owner = property_owners.get(&(x as i32, y as i32)).copied();
 
-            let tile_color = if let Some(faction) = owner {
-                blend_color(game_data.terrain_color(terrain), game_data.faction_color(faction), 0.3)
-            } else {
-                game_data.terrain_color(terrain)
-            };
+            let texture = sprite_assets.tile_sprite(images, terrain);
+            let tile_color = tile_tint(game_data, terrain, owner, texture.is_some());
 
             // Get tile height based on terrain type
             let tile_height = game_data.terrain(terrain).tile_height;
 
             // Create cuboid mesh for this tile
-            let tile_mesh = meshes.add(Cuboid::new(TILE_SIZE - 2.0, tile_height, TILE_SIZE - 2.0));
+            let tile_mesh = meshes.add(tile_cuboid(TILE_SIZE - 2.0, tile_height));
 
             commands.spawn((
                 Mesh3d(tile_mesh),
                 MeshMaterial3d(materials.add(StandardMaterial {
                     base_color: tile_color,
+                    base_color_texture: texture,
                     unlit: true,
                     ..default()
                 })),
@@ -123,8 +121,49 @@ pub fn spawn_map_from_data(
                     capturing_faction: None,
                 },
             ));
+
+            // Trees, rocks and buildings stand on their tile when there's a sprite for them
+            if let Some(feature) = sprite_assets.feature_sprite(images, terrain) {
+                super::spawn_terrain_feature(commands, meshes, materials, game_data, feature,
+                    x, y, tile_height, terrain, owner, offset_x, offset_z);
+            }
         }
     }
+}
+
+/// Material color for a tile: textured tiles are drawn as-is, flat ones use the
+/// terrain color; owned properties are tinted toward the owner's faction color
+pub fn tile_tint(game_data: &GameData, terrain: Terrain, owner: Option<Faction>, textured: bool) -> Color {
+    let base = if textured { Color::WHITE } else { game_data.terrain_color(terrain) };
+    match owner {
+        Some(faction) => blend_color(base, game_data.faction_color(faction), 0.3),
+        None => base,
+    }
+}
+
+/// A tile block whose top shows the whole texture and whose sides continue it as
+/// a thin strip, so a ground texture reads as solid earth rather than stretching
+fn tile_cuboid(width: f32, height: f32) -> Mesh {
+    let mut mesh = Mesh::from(Cuboid::new(width, height, width));
+    let positions: Vec<[f32; 3]> = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(bevy::mesh::VertexAttributeValues::Float32x3(p)) => p.clone(),
+        _ => return mesh,
+    };
+    let normals: Vec<[f32; 3]> = match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(bevy::mesh::VertexAttributeValues::Float32x3(n)) => n.clone(),
+        _ => return mesh,
+    };
+    let half = width / 2.0;
+    let uvs: Vec<[f32; 2]> = positions.iter().zip(&normals).map(|(p, n)| {
+        if n[1].abs() > 0.5 {
+            [(p[0] + half) / width, (p[2] + half) / width]
+        } else {
+            let along = if n[0].abs() > 0.5 { p[2] } else { p[0] };
+            [(along + half) / width, (height / 2.0 - p[1]) / width]
+        }
+    }).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh
 }
 
 /// Spawn units from MapData
