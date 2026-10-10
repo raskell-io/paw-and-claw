@@ -34,6 +34,15 @@ manifest.json ──render──▶ prompts ──generate (PixelLab)──▶ P
   same subject in the manifest.
 - Units face **right** in a low top-down view. The game mirrors them as needed.
 
+## Scale: the forest floor
+
+The armies are small animals, so the map is the woodland floor at their scale,
+not an Advance Wars landscape. Terrain features are **bushes, tufts of tall
+grass, pebbles, fallen twigs, stumps, creeks and puddles**, never mountains,
+whole forests or castles. A "boulder" is a big pebble, a "thicket" is a bush,
+and buildings are burrows, twig towers and acorn granaries. Every feature
+prompt carries this through the `features` style in the manifest.
+
 ## Roster
 
 The internal ID (left) is stable: it's used in code, saves and file names. The
@@ -102,12 +111,32 @@ Lessons from the first tests:
 
 - **Ground tiles are drawn by code**, not generated:
   `python3 tools/sprites/ground_tiles.py` writes all 13 tiles in a fixed,
-  bright palette (calm plains, sand, river, sea, dirt road, flagstones).
+  bright palette (meadow, sand, creek, pond, flagstones).
   Generated ground came out far too busy to repeat across a map.
-- **The board is flat** (land height 4, shoals 3, water 2 in `terrain.ron`),
-  and tiles butt together with no grid gaps. Height comes from features.
-- **Features stand on plain ground:** forests, rock hills and buildings are
-  32×32 feature sprites from PixelLab.
+- **Tiles can be strips of variants** (32px columns), and the game picks one per tile:
+  - Meadow tiles have 4 variants (plain, clover, flowers, both), picked by position.
+  - `log.png` (shown in game as "Trail") is a 16-column atlas indexed by which
+    neighbors are trail or a base (1 N, 2 E, 4 S, 8 W), so paths join up. A
+    trail tile with no trail neighbors shows the fallen-log sprite instead.
+  - `shore.png` is indexed the same way by which sides face water, so the sand
+    runs only along the waterline.
+- **The board is flat** (land and shore height 4, water 2 in `terrain.ron`),
+  and tiles butt together with no grid gaps. Tile sides are shaded darker.
+  Height comes from features.
+- **Features stand on plain meadow:** every land feature's ground tile is
+  ordinary grass, so the sprite alone says what's there. Owned properties
+  aren't tinted; their pennant shows the owner.
+- **Features are drawn by code** at animal scale:
+  `python3 tools/sprites/nature_features.py` writes:
+  - the bush (thicket), bramble, pebble (boulder), fallen log, hollow stump
+    and tall-grass tuft;
+  - the twig lookout (outpost) and acorn granary (storehouse).
+
+  Each is built from shaded shapes in ramps next to the ground palette, with
+  colored outlines, so the whole forest floor shares one palette. Generated
+  versions kept drifting in shape, color and background at this simple scale.
+  The base and the units stay generated; `source` in the manifest says which
+  is which.
 - **Features have no black outlines.** Dual Strike outlines terrain in darker
   shades of the object's own colors, so it stays subtle while units, which keep
   dark outlines, stand out. Generate with "Selective outline", then run

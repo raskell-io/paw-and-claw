@@ -47,7 +47,7 @@
             capture_points: 0,
             income: 0,
             color: (0.45, 0.65, 0.3),
-            feature_height: 0.0,
+            feature_height: 14.0,
             tile_height: 4.0,
             asset_name: "tall_grass",
         ),
@@ -77,10 +77,10 @@
             tile_height: 4.0,
             asset_name: "brambles",
         ),
-        // Road: 0 stars defense
+        // Road: 0 stars defense. Joined-up tiles draw as a trail; a lone one is a fallen log
         "log": (
-            name: "Log",
-            description: "Fallen log - fast movement, no cover",
+            name: "Trail",
+            description: "Trodden animal trail - fast movement, no cover",
             defense: 0,
             capturable: false,
             capture_points: 0,
@@ -154,7 +154,7 @@
             income: 0,
             color: (0.6, 0.55, 0.4),
             feature_height: 0.0,
-            tile_height: 3.0,
+            tile_height: 4.0,
             asset_name: "shore",
         ),
 

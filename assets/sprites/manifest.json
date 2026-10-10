@@ -55,8 +55,8 @@
         32,
         32
       ],
-      "prefix": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge",
-      "suffix": "Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border",
+      "prefix": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape)",
+      "suffix": "Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette",
       "pixellab": {
         "model": "Pixen",
         "transparent_background": true,
@@ -953,44 +953,58 @@
     ],
     "features": [
       {
+        "id": "tall_grass",
+        "subject": "a tuft of long grass blades fanning out",
+        "source": "code: tools/sprites/nature_features.py",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A tuft of long grass blades fanning out. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
+      },
+      {
         "id": "thicket",
-        "subject": "a cluster of two leafy oak trees",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A cluster of two leafy oak trees. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a dense round leafy bush with a few small leaves sticking out",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A dense round leafy bush with a few small leaves sticking out. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       },
       {
         "id": "brambles",
-        "subject": "a dense thorny bramble bush with dark berries",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A dense thorny bramble bush with dark berries. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a tangled thorny bramble bush with dark red berries",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A tangled thorny bramble bush with dark red berries. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       },
       {
         "id": "log",
-        "subject": "a fallen mossy log lying sideways",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A fallen mossy log lying sideways. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a fallen mossy twig lying sideways with a tiny mushroom growing on it",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A fallen mossy twig lying sideways with a tiny mushroom growing on it. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       },
       {
         "id": "boulder",
-        "subject": "a large lichen-covered boulder",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A large lichen-covered boulder. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a big smooth grey pebble with a patch of soft moss on top",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A big smooth grey pebble with a patch of soft moss on top. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       },
       {
         "id": "hollow",
-        "subject": "a hollow tree stump with a burrow entrance at its base",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A hollow tree stump with a burrow entrance at its base. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a hollow old tree stump with a round burrow entrance at its base",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A hollow old tree stump with a round burrow entrance at its base. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       },
       {
         "id": "base",
-        "subject": "a fortified wooden keep with palisade walls and an empty flagpole, neutral natural colors",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A fortified wooden keep with palisade walls and an empty flagpole, neutral natural colors. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "pixellab"
       },
       {
         "id": "outpost",
-        "subject": "a small wooden watchtower with a thatched roof, neutral natural colors",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A small wooden watchtower with a thatched roof, neutral natural colors. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a small lookout tower built from twigs and bark with a leaf roof and an empty twig flagpole",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A small lookout tower built from twigs and bark with a leaf roof and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       },
       {
         "id": "storehouse",
-        "subject": "a timber granary barn with a thatched roof and grain sacks by the door, neutral natural colors",
-        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A timber granary barn with a thatched roof and grain sacks by the door, neutral natural colors. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+        "subject": "a little granary made from a hollow stump with an acorn-cap roof and seeds and nuts stacked by the door",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A little granary made from a hollow stump with an acorn-cap roof and seeds and nuts stacked by the door. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "code: tools/sprites/nature_features.py"
       }
     ]
   },

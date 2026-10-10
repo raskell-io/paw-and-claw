@@ -114,6 +114,20 @@ pub fn spawn_map_from_data(
             }
             let tile_color = tile_tint(game_data, terrain, owner, texture.is_some());
 
+            // Strip textures hold variants: the trail and bank atlases are indexed
+            // by which neighbors they join, other ground picks a variant by position
+            let trail = trail_mask(x as i32, y as i32, &terrain_at);
+            let columns = texture.as_ref().and_then(|t| images.get(t)).map_or(1, |image| {
+                (image.width() / image.height().max(1)).max(1)
+            });
+            let column = match terrain {
+                Terrain::Log => trail as u32,
+                Terrain::Shore => water_sides(x as i32, y as i32, &terrain_at) as u32,
+                _ => tile_variant(x, y),
+            } % columns;
+            let uv_transform = bevy::math::Affine2::from_scale_angle_translation(
+                Vec2::new(1.0 / columns as f32, 1.0), 0.0, Vec2::new(column as f32 / columns as f32, 0.0));
+
             // Get tile height based on terrain type
             let tile_height = game_data.terrain(terrain).tile_height;
 
@@ -125,6 +139,7 @@ pub fn spawn_map_from_data(
                 MeshMaterial3d(materials.add(StandardMaterial {
                     base_color: tile_color,
                     base_color_texture: texture,
+                    uv_transform,
                     unlit: true,
                     ..default()
                 })),
@@ -139,13 +154,41 @@ pub fn spawn_map_from_data(
                 },
             ));
 
-            // Trees, rocks and buildings stand on their tile when there's a sprite for them
-            if let Some(feature) = sprite_assets.feature_sprite(images, terrain) {
+            // Trees, rocks and buildings stand on their tile when there's a sprite for them.
+            // A log that's part of a trail is just the trail; only a lone one lies there.
+            let lone = terrain != Terrain::Log || trail == 0;
+            if let Some(feature) = sprite_assets.feature_sprite(images, terrain).filter(|_| lone) {
                 super::spawn_terrain_feature(commands, meshes, materials, game_data, feature,
                     x, y, tile_height, terrain, owner, offset_x, offset_z);
             }
         }
     }
+}
+
+/// Which sides a trail (log) tile continues toward: other trail tiles and bases
+/// (as AW roads lead to HQs but pass cities by). Bits match the trail atlas
+/// columns: 1 N, 2 E, 4 S, 8 W.
+fn trail_mask(x: i32, y: i32, terrain_at: &impl Fn(i32, i32) -> Option<Terrain>) -> u8 {
+    if terrain_at(x, y) != Some(Terrain::Log) {
+        return 0;
+    }
+    [(0, -1, 1), (1, 0, 2), (0, 1, 4), (-1, 0, 8)].into_iter()
+        .filter(|&(dx, dy, _)| matches!(terrain_at(x + dx, y + dy),
+            Some(Terrain::Log | Terrain::Base)))
+        .fold(0, |mask, (_, _, bit)| mask | bit)
+}
+
+/// Which sides of a tile face water, as bank atlas columns: 1 N, 2 E, 4 S, 8 W
+fn water_sides(x: i32, y: i32, terrain_at: &impl Fn(i32, i32) -> Option<Terrain>) -> u8 {
+    [(0, -1, 1), (1, 0, 2), (0, 1, 4), (-1, 0, 8)].into_iter()
+        .filter(|&(dx, dy, _)| terrain_at(x + dx, y + dy).is_some_and(is_water))
+        .fold(0, |mask, (_, _, bit)| mask | bit)
+}
+
+/// A stable pseudo-random variant index for a tile, so neighbors rarely match
+fn tile_variant(x: u32, y: u32) -> u32 {
+    let h = x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663);
+    (h ^ (h >> 13)).wrapping_mul(0x5bd1_e995) >> 16
 }
 
 fn is_water(terrain: Terrain) -> bool {
@@ -234,10 +277,14 @@ fn shoreline_texture(images: &mut Assets<Image>, base: &Handle<Image>, mask: u8)
     Some(images.add(image))
 }
 
-/// Material color for a tile: textured tiles are drawn as-is, flat ones use the
-/// terrain color; owned properties are tinted toward the owner's faction color
+/// Material color for a tile. Textured tiles are drawn as-is: their property's
+/// pennant shows the owner. Flat ones use the terrain color, with owned
+/// properties tinted toward the owner's faction color.
 pub fn tile_tint(game_data: &GameData, terrain: Terrain, owner: Option<Faction>, textured: bool) -> Color {
-    let base = if textured { Color::WHITE } else { game_data.terrain_color(terrain) };
+    if textured {
+        return Color::WHITE;
+    }
+    let base = game_data.terrain_color(terrain);
     match owner {
         Some(faction) => blend_color(base, game_data.faction_color(faction), 0.3),
         None => base,
@@ -265,7 +312,12 @@ fn tile_cuboid(width: f32, height: f32) -> Mesh {
             [(along + half) / width, (height / 2.0 - p[1]) / width]
         }
     }).collect();
+    // Sides are shaded darker and warmer, like the earthen banks of AW terrain
+    let colors: Vec<[f32; 4]> = normals.iter().map(|n| {
+        if n[1] > 0.5 { [1.0, 1.0, 1.0, 1.0] } else { [0.62, 0.52, 0.46, 1.0] }
+    }).collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
     mesh
 }
 
@@ -415,6 +467,19 @@ mod tests {
             .collect();
         let at = |x: i32, y: i32| (x >= 0 && y >= 0).then(|| grid.get(y as usize).and_then(|r| r.get(x as usize)).copied()).flatten();
         shore_mask(x, y, &at)
+    }
+
+    #[test]
+    fn trails_join_neighbors_and_properties() {
+        let rows = ["=.B", "===", ".=O"];
+        let at = |x: i32, y: i32| -> Option<Terrain> {
+            let c = rows.get(y as usize)?.chars().nth(x as usize)?;
+            Some(match c { '=' => Terrain::Log, 'B' => Terrain::Base, 'O' => Terrain::Outpost, _ => Terrain::Grass })
+        };
+        assert_eq!(trail_mask(1, 1, &at), 2 | 4 | 8);
+        assert_eq!(trail_mask(2, 1, &at), 1 | 8, "leads to the base, not the outpost");
+        assert_eq!(trail_mask(0, 0, &at), 4);
+        assert_eq!(trail_mask(1, 0, &at), 0, "grass is never a trail");
     }
 
     #[test]

@@ -124,6 +124,7 @@ pub enum MapId {
     MountainPass,
     MarshLands,
     AncientRuins,
+    SpannIsland,
     #[allow(dead_code)] // Custom map loading, see ROADMAP
     Custom(usize),
 }
@@ -139,6 +140,7 @@ impl MapId {
             MapId::MountainPass => "Mountain Pass",
             MapId::MarshLands => "Marsh Lands",
             MapId::AncientRuins => "Ancient Ruins",
+            MapId::SpannIsland => "Spann Island",
             MapId::Custom(_) => "Custom Map",
         }
     }
@@ -153,6 +155,7 @@ impl MapId {
             MapId::MountainPass,
             MapId::MarshLands,
             MapId::AncientRuins,
+            MapId::SpannIsland,
         ]
     }
 }
@@ -172,6 +175,7 @@ pub fn get_builtin_map(id: MapId) -> MapData {
         MapId::MountainPass => create_mountain_pass_map(),
         MapId::MarshLands => create_marsh_lands_map(),
         MapId::AncientRuins => create_ancient_ruins_map(),
+        MapId::SpannIsland => create_spann_island_map(),
         MapId::Custom(_) => create_woodland_map(), // Fallback
     }
 }
@@ -880,9 +884,97 @@ fn create_ancient_ruins_map() -> MapData {
     map
 }
 
+/// Build a map from rows of characters, one per tile. Property owners are
+/// given separately, since the same symbol is used for neutral and owned ones.
+///
+/// `.` grass, `"` tall grass, `T` thicket, `#` brambles, `=` log, `o` boulder,
+/// `h` hollow, `~` creek, `w` pond, `s` shore, `B` base, `O` outpost,
+/// `S` storehouse
+fn map_from_rows(name: &str, rows: &[&str]) -> MapData {
+    let height = rows.len() as u32;
+    let width = rows.first().map_or(0, |row| row.chars().count()) as u32;
+    let mut map = MapData::new(name, width, height);
+    for (y, row) in rows.iter().enumerate() {
+        assert_eq!(row.chars().count() as u32, width, "{name}: row {y} has the wrong width");
+        for (x, symbol) in row.chars().enumerate() {
+            let terrain = match symbol {
+                '.' => Terrain::Grass,
+                '"' => Terrain::TallGrass,
+                'T' => Terrain::Thicket,
+                '#' => Terrain::Brambles,
+                '=' => Terrain::Log,
+                'o' => Terrain::Boulder,
+                'h' => Terrain::Hollow,
+                '~' => Terrain::Creek,
+                'w' => Terrain::Pond,
+                's' => Terrain::Shore,
+                'B' => Terrain::Base,
+                'O' => Terrain::Outpost,
+                'S' => Terrain::Storehouse,
+                other => panic!("{name}: unknown map symbol {other:?}"),
+            };
+            map.set_terrain(x as i32, y as i32, terrain);
+        }
+    }
+    map
+}
+
+/// Spann Island, from the Advance Wars War Room (also in AW2 and Dual Strike).
+/// Layout follows the original tile for tile, translated to the forest floor:
+/// sea is pond, roads and bridges are logs, woods are thickets, mountains are
+/// boulders and the river is a creek. Each HQ is a base; factories, which have
+/// no equivalent yet, are outposts (income, no production), and cities are
+/// storehouses. Orange Star is the first army, Black Hole the second.
+fn create_spann_island_map() -> MapData {
+    let mut map = map_from_rows("Spann Island", &[
+        "wwwwwwwwwwwwwwww",
+        "wwwwwwwwwwwwwwww",
+        "ww.T=====.TO.Oww",
+        "w..T=T~.=S..BOww",
+        "wSS==www=.o.=Oww",
+        "w..=.www=SoS=.ww",
+        "wO==SwwT=====Sww",
+        "wOB....TT.ww=www",
+        "wwOO......ww..ww",
+        "wwwwoSoTO.=.SSww",
+        "wwwwwwwwwwwwwwww",
+        "wwwwwwwwwwwwwwww",
+    ]);
+    map.description = "The classic War Room skirmish: a small island where every road leads to a fight.".to_string();
+
+    for (x, y) in [(2, 7), (1, 6), (1, 7), (2, 8), (3, 8), (8, 9), (4, 6)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(12, 3), (11, 2), (13, 2), (13, 3), (13, 4)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map.add_unit(UnitType::Scout, Faction::Eastern, 3, 7);
+    map.add_unit(UnitType::Scout, Faction::Eastern, 2, 6);
+    map.add_unit(UnitType::Scout, Faction::Northern, 12, 4);
+    map.add_unit(UnitType::Scout, Faction::Northern, 11, 3);
+
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_maps_are_well_formed() {
+        for id in MapId::all_builtin() {
+            let map = get_builtin_map(id);
+            assert_eq!(map.terrain.len() as u32, map.height, "{}", map.name);
+            for property in &map.properties {
+                let terrain = map.get_terrain(property.x, property.y);
+                assert!(
+                    matches!(terrain, Some(Terrain::Base | Terrain::Outpost | Terrain::Storehouse)),
+                    "{}: property at ({}, {}) is {:?}", map.name, property.x, property.y, terrain
+                );
+            }
+        }
+    }
 
     #[test]
     fn with_factions_reassigns_both_armies() {

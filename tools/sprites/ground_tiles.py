@@ -7,8 +7,18 @@ are separate feature sprites standing on plain ground. Generators tend to
 over-detail ground textures, so these are drawn here instead: deterministic,
 palette-locked and seamless.
 
+A tile PNG may be a horizontal strip of 32x32 variants. The game picks one
+per tile (see `src/game/map.rs`):
+
+- most ground tiles have a few variants (flowers, clover) picked by position,
+  so a field of grass doesn't repeat one stamp
+- `log.png` is the trail atlas: 16 columns, one per combination of trail
+  neighbors (bit 1 north, 2 east, 4 south, 8 west), so paths join up
+- `shore.png` is the bank atlas, indexed the same way by which sides face
+  water: sand runs along those sides and fades into grass inland
+
 Coastlines are not baked in: the game composites shore edges onto water tiles
-based on their neighbors (see `src/game/map.rs`).
+based on their neighbors.
 
 Usage:
   python3 tools/sprites/ground_tiles.py [OUT_DIR]   # default: assets/sprites/terrain/tiles
@@ -16,6 +26,7 @@ Usage:
 Standard library only.
 """
 
+import math
 import random
 import sys
 from pathlib import Path
@@ -28,14 +39,16 @@ SIZE = 32
 
 # Palette (Dual Strike-like: saturated, few tones)
 PLAINS = [(124, 200, 90), (110, 184, 78), (152, 220, 110)]       # base, shade, highlight
-TALL = [(104, 178, 72), (88, 158, 62), (140, 206, 96)]
-BRAMBLE = [(118, 150, 70), (98, 128, 58), (146, 176, 88)]
-DIRT = [(214, 182, 118), (190, 156, 96), (232, 206, 146)]
-DARK_EARTH = [(150, 120, 80), (126, 98, 64), (176, 146, 100)]
 SAND = [(236, 214, 140), (214, 190, 116), (248, 232, 176)]
 RIVER = [(84, 160, 232), (64, 136, 212), (170, 214, 248)]
 SEA = [(58, 120, 214), (46, 100, 190), (140, 190, 244)]
 FLAGSTONE = [(200, 190, 170), (168, 156, 136), (224, 216, 200)]
+TRAIL = [(206, 168, 108), (178, 140, 86), (226, 194, 138)]
+TRAIL_EDGE = (150, 132, 70)  # where trodden dirt meets the grass
+PETALS = [(250, 248, 236), (252, 220, 96), (236, 160, 196)]
+CLOVER = (96, 170, 72)
+
+VARIANTS = 4
 
 
 def blank(color):
@@ -73,16 +86,6 @@ def ripples(img, rng, palette, count):
         put(img, x + 1, y + 1, shade)
 
 
-def stones(img, rng, palette, count):
-    base, shade, light = palette
-    for _ in range(count):
-        x, y = rng.randrange(SIZE), rng.randrange(SIZE)
-        put(img, x, y, light)
-        put(img, x + 1, y, base)
-        put(img, x, y + 1, shade)
-        put(img, x + 1, y + 1, shade)
-
-
 def flagstones(img, palette):
     base, shade, light = palette
     for y in range(SIZE):
@@ -95,25 +98,133 @@ def flagstones(img, palette):
                 img[y][x] = light
 
 
-def tile(name):
-    rng = random.Random(name)  # stable per terrain
+def flowers(img, rng, count):
+    """Tiny four-petal flowers with a bright center, all of one kind per tile."""
+    petal = rng.choice(PETALS)
+    for _ in range(count):
+        x, y = rng.randrange(SIZE), rng.randrange(SIZE)
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+            put(img, x + dx, y + dy, petal)
+        put(img, x, y, PETALS[1] if petal != PETALS[1] else PETALS[0])
+
+
+def clover(img, rng, count):
+    """Small darker leaf patches."""
+    for _ in range(count):
+        x, y = rng.randrange(SIZE), rng.randrange(SIZE)
+        for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1), (2, 1), (1, 2)):
+            if rng.random() < 0.85:
+                put(img, x + dx, y + dy, CLOVER)
+
+
+def meadow(rng, variant, palette=PLAINS, tuft_count=4):
+    """Plain grass; variants add clover, then flowers, so fields look picked, not stamped."""
+    img = blank(palette[0])
+    speckle(img, rng, palette[1], 18)
+    tufts(img, rng, palette, tuft_count)
+    if variant == 1:
+        clover(img, rng, 3)
+    elif variant == 2:
+        flowers(img, rng, 3)
+    elif variant == 3:
+        clover(img, rng, 1)
+        flowers(img, rng, 1)
+    return img
+
+
+def trail(rng, mask):
+    """Grass with a trodden dirt path running from the middle to each connected side.
+
+    The path is 12px wide where it leaves the tile, so neighbors meet; the middle
+    is a round patch, so bends and junctions come out soft.
+    """
+    img = meadow(rng, 0, tuft_count=2)
+    half = 6
+    center = SIZE / 2 - 0.5
+    arms = [(0, -1, 1), (1, 0, 2), (0, 1, 4), (-1, 0, 8)]
+
+    def on_path(x, y):
+        dx, dy = x - center, y - center
+        if dx * dx + dy * dy < half * half:
+            return True
+        for ax, ay, bit in arms:
+            if not mask & bit:
+                continue
+            along = dx * ax + dy * ay   # distance out from the center along the arm
+            across = abs(dx * ay - dy * ax)
+            if along >= 0 and across < half:
+                return True
+        return False
+
+    path = {(x, y) for y in range(SIZE) for x in range(SIZE) if on_path(x, y)}
+    for x, y in path:
+        img[y][x] = TRAIL[0]
+    for x, y in path:
+        neighbors = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+        inside = [(nx, ny) for nx, ny in neighbors if 0 <= nx < SIZE and 0 <= ny < SIZE]
+        if any(n not in path for n in inside):
+            img[y][x] = TRAIL_EDGE
+    # Wear: lighter packed earth, darker grit and the odd pebble
+    cells = sorted(path)
+    for _ in range(14):
+        x, y = rng.choice(cells)
+        if img[y][x] == TRAIL[0]:
+            img[y][x] = TRAIL[1]
+    for _ in range(8):
+        x, y = rng.choice(cells)
+        if img[y][x] == TRAIL[0]:
+            img[y][x] = TRAIL[2]
+    return img
+
+
+def bank(rng, mask):
+    """Grass with a sandy bank along each side that faces water (see the module docs).
+
+    The band's wobble repeats a whole number of times along the edge, so it
+    meets the next bank tile at the same depth.
+    """
+    img = meadow(rng, 0, tuft_count=2)
+    edges = [(1, lambda x, y: (y, x)), (2, lambda x, y: (SIZE - 1 - x, y)),
+             (4, lambda x, y: (SIZE - 1 - y, x)), (8, lambda x, y: (x, y))]
+
+    def depth(x, y):
+        best = None
+        for bit, measure in edges:
+            if mask & bit:
+                d, along = measure(x, y)
+                limit = 6 + 1.2 * math.sin(2 * math.pi * along / SIZE)
+                best = max(best or -99, limit - d)
+        return best
+
+    for y in range(SIZE):
+        for x in range(SIZE):
+            d = depth(x, y)
+            if d is None or d < 0:
+                continue
+            img[y][x] = SAND[1] if d < 1 else SAND[0]
+    if mask:
+        for _ in range(14):
+            x, y = rng.randrange(SIZE), rng.randrange(SIZE)
+            if img[y][x] == SAND[0]:
+                img[y][x] = SAND[2] if rng.random() < 0.6 else SAND[1]
+    else:
+        speckle(img, rng, SAND[0], 10)
+    return img
+
+
+def tile(name, variant=0):
+    rng = random.Random(f"{name}{variant}")  # stable per terrain and variant
     if name == "grass":
-        img = blank(PLAINS[0]); speckle(img, rng, PLAINS[1], 18); tufts(img, rng, PLAINS, 4)
-    elif name == "tall_grass":
-        img = blank(TALL[0]); speckle(img, rng, TALL[1], 26); tufts(img, rng, TALL, 9)
-    elif name == "brambles":
-        img = blank(BRAMBLE[0]); speckle(img, rng, BRAMBLE[1], 30); tufts(img, rng, BRAMBLE, 7)
+        img = meadow(rng, variant)
     elif name == "log":
-        img = blank(DIRT[0]); speckle(img, rng, DIRT[1], 24); stones(img, rng, DIRT, 3)
-    elif name == "hollow":
-        img = blank(DARK_EARTH[0]); speckle(img, rng, DARK_EARTH[1], 28); stones(img, rng, DARK_EARTH, 3)
-    elif name in ("thicket", "boulder", "outpost", "storehouse"):
-        # Features stand on plain ground, as in AW
-        img = blank(PLAINS[0]); speckle(img, rng, PLAINS[1], 18); tufts(img, rng, PLAINS, 3)
+        img = trail(rng, variant)
+    elif name in ("tall_grass", "thicket", "brambles", "boulder", "hollow", "outpost", "storehouse"):
+        # Features stand on plain ground, as in AW: the sprite says what's there
+        img = meadow(rng, variant, tuft_count=3)
     elif name == "base":
         img = blank(FLAGSTONE[0]); flagstones(img, FLAGSTONE)
     elif name == "shore":
-        img = blank(SAND[0]); speckle(img, rng, SAND[1], 26); speckle(img, rng, SAND[2], 14)
+        img = bank(rng, variant)
     elif name == "creek":
         img = blank(RIVER[0]); speckle(img, rng, RIVER[1], 20); ripples(img, rng, RIVER, 5)
     elif name == "pond":
@@ -121,6 +232,15 @@ def tile(name):
     else:
         raise SystemExit(f"unknown terrain {name}")
     return img
+
+
+def columns(name):
+    """How many variants a tile's strip has (see the module docs)."""
+    if name in ("log", "shore"):
+        return 16
+    if name in ("grass", "tall_grass", "thicket", "brambles", "boulder", "hollow", "outpost", "storehouse"):
+        return VARIANTS
+    return 1
 
 
 TERRAIN = ["grass", "tall_grass", "thicket", "brambles", "log", "boulder", "hollow",
@@ -131,8 +251,10 @@ def main():
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "assets" / "sprites" / "terrain" / "tiles"
     out.mkdir(parents=True, exist_ok=True)
     for name in TERRAIN:
-        img = tile(name)
-        write_png(out / f"{name}.png", SIZE, SIZE, [c + (255,) for row in img for c in row])
+        variants = [tile(name, v) for v in range(columns(name))]
+        width = SIZE * len(variants)
+        pixels = [variants[x // SIZE][y][x % SIZE] + (255,) for y in range(SIZE) for x in range(width)]
+        write_png(out / f"{name}.png", width, SIZE, pixels)
     print(f"Wrote {len(TERRAIN)} ground tiles to {out}")
 
 
