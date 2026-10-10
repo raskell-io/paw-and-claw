@@ -1,4 +1,6 @@
 // Paw & Claw - Terrain Definitions
+// The board is flat like Advance Wars: land at height 4, shoals 3, water 2.
+// Height comes from features (trees, rocks, buildings), not the tiles.
 // Defense values based on Advance Wars 2: Black Hole Rising
 //
 // AW2 Defense Stars:
@@ -59,7 +61,7 @@
             income: 0,
             color: (0.25, 0.5, 0.2),
             feature_height: 32.0,
-            tile_height: 6.0,
+            tile_height: 4.0,
             asset_name: "thicket",
         ),
         // Mountain: 4 stars defense
@@ -72,7 +74,7 @@
             income: 0,
             color: (0.35, 0.4, 0.25),
             feature_height: 24.0,
-            tile_height: 5.0,
+            tile_height: 4.0,
             asset_name: "brambles",
         ),
         // Road: 0 stars defense
@@ -85,7 +87,7 @@
             income: 0,
             color: (0.55, 0.4, 0.25),
             feature_height: 16.0,
-            tile_height: 8.0,
+            tile_height: 4.0,
             asset_name: "log",
         ),
         // Mountain: 4 stars defense
@@ -98,7 +100,7 @@
             income: 0,
             color: (0.5, 0.5, 0.55),
             feature_height: 28.0,
-            tile_height: 10.0,
+            tile_height: 4.0,
             asset_name: "boulder",
         ),
         // City-like: 3 stars defense
@@ -111,7 +113,7 @@
             income: 0,
             color: (0.4, 0.3, 0.2),
             feature_height: 36.0,
-            tile_height: 6.0,
+            tile_height: 4.0,
             asset_name: "hollow",
         ),
 
@@ -139,7 +141,7 @@
             income: 0,
             color: (0.25, 0.45, 0.7),
             feature_height: 0.0,
-            tile_height: 1.0,
+            tile_height: 2.0,
             asset_name: "pond",
         ),
         // Shoal: 0 stars defense
@@ -152,7 +154,7 @@
             income: 0,
             color: (0.6, 0.55, 0.4),
             feature_height: 0.0,
-            tile_height: 2.0,
+            tile_height: 3.0,
             asset_name: "shore",
         ),
 
@@ -167,7 +169,7 @@
             income: 1000,
             color: (0.65, 0.45, 0.3),
             feature_height: 48.0,
-            tile_height: 8.0,
+            tile_height: 4.0,
             asset_name: "base",
         ),
         // City: 3 stars defense
@@ -180,7 +182,7 @@
             income: 1000,
             color: (0.55, 0.5, 0.4),
             feature_height: 40.0,
-            tile_height: 6.0,
+            tile_height: 4.0,
             asset_name: "outpost",
         ),
         // City: 3 stars defense
@@ -193,7 +195,7 @@
             income: 1000,
             color: (0.5, 0.45, 0.35),
             feature_height: 32.0,
-            tile_height: 5.0,
+            tile_height: 4.0,
             asset_name: "storehouse",
         ),
     }

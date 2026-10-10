@@ -13,6 +13,7 @@ impl Plugin for UnitPlugin {
             update_moved_unit_visuals,
             orient_unit_sprites,
             place_units_on_ground,
+            animate_unit_sprites,
         ));
     }
 }
@@ -37,6 +38,52 @@ fn orient_unit_sprites(
             transform.scale.x = facing;
         }
     }
+}
+
+/// Animation frames in a unit's sprite sheet (a horizontal strip of square frames)
+#[derive(Component)]
+pub struct SpriteFrames {
+    pub count: u32,
+    shown: u32,
+}
+
+/// Number of square frames in a sprite image laid out as a horizontal strip
+pub fn frame_count(image: &Image) -> u32 {
+    let (w, h) = (image.width(), image.height());
+    if h > 0 && w > h && w % h == 0 { w / h } else { 1 }
+}
+
+/// Advance Wars style idle: every unit steps through its frames in sync, slowly
+/// at rest and faster while selected or moving; finished units stand still
+fn animate_unit_sprites(
+    time: Res<Time>,
+    highlights: Res<super::MovementHighlights>,
+    mut units: Query<(Entity, &Unit, &UnitVisuals, &mut SpriteFrames, Has<UnitAnimation>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    const IDLE_FPS: f32 = 3.0;
+    const ACTIVE_FPS: f32 = 8.0;
+    let t = time.elapsed_secs();
+    for (entity, unit, visuals, mut frames, moving) in units.iter_mut() {
+        let active = moving || highlights.selected_unit == Some(entity);
+        let frame = if unit.exhausted {
+            0
+        } else {
+            (t * if active { ACTIVE_FPS } else { IDLE_FPS }) as u32 % frames.count
+        };
+        if frame == frames.shown {
+            continue;
+        }
+        frames.shown = frame;
+        if let Some(material) = materials.get_mut(&visuals.material_handle) {
+            material.uv_transform = frame_uv(frame, frames.count);
+        }
+    }
+}
+
+fn frame_uv(frame: u32, count: u32) -> bevy::math::Affine2 {
+    let width = 1.0 / count as f32;
+    bevy::math::Affine2::from_scale_angle_translation(Vec2::new(width, 1.0), 0.0, Vec2::new(frame as f32 * width, 0.0))
 }
 
 /// Height of a unit's center above the ground it stands on (half its sprite,
@@ -485,6 +532,7 @@ pub fn spawn_unit_with_state(
 
     let unit_type = unit.unit_type;
     let sprite = sprite_assets.unit_sprite(images, faction, unit_type);
+    let frames = sprite.as_ref().and_then(|h| images.get(h)).map_or(1, frame_count);
     let unit_size = if sprite.is_some() {
         Vec2::splat(SPRITE_WORLD_SIZE)
     } else {
@@ -511,6 +559,7 @@ pub fn spawn_unit_with_state(
         base_color_texture: sprite.clone(),
         unlit: true,
         alpha_mode: if sprite.is_some() { AlphaMode::Mask(0.5) } else { AlphaMode::Blend },
+        uv_transform: frame_uv(0, frames),
         double_sided: true,
         cull_mode: None,
         ..default()
@@ -540,6 +589,9 @@ pub fn spawn_unit_with_state(
     ));
     if sprite.is_some() {
         entity.insert(UnitSprite);
+    }
+    if frames > 1 {
+        entity.insert(SpriteFrames { count: frames, shown: 0 });
     }
     entity.with_children(|parent| {
         // Colored cards get a dark frame for contrast; sprites have their own outline

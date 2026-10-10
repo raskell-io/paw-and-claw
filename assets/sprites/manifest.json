@@ -63,8 +63,9 @@
         "direction": "None",
         "view": "Low top-down",
         "detail": "Low detail",
-        "outline": "Black outline"
-      }
+        "outline": "Selective outline"
+      },
+      "post": "python3 tools/sprites/soften_outline.py (colored outlines instead of black, like Dual Strike terrain); keep the raw download in assets/sprites/originals/features/"
     },
     "portraits": {
       "size": [

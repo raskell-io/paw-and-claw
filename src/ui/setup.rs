@@ -54,7 +54,7 @@ pub struct BattleSpawner<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     sprite_assets: Res<'w, SpriteAssets>,
-    images: Res<'w, Assets<Image>>,
+    images: ResMut<'w, Assets<Image>>,
     tileset_theme: Res<'w, TilesetTheme>,
     turn_start_events: MessageWriter<'w, TurnStartEvent>,
 }
@@ -83,7 +83,7 @@ impl BattleSpawner<'_, '_> {
 
         let map_data = get_builtin_map(map_id).with_factions(player_faction, ai_faction);
         spawn_map_from_data(&mut self.commands, &mut self.game_map, &mut self.meshes, &mut self.materials,
-            &self.sprite_assets, &self.images, game_data, &map_data, *self.tileset_theme);
+            &self.sprite_assets, &mut self.images, game_data, &map_data, *self.tileset_theme);
         spawn_units_from_data(&mut self.commands, &self.game_map, &mut self.meshes, &mut self.materials,
             &self.sprite_assets, &self.images, game_data, &map_data);
 

@@ -9,7 +9,7 @@
 //!
 //! Steps:
 //! - `wait N`     - let N frames pass
-//! - `key NAME`   - press and release a key (Bevy `KeyCode` name, e.g. `Space`, `ArrowUp`, `KeyW`)
+//! - `key NAME`   - press and release a key (`Space`, `Enter`, `Escape`, `Tab`, arrows, `KeyA`..`KeyZ`)
 //! - `click X Y`  - left-click at logical window coordinates (reaches egui and cursor-based picking)
 //! - `move X Y`   - move the cursor without clicking (hover)
 //! - `shot NAME`  - save `NAME.png` into `PAW_SHOT_DIR` (default `screenshots/`)
@@ -99,16 +99,21 @@ fn key_code(name: &str) -> KeyCode {
         "ArrowDown" => KeyCode::ArrowDown,
         "ArrowLeft" => KeyCode::ArrowLeft,
         "ArrowRight" => KeyCode::ArrowRight,
-        "KeyW" => KeyCode::KeyW,
-        "KeyA" => KeyCode::KeyA,
-        "KeyS" => KeyCode::KeyS,
-        "KeyD" => KeyCode::KeyD,
-        "KeyE" => KeyCode::KeyE,
-        "KeyF" => KeyCode::KeyF,
-        "KeyP" => KeyCode::KeyP,
-        "KeyQ" => KeyCode::KeyQ,
-        "KeyR" => KeyCode::KeyR,
+        letter if letter.len() == 4 && letter.starts_with("Key") => letter_key(letter.as_bytes()[3]),
         other => panic!("unsupported key '{other}' in dev script"),
+    }
+}
+
+fn letter_key(letter: u8) -> KeyCode {
+    const KEYS: [KeyCode; 26] = [
+        KeyCode::KeyA, KeyCode::KeyB, KeyCode::KeyC, KeyCode::KeyD, KeyCode::KeyE, KeyCode::KeyF, KeyCode::KeyG,
+        KeyCode::KeyH, KeyCode::KeyI, KeyCode::KeyJ, KeyCode::KeyK, KeyCode::KeyL, KeyCode::KeyM, KeyCode::KeyN,
+        KeyCode::KeyO, KeyCode::KeyP, KeyCode::KeyQ, KeyCode::KeyR, KeyCode::KeyS, KeyCode::KeyT, KeyCode::KeyU,
+        KeyCode::KeyV, KeyCode::KeyW, KeyCode::KeyX, KeyCode::KeyY, KeyCode::KeyZ,
+    ];
+    match letter {
+        b'A'..=b'Z' => KEYS[(letter - b'A') as usize],
+        _ => panic!("unsupported key 'Key{}' in dev script", letter as char),
     }
 }
 

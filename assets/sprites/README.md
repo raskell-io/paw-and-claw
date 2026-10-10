@@ -98,6 +98,37 @@ Lessons from the first tests:
   `python3 tools/sprites/remove_bg.py IN.png OUT.png`, which clears the flat
   background up to the sprite's outline.
 
+### Terrain the Dual Strike way
+
+- **Ground tiles are drawn by code**, not generated:
+  `python3 tools/sprites/ground_tiles.py` writes all 13 tiles in a fixed,
+  bright palette (calm plains, sand, river, sea, dirt road, flagstones).
+  Generated ground came out far too busy to repeat across a map.
+- **The board is flat** (land height 4, shoals 3, water 2 in `terrain.ron`),
+  and tiles butt together with no grid gaps. Height comes from features.
+- **Features stand on plain ground:** forests, rock hills and buildings are
+  32×32 feature sprites from PixelLab.
+- **Features have no black outlines.** Dual Strike outlines terrain in darker
+  shades of the object's own colors, so it stays subtle while units, which keep
+  dark outlines, stand out. Generate with "Selective outline", then run
+  `python3 tools/sprites/soften_outline.py RAW.png assets/sprites/terrain/features/NAME.png`,
+  which recolors any remaining near-black pixels. Keep the raw download in
+  `assets/sprites/originals/features/` so the step can be re-tuned.
+- **Coastlines are autotiled in the game:** each water tile gets sand and foam
+  along every side (and corner) that touches land, built once per neighbor
+  pattern and cached (`shoreline_texture` in `src/game/map.rs`).
+
+### Unit animation
+
+- A unit image whose width is a whole multiple of its height is a strip of
+  frames. All units play their frames in sync, as in Advance Wars: 3 fps at
+  rest, 8 fps when selected or moving. Finished units stand still.
+- Until real frames exist, `python3 tools/sprites/idle_frames.py IN.png OUT.png`
+  makes the classic 2-frame idle: the body bobs one pixel while the feet stay
+  planted. Keep the single-frame original in `anchors/`.
+- PixelLab's image-to-animation tools need a paid plan, so the trial can't
+  make frames.
+
 ## Workflow
 
 ### 1. Edit the manifest

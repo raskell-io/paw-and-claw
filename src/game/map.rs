@@ -48,7 +48,7 @@ pub fn spawn_map_from_data(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     sprite_assets: &super::SpriteAssets,
-    images: &Assets<Image>,
+    images: &mut Assets<Image>,
     game_data: &GameData,
     map_data: &MapData,
     tileset_theme: TilesetTheme,
@@ -85,6 +85,13 @@ pub fn spawn_map_from_data(
         BattleEntity,
     ));
 
+    // Water tiles get shore edges toward land; each variant is built once
+    let mut shore_cache: std::collections::HashMap<(Terrain, u8), Option<Handle<Image>>> = Default::default();
+    let tiles = game_map.tiles.clone();
+    let terrain_at = |x: i32, y: i32| -> Option<Terrain> {
+        (x >= 0 && y >= 0).then(|| tiles.get(y as usize).and_then(|row| row.get(x as usize)).copied()).flatten()
+    };
+
     // Spawn tile entities as 3D cuboid meshes
     for y in 0..game_map.height {
         for x in 0..game_map.width {
@@ -94,14 +101,24 @@ pub fn spawn_map_from_data(
 
             let owner = property_owners.get(&(x as i32, y as i32)).copied();
 
-            let texture = sprite_assets.tile_sprite(images, terrain);
+            let mut texture = sprite_assets.tile_sprite(images, terrain);
+            if let Some(base) = texture.clone().filter(|_| is_water(terrain)) {
+                let mask = shore_mask(x as i32, y as i32, &terrain_at);
+                if mask != 0 {
+                    texture = shore_cache
+                        .entry((terrain, mask))
+                        .or_insert_with(|| shoreline_texture(images, &base, mask))
+                        .clone()
+                        .or(texture);
+                }
+            }
             let tile_color = tile_tint(game_data, terrain, owner, texture.is_some());
 
             // Get tile height based on terrain type
             let tile_height = game_data.terrain(terrain).tile_height;
 
-            // Create cuboid mesh for this tile
-            let tile_mesh = meshes.add(tile_cuboid(TILE_SIZE - 2.0, tile_height));
+            // Tiles butt together with no grid gaps, as in Advance Wars
+            let tile_mesh = meshes.add(tile_cuboid(TILE_SIZE, tile_height));
 
             commands.spawn((
                 Mesh3d(tile_mesh),
@@ -129,6 +146,92 @@ pub fn spawn_map_from_data(
             }
         }
     }
+}
+
+fn is_water(terrain: Terrain) -> bool {
+    matches!(terrain, Terrain::Pond | Terrain::Creek)
+}
+
+// Neighbor bits for shoreline autotiling: sides, then corners
+const SHORE_N: u8 = 1;
+const SHORE_E: u8 = 2;
+const SHORE_S: u8 = 4;
+const SHORE_W: u8 = 8;
+const SHORE_NE: u8 = 16;
+const SHORE_SE: u8 = 32;
+const SHORE_SW: u8 = 64;
+const SHORE_NW: u8 = 128;
+
+/// Which sides and corners of a water tile border land. Off-map counts as
+/// water, and a corner only counts when both sides next to it are water
+/// (otherwise the side edges already cover it). Grid -y is north.
+fn shore_mask(x: i32, y: i32, terrain_at: &impl Fn(i32, i32) -> Option<Terrain>) -> u8 {
+    let land = |dx: i32, dy: i32| terrain_at(x + dx, y + dy).is_some_and(|t| !is_water(t));
+    let mut mask = 0;
+    for (dx, dy, bit) in [(0, -1, SHORE_N), (1, 0, SHORE_E), (0, 1, SHORE_S), (-1, 0, SHORE_W)] {
+        if land(dx, dy) {
+            mask |= bit;
+        }
+    }
+    for (dx, dy, bit, sides) in [
+        (1, -1, SHORE_NE, SHORE_N | SHORE_E),
+        (1, 1, SHORE_SE, SHORE_S | SHORE_E),
+        (-1, 1, SHORE_SW, SHORE_S | SHORE_W),
+        (-1, -1, SHORE_NW, SHORE_N | SHORE_W),
+    ] {
+        if mask & sides == 0 && land(dx, dy) {
+            mask |= bit;
+        }
+    }
+    mask
+}
+
+/// Copy a water texture and paint an Advance Wars style shore along the masked
+/// edges: a strip of sand meeting the water with a light foam line
+fn shoreline_texture(images: &mut Assets<Image>, base: &Handle<Image>, mask: u8) -> Option<Handle<Image>> {
+    let mut image = images.get(base)?.clone();
+    let (w, h) = (image.width() as i32, image.height() as i32);
+    let data = image.data.as_mut()?;
+    if data.len() != (w * h * 4) as usize {
+        return None; // not RGBA8
+    }
+    const SAND: [u8; 4] = [236, 214, 140, 255];
+    const SAND_SHADE: [u8; 4] = [214, 190, 116, 255];
+    const FOAM: [u8; 4] = [236, 246, 255, 255];
+    let band = (w / 16).max(1); // sand width scales with the tile (2px at 32px)
+
+    // Distance (in pixels) from each pixel to the nearest masked edge/corner
+    let distance = |x: i32, y: i32| -> i32 {
+        let mut d = i32::MAX;
+        if mask & SHORE_N != 0 { d = d.min(y); }
+        if mask & SHORE_S != 0 { d = d.min(h - 1 - y); }
+        if mask & SHORE_W != 0 { d = d.min(x); }
+        if mask & SHORE_E != 0 { d = d.min(w - 1 - x); }
+        if mask & SHORE_NW != 0 { d = d.min(x.max(y)); }
+        if mask & SHORE_NE != 0 { d = d.min((w - 1 - x).max(y)); }
+        if mask & SHORE_SW != 0 { d = d.min(x.max(h - 1 - y)); }
+        if mask & SHORE_SE != 0 { d = d.min((w - 1 - x).max(h - 1 - y)); }
+        d
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let d = distance(x, y);
+            let color = if d < band - 1 || (d == band - 1 && (x + y) % 3 != 0) {
+                Some(if d == 0 { SAND } else { SAND_SHADE })
+            } else if d < band {
+                Some(SAND)
+            } else if d == band {
+                Some(FOAM)
+            } else {
+                None
+            };
+            if let Some(color) = color {
+                let i = ((y * w + x) * 4) as usize;
+                data[i..i + 4].copy_from_slice(&color);
+            }
+        }
+    }
+    Some(images.add(image))
 }
 
 /// Material color for a tile: textured tiles are drawn as-is, flat ones use the
@@ -300,4 +403,41 @@ fn blend_color(base: Color, tint: Color, amount: f32) -> Color {
         base_rgba.blue * (1.0 - amount) + tint_rgba.blue * amount,
         1.0,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mask_for(rows: &[&str], x: i32, y: i32) -> u8 {
+        let grid: Vec<Vec<Terrain>> = rows.iter()
+            .map(|r| r.chars().map(|c| if c == '~' { Terrain::Pond } else { Terrain::Grass }).collect())
+            .collect();
+        let at = |x: i32, y: i32| (x >= 0 && y >= 0).then(|| grid.get(y as usize).and_then(|r| r.get(x as usize)).copied()).flatten();
+        shore_mask(x, y, &at)
+    }
+
+    #[test]
+    fn open_water_has_no_shore() {
+        assert_eq!(mask_for(&["~~~", "~~~", "~~~"], 1, 1), 0);
+    }
+
+    #[test]
+    fn map_edge_counts_as_water() {
+        assert_eq!(mask_for(&["~~", "~~"], 0, 0), 0);
+    }
+
+    #[test]
+    fn sides_facing_land_get_shore() {
+        // Land to the north and west of the center
+        assert_eq!(mask_for(&[".. ", ".~~", ".~~"].map(|r| r.trim_end()), 1, 1) & 0x0F, SHORE_N | SHORE_W);
+    }
+
+    #[test]
+    fn corners_only_when_both_sides_are_water() {
+        // Land only diagonally (north-east)
+        assert_eq!(mask_for(&["~~.", "~~~", "~~~"], 1, 1), SHORE_NE);
+        // Land north and north-east: the side covers the corner
+        assert_eq!(mask_for(&["~..", "~~~", "~~~"], 1, 1), SHORE_N);
+    }
 }
