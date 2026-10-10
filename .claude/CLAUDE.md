@@ -47,6 +47,13 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 
 See `modding.md` for detailed documentation.
 
+### Sprites
+- `assets/sprites/manifest.json` is the source of truth for all generated sprites
+  (style, faction palettes, one subject per unit/terrain/portrait)
+- `tools/sprites/manifest.py render|check|status|prompts` builds prompts, checks them
+  against the game data, and tracks which PNGs exist
+- Full workflow: `assets/sprites/README.md`. Art is medieval woodland (no guns/engines)
+
 ---
 
 ## Portability Goal

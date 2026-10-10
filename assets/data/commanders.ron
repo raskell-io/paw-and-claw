@@ -96,7 +96,7 @@
             terrain_cost_reduction: 0,
             power: (
                 name: "Endless Horde",
-                description: "All bases produce a free Scout",
+                description: "All bases produce a free Militia",
                 effect: FreeUnits(unit_type: Scout),
             ),
             power_cost: 140,
@@ -273,7 +273,7 @@
             terrain_cost_reduction: 0,
             power: (
                 name: "Endless Swarm",
-                description: "Spawn a free Scout at every owned property",
+                description: "Spawn a free Militia at every owned property",
                 effect: FreeUnits(unit_type: Scout),
             ),
             power_cost: 140,

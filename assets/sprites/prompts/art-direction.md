@@ -10,6 +10,15 @@
 - Animal Crossing (warm, inviting color palette)
 - Octopath Traveler HD-2D (depth and lighting)
 
+## Technology Level
+
+**Medieval woodland.** No guns, engines or modern vehicles. Advance Wars roles
+map to medieval equivalents: armored war-beasts instead of tanks, catapults and
+trebuchets instead of artillery, ballistae instead of missiles, birds with
+riders instead of aircraft, and rafts, galleys and longships instead of modern
+ships. Fantasy is limited to oversized creatures (giant tortoises, mammoths,
+earthworms).
+
 ## Style Guidelines
 
 ### General

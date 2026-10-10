@@ -1,0 +1,955 @@
+{
+  "$comment": "Single source of truth for generated sprites. Edit subjects/style here, then run `python3 tools/sprites/manifest.py render`. See assets/sprites/README.md.",
+  "version": 1,
+  "style": {
+    "units": {
+      "size": [
+        48,
+        48
+      ],
+      "prefix": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge",
+      "suffix": "Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border"
+    },
+    "tiles": {
+      "size": [
+        32,
+        32
+      ],
+      "prefix": "Pixel art seamless top-down ground tile texture",
+      "suffix": "Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text"
+    },
+    "features": {
+      "size": [
+        48,
+        48
+      ],
+      "prefix": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge",
+      "suffix": "Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border"
+    },
+    "portraits": {
+      "size": [
+        64,
+        64
+      ],
+      "prefix": "Pixel art character portrait, head and shoulders, facing slightly right",
+      "suffix": "Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border"
+    }
+  },
+  "factions": {
+    "eastern": {
+      "name": "Eastern Empire",
+      "asset_folder": "eastern",
+      "look": "samurai-inspired lacquered armor with cherry blossom and paper lantern motifs",
+      "colors": {
+        "primary": {
+          "name": "warm red",
+          "hex": "#E85D4C"
+        },
+        "secondary": {
+          "name": "dark wood",
+          "hex": "#4A2C2A"
+        },
+        "accent": {
+          "name": "gold",
+          "hex": "#F4D03F"
+        }
+      }
+    },
+    "northern": {
+      "name": "Northern Realm",
+      "asset_folder": "northern",
+      "look": "Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs",
+      "colors": {
+        "primary": {
+          "name": "ice blue",
+          "hex": "#5B8DBE"
+        },
+        "secondary": {
+          "name": "dark slate",
+          "hex": "#2C3E50"
+        },
+        "accent": {
+          "name": "silver",
+          "hex": "#C0C0C0"
+        }
+      }
+    },
+    "western": {
+      "name": "Western Frontier",
+      "asset_folder": "western",
+      "look": "frontier ranger leather and woven cloth with feather and canyon-rock motifs",
+      "colors": {
+        "primary": {
+          "name": "sage green",
+          "hex": "#8B9556"
+        },
+        "secondary": {
+          "name": "weathered brown",
+          "hex": "#5D4E37"
+        },
+        "accent": {
+          "name": "tan gold",
+          "hex": "#D4A857"
+        }
+      }
+    },
+    "southern": {
+      "name": "Southern Pride",
+      "asset_folder": "southern",
+      "look": "regal bronze armor with gold trim, sun emblems and savanna motifs",
+      "colors": {
+        "primary": {
+          "name": "golden amber",
+          "hex": "#E6B84D"
+        },
+        "secondary": {
+          "name": "warm brown",
+          "hex": "#8B5A2B"
+        },
+        "accent": {
+          "name": "sunset orange",
+          "hex": "#E07B39"
+        }
+      }
+    },
+    "nether": {
+      "name": "Nether Dominion",
+      "asset_folder": "nether",
+      "look": "ominous dark chitin and bone armor with fungus and tunnel motifs",
+      "colors": {
+        "primary": {
+          "name": "violet",
+          "hex": "#7E3A9A"
+        },
+        "secondary": {
+          "name": "deep purple",
+          "hex": "#3B1F4A"
+        },
+        "accent": {
+          "name": "fungal glow green",
+          "hex": "#B5E34A"
+        }
+      }
+    }
+  },
+  "units": [
+    {
+      "id": "scout",
+      "name": "Militia",
+      "symbol": "M",
+      "class": "Foot",
+      "role": "Cheap infantry, captures buildings",
+      "description": "Cheap foot soldiers who hold ground and capture buildings",
+      "sprites": {
+        "eastern": {
+          "subject": "a tanuki foot soldier with a long yari spear and a conical straw jingasa hat",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A tanuki foot soldier with a long yari spear and a conical straw jingasa hat. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a hedgehog foot soldier with a short spear and a round wooden shield",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A hedgehog foot soldier with a short spear and a round wooden shield. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a raccoon ranger with a hatchet, a round leather shield and a feathered cap",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A raccoon ranger with a hatchet, a round leather shield and a feathered cap. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a meerkat foot soldier with a spear and a tall hide shield",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A meerkat foot soldier with a spear and a tall hide shield. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a mole digger soldier with a pick-spear and a crude bone helmet",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A mole digger soldier with a pick-spear and a crude bone helmet. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "shocktrooper",
+      "name": "Halberdier",
+      "symbol": "H",
+      "class": "Foot",
+      "role": "Heavy infantry, anti-armor, captures buildings",
+      "description": "Slow heavy infantry whose polearms pierce armored beasts",
+      "sprites": {
+        "eastern": {
+          "subject": "a snow monkey warrior in heavy lamellar armor wielding a naginata polearm",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A snow monkey warrior in heavy lamellar armor wielding a naginata polearm. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a stout badger warrior in chainmail wielding a long-handled bearded axe",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A stout badger warrior in chainmail wielding a long-handled bearded axe. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "an opossum pikeman in thick boiled-leather armor holding a long pike",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An opossum pikeman in thick boiled-leather armor holding a long pike. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a hyena warrior in bronze scale armor holding a broad-bladed halberd",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A hyena warrior in bronze scale armor holding a broad-bladed halberd. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a stag beetle warrior in chitin plates wielding a jagged pincer halberd",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A stag beetle warrior in chitin plates wielding a jagged pincer halberd. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "recon",
+      "name": "Outrider",
+      "symbol": "O",
+      "class": "Wheels",
+      "role": "Fast scout with long vision",
+      "description": "Swift mounted scout with keen eyes",
+      "sprites": {
+        "eastern": {
+          "subject": "a fox outrider in light armor riding a sika deer at a gallop",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A fox outrider in light armor riding a sika deer at a gallop. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a stoat outrider in a fur cloak riding a large mountain hare",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A stoat outrider in a fur cloak riding a large mountain hare. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a coyote outrider with a short bow riding a pronghorn antelope",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A coyote outrider with a short bow riding a pronghorn antelope. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a meerkat outrider with a light spear riding a sprinting cheetah",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A meerkat outrider with a light spear riding a sprinting cheetah. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a mole outrider riding a long armored centipede",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A mole outrider riding a long armored centipede. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "ironclad",
+      "name": "Charger",
+      "symbol": "C",
+      "class": "Treads",
+      "role": "Main battle beast",
+      "description": "Armored war-beast, the backbone of any army",
+      "sprites": {
+        "eastern": {
+          "subject": "an armored wild boar war-beast in red lacquered plate barding with a small tanuki rider",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An armored wild boar war-beast in red lacquered plate barding with a small tanuki rider. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "an armored brown bear war-beast in chainmail barding with iron plates and fur trim",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An armored brown bear war-beast in chainmail barding with iron plates and fur trim. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "an armored armadillo war-beast with leather and bronze plates and a raccoon rider",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An armored armadillo war-beast with leather and bronze plates and a raccoon rider. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "an armored warthog war-beast with bronze tusk caps and gold-trimmed barding",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An armored warthog war-beast with bronze tusk caps and gold-trimmed barding. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a giant rhinoceros beetle war-beast with a dark metallic shell and a mole rider",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant rhinoceros beetle war-beast with a dark metallic shell and a mole rider. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "juggernaut",
+      "name": "Warbeast",
+      "symbol": "W",
+      "class": "Treads",
+      "role": "Heavy war-beast",
+      "description": "Heavily armored war-beast that tramples lighter foes",
+      "sprites": {
+        "eastern": {
+          "subject": "a massive water buffalo war-beast in red lacquered plates with a banner pole on its back",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A massive water buffalo war-beast in red lacquered plates with a banner pole on its back. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a great elk war-beast in iron barding with iron-capped antlers",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A great elk war-beast in iron barding with iron-capped antlers. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a huge bison war-beast in leather barding with bone-plated horns",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A huge bison war-beast in leather barding with bone-plated horns. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a rhinoceros war-beast in heavy bronze plates with a gilded horn",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A rhinoceros war-beast in heavy bronze plates with a gilded horn. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a giant soldier ant war-beast with crushing mandibles and bone armor plates",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant soldier ant war-beast with crushing mandibles and bone armor plates. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "behemoth",
+      "name": "Colossus",
+      "symbol": "K",
+      "class": "Treads",
+      "role": "Strongest ground unit",
+      "description": "Towering living fortress, the mightiest beast on the field",
+      "sprites": {
+        "eastern": {
+          "subject": "a giant armored tortoise carrying a small red pagoda tower on its shell",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant armored tortoise carrying a small red pagoda tower on its shell. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a woolly mammoth carrying a wooden fortress platform with shields along its rails",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A woolly mammoth carrying a wooden fortress platform with shields along its rails. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a giant desert tortoise carrying a log watchtower with a lookout on top",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant desert tortoise carrying a log watchtower with a lookout on top. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a war elephant in golden armor carrying a covered howdah with sun banners",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A war elephant in golden armor carrying a covered howdah with sun banners. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a colossal armored earthworm rearing up with a bone howdah on its back",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A colossal armored earthworm rearing up with a bone howdah on its back. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "flak",
+      "name": "Hawkbane",
+      "symbol": "A",
+      "class": "Treads",
+      "role": "Anti-air, strong against infantry",
+      "description": "Archers who shoot down flyers and shred infantry",
+      "sprites": {
+        "eastern": {
+          "subject": "a crane archer drawing a tall yumi longbow aimed steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A crane archer drawing a tall yumi longbow aimed steeply upward. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a hedgehog crossbowman aiming a heavy crossbow steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A hedgehog crossbowman aiming a heavy crossbow steeply upward. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a raccoon archer with a feathered quiver drawing a longbow aimed upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A raccoon archer with a feathered quiver drawing a longbow aimed upward. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a secretary bird archer drawing a recurve bow aimed upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A secretary bird archer drawing a recurve bow aimed upward. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a bombardier beetle spraying a stream of glowing acid upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A bombardier beetle spraying a stream of glowing acid upward. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "siege",
+      "name": "Catapult",
+      "symbol": "P",
+      "class": "Treads",
+      "role": "Indirect fire, range 2-3",
+      "description": "Hurls stones over obstacles at short range",
+      "sprites": {
+        "eastern": {
+          "subject": "a red panda engineer operating a small wooden catapult loaded with a stone",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A red panda engineer operating a small wooden catapult loaded with a stone. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a badger engineer operating a small torsion catapult with iron fittings",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A badger engineer operating a small torsion catapult with iron fittings. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "an opossum engineer operating a small catapult made of lashed logs",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An opossum engineer operating a small catapult made of lashed logs. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a hyena engineer operating a small wooden catapult with bronze fittings",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A hyena engineer operating a small wooden catapult with bronze fittings. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a naked mole rat engineer operating a small catapult made of bones",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A naked mole rat engineer operating a small catapult made of bones. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "barrage",
+      "name": "Trebuchet",
+      "symbol": "T",
+      "class": "Treads",
+      "role": "Long-range indirect fire",
+      "description": "Massive siege engine that strikes from afar",
+      "sprites": {
+        "eastern": {
+          "subject": "a snow monkey engineer beside a tall wooden trebuchet hung with paper lanterns",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A snow monkey engineer beside a tall wooden trebuchet hung with paper lanterns. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a brown bear engineer beside a tall heavy trebuchet with a stone in its sling",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A brown bear engineer beside a tall heavy trebuchet with a stone in its sling. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a coyote engineer beside a tall log trebuchet with a feather banner",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A coyote engineer beside a tall log trebuchet with a feather banner. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a baboon engineer beside a tall trebuchet with a sun banner",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A baboon engineer beside a tall trebuchet with a sun banner. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a giant scorpion flinging a boulder from a sling on its tail",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant scorpion flinging a boulder from a sling on its tail. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "stinger",
+      "name": "Skylance",
+      "symbol": "L",
+      "class": "Wheels",
+      "role": "Long-range anti-air",
+      "description": "Bolt-thrower that skewers flyers at long range",
+      "sprites": {
+        "eastern": {
+          "subject": "a fox engineer manning a repeating crossbow ballista aimed steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A fox engineer manning a repeating crossbow ballista aimed steeply upward. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a fox engineer manning a heavy bolt ballista aimed steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A fox engineer manning a heavy bolt ballista aimed steeply upward. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a raccoon engineer manning a ballista with feathered bolts aimed steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A raccoon engineer manning a ballista with feathered bolts aimed steeply upward. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a meerkat engineer manning a bronze ballista aimed steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A meerkat engineer manning a bronze ballista aimed steeply upward. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a mole engineer manning a bone ballista with barbed bolts aimed steeply upward",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A mole engineer manning a bone ballista with barbed bolts aimed steeply upward. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "carrier",
+      "name": "Caravan",
+      "symbol": "V",
+      "class": "Transport",
+      "role": "Carries one foot unit",
+      "description": "Covered wagon that ferries foot soldiers",
+      "sprites": {
+        "eastern": {
+          "subject": "a covered ox cart with a red lacquered canopy pulled by a water buffalo",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A covered ox cart with a red lacquered canopy pulled by a water buffalo. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a covered sledge-wagon with fur blankets pulled by a reindeer",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A covered sledge-wagon with fur blankets pulled by a reindeer. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a covered frontier wagon with a canvas top pulled by a mule",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A covered frontier wagon with a canvas top pulled by a mule. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a covered cart with a striped awning pulled by a zebra",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A covered cart with a striped awning pulled by a zebra. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a giant millipede carrying a woven cage-saddle on its back",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant millipede carrying a woven cage-saddle on its back. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "supplier",
+      "name": "Supply Cart",
+      "symbol": "U",
+      "class": "Transport",
+      "role": "Resupplies adjacent units",
+      "description": "Hauls provisions to restore stamina and arrows",
+      "sprites": {
+        "eastern": {
+          "subject": "a tanuki quartermaster pulling a handcart stacked with rice bales and sake barrels",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A tanuki quartermaster pulling a handcart stacked with rice bales and sake barrels. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a badger quartermaster pulling a handcart of barrels, furs and arrow bundles",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A badger quartermaster pulling a handcart of barrels, furs and arrow bundles. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a squirrel quartermaster pulling a handcart piled with acorns, barrels and arrows",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A squirrel quartermaster pulling a handcart piled with acorns, barrels and arrows. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a warthog quartermaster pulling a handcart of clay jars and bundled spears",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A warthog quartermaster pulling a handcart of clay jars and bundled spears. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a naked mole rat hauling a cart of glowing mushrooms and bone crates",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A naked mole rat hauling a cart of glowing mushrooms and bone crates. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "ferrier",
+      "name": "Skyferry",
+      "symbol": "F",
+      "class": "AirTransport",
+      "role": "Air transport for foot units",
+      "description": "Great bird that carries foot soldiers through the air",
+      "sprites": {
+        "eastern": {
+          "subject": "a great red-crowned crane in flight carrying a woven passenger basket",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A great red-crowned crane in flight carrying a woven passenger basket. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a great white swan in flight carrying a wicker passenger basket",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A great white swan in flight carrying a wicker passenger basket. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a great condor in flight carrying a rope-slung passenger basket",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A great condor in flight carrying a rope-slung passenger basket. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a marabou stork in flight carrying a woven passenger basket",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A marabou stork in flight carrying a woven passenger basket. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a giant pale cave moth in flight carrying a silk passenger sack",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant pale cave moth in flight carrying a silk passenger sack. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "skywing",
+      "name": "Hawk Rider",
+      "symbol": "R",
+      "class": "Air",
+      "role": "Attacks ground units from the air",
+      "description": "Mounted raptor that strikes ground troops from above",
+      "sprites": {
+        "eastern": {
+          "subject": "a snow monkey rider with a short spear flying on a black kite",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A snow monkey rider with a short spear flying on a black kite. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a stoat rider with a javelin flying on a goshawk",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A stoat rider with a javelin flying on a goshawk. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a raccoon rider with a short bow flying on a red-tailed hawk",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A raccoon rider with a short bow flying on a red-tailed hawk. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a meerkat rider with a spear flying on a bateleur eagle",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A meerkat rider with a spear flying on a bateleur eagle. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a mole rider flying on a giant iridescent scarab beetle",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A mole rider flying on a giant iridescent scarab beetle. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "raptor",
+      "name": "Sky Knight",
+      "symbol": "S",
+      "class": "Air",
+      "role": "Air superiority",
+      "description": "Elite flyer that rules the skies",
+      "sprites": {
+        "eastern": {
+          "subject": "a fox knight in lacquered armor flying on a golden pheasant",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A fox knight in lacquered armor flying on a golden pheasant. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a fox knight in silver mail flying on a snowy owl",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A fox knight in silver mail flying on a snowy owl. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a coyote knight with a lance flying on a bald eagle",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A coyote knight with a lance flying on a bald eagle. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a lion knight in golden armor flying on a martial eagle",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A lion knight in golden armor flying on a martial eagle. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a stag beetle knight flying on a giant hornet",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A stag beetle knight flying on a giant hornet. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "talon",
+      "name": "Bombardier",
+      "symbol": "B",
+      "class": "Air",
+      "role": "Bombs ground and naval units",
+      "description": "Drops fire pots on anything below",
+      "sprites": {
+        "eastern": {
+          "subject": "a tanuki bomber flying on a great horned owl, dropping a clay fire pot",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A tanuki bomber flying on a great horned owl, dropping a clay fire pot. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a badger bomber flying on a great raven, dropping a stone",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A badger bomber flying on a great raven, dropping a stone. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "an opossum bomber flying on a turkey vulture, dropping a clay fire pot",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An opossum bomber flying on a turkey vulture, dropping a clay fire pot. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a hyena bomber flying on a lappet-faced vulture, dropping a clay fire pot",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A hyena bomber flying on a lappet-faced vulture, dropping a clay fire pot. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a mole rat bomber flying on a giant bat, dropping a glowing spore bomb",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A mole rat bomber flying on a giant bat, dropping a glowing spore bomb. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "barge",
+      "name": "Raft",
+      "symbol": "E",
+      "class": "NavalTransport",
+      "role": "Naval transport for ground units",
+      "description": "Sturdy raft that carries troops across water",
+      "sprites": {
+        "eastern": {
+          "subject": "a bamboo raft with a small square paper sail",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A bamboo raft with a small square paper sail. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a log raft with a striped square sail",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A log raft with a striped square sail. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a log raft with a push pole and rope lashings",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A log raft with a push pole and rope lashings. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a papyrus reed raft with a woven sail",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A papyrus reed raft with a woven sail. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a raft made of giant fungus caps lashed together",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A raft made of giant fungus caps lashed together. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "frigate",
+      "name": "Galley",
+      "symbol": "G",
+      "class": "Naval",
+      "role": "Hunts divers and flyers",
+      "description": "Oared warship that hunts divers and flyers",
+      "sprites": {
+        "eastern": {
+          "subject": "a small red lacquered war junk with oars and a ribbed paper sail",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A small red lacquered war junk with oars and a ribbed paper sail. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a small longship with round shields along the side and oars",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A small longship with round shields along the side and oars. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a river keelboat with oars and a canvas awning",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A river keelboat with oars and a canvas awning. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a river galley with oars and a sun-emblem sail",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A river galley with oars and a sun-emblem sail. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a dark galley built from bone and chitin with oars",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A dark galley built from bone and chitin with oars. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "lurker",
+      "name": "Diver",
+      "symbol": "D",
+      "class": "Naval",
+      "role": "Submerged ambusher",
+      "description": "Underwater ambusher that strikes unseen",
+      "sprites": {
+        "eastern": {
+          "subject": "an otter diver swimming at the surface with a breathing reed and a dagger",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. An otter diver swimming at the surface with a breathing reed and a dagger. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a harbor seal diver swimming at the surface with a seax knife",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A harbor seal diver swimming at the surface with a seax knife. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a beaver diver swimming at the surface with a short spear",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A beaver diver swimming at the surface with a short spear. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a crocodile ambusher half-submerged with only eyes and back above the water",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A crocodile ambusher half-submerged with only eyes and back above the water. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a giant diving beetle surfacing from dark water",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A giant diving beetle surfacing from dark water. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    },
+    {
+      "id": "dreadnought",
+      "name": "Flagship",
+      "symbol": "X",
+      "class": "Naval",
+      "role": "Long-range naval bombardment",
+      "description": "Mighty warship that bombards from afar",
+      "sprites": {
+        "eastern": {
+          "subject": "a large red atakebune warship with a pagoda castle deck",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A large red atakebune warship with a pagoda castle deck. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "northern": {
+          "subject": "a large dragon-prowed longship with a striped sail and a catapult on deck",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A large dragon-prowed longship with a striped sail and a catapult on deck. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "western": {
+          "subject": "a large fortified riverboat with a log palisade and a catapult on deck",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A large fortified riverboat with a log palisade and a catapult on deck. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "southern": {
+          "subject": "a great reed-and-timber warship with a golden sun sail and a catapult on deck",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A great reed-and-timber warship with a golden sun sail and a catapult on deck. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        },
+        "nether": {
+          "subject": "a leviathan sea worm carrying a bone fortress on its back",
+          "prompt": "Pixel art game sprite, three-quarter side view facing right, full body centered with feet near the bottom edge. A leviathan sea worm carrying a bone fortress on its back. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, charming but battle-ready. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette, clear silhouette at small size. Transparent background, no ground shadow, no text, no border."
+        }
+      }
+    }
+  ],
+  "terrain": {
+    "tiles": [
+      {
+        "id": "grass",
+        "subject": "short green meadow grass with tiny clover",
+        "prompt": "Pixel art seamless top-down ground tile texture. Short green meadow grass with tiny clover. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "tall_grass",
+        "subject": "tall swaying grass tufts",
+        "prompt": "Pixel art seamless top-down ground tile texture. Tall swaying grass tufts. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "thicket",
+        "subject": "dark forest floor with moss, leaf litter and roots",
+        "prompt": "Pixel art seamless top-down ground tile texture. Dark forest floor with moss, leaf litter and roots. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "brambles",
+        "subject": "tangled undergrowth with dark leaves and thorny stems",
+        "prompt": "Pixel art seamless top-down ground tile texture. Tangled undergrowth with dark leaves and thorny stems. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "log",
+        "subject": "packed dirt trail with wood chips",
+        "prompt": "Pixel art seamless top-down ground tile texture. Packed dirt trail with wood chips. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "boulder",
+        "subject": "rocky ground with gravel and lichen",
+        "prompt": "Pixel art seamless top-down ground tile texture. Rocky ground with gravel and lichen. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "hollow",
+        "subject": "dark earth with exposed roots and loose burrow soil",
+        "prompt": "Pixel art seamless top-down ground tile texture. Dark earth with exposed roots and loose burrow soil. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "creek",
+        "subject": "shallow clear stream water with pebbles visible and gentle ripples",
+        "prompt": "Pixel art seamless top-down ground tile texture. Shallow clear stream water with pebbles visible and gentle ripples. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "pond",
+        "subject": "deep blue pond water with subtle ripples",
+        "prompt": "Pixel art seamless top-down ground tile texture. Deep blue pond water with subtle ripples. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "shore",
+        "subject": "sandy riverbank with pebbles and wet sand",
+        "prompt": "Pixel art seamless top-down ground tile texture. Sandy riverbank with pebbles and wet sand. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "base",
+        "subject": "trampled earth courtyard with flagstones",
+        "prompt": "Pixel art seamless top-down ground tile texture. Trampled earth courtyard with flagstones. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "outpost",
+        "subject": "packed dirt with scattered stones",
+        "prompt": "Pixel art seamless top-down ground tile texture. Packed dirt with scattered stones. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "storehouse",
+        "subject": "wooden plank floor with loose straw",
+        "prompt": "Pixel art seamless top-down ground tile texture. Wooden plank floor with loose straw. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      }
+    ],
+    "features": [
+      {
+        "id": "thicket",
+        "subject": "a cluster of two leafy oak trees",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A cluster of two leafy oak trees. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "brambles",
+        "subject": "a dense thorny bramble bush with dark berries",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A dense thorny bramble bush with dark berries. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "log",
+        "subject": "a fallen mossy log lying sideways",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A fallen mossy log lying sideways. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "boulder",
+        "subject": "a large lichen-covered boulder",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A large lichen-covered boulder. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "hollow",
+        "subject": "a hollow tree stump with a burrow entrance at its base",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A hollow tree stump with a burrow entrance at its base. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "base",
+        "subject": "a fortified wooden keep with palisade walls and an empty flagpole, neutral natural colors",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A fortified wooden keep with palisade walls and an empty flagpole, neutral natural colors. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "outpost",
+        "subject": "a small wooden watchtower with a thatched roof, neutral natural colors",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A small wooden watchtower with a thatched roof, neutral natural colors. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      },
+      {
+        "id": "storehouse",
+        "subject": "a timber granary barn with a thatched roof and grain sacks by the door, neutral natural colors",
+        "prompt": "Pixel art game sprite of a terrain feature, three-quarter view from slightly above, centered with its base near the bottom edge. A timber granary barn with a thatched roof and grain sacks by the door, neutral natural colors. Storybook medieval woodland fantasy. Crisp 1px dark outline, 3-4 tone shading, light from the upper left, limited palette. Transparent background, no ground tile, no text, no border."
+      }
+    ]
+  },
+  "commanders": [
+    {
+      "id": "kira",
+      "name": "Kira",
+      "faction": "eastern",
+      "subject": "Kira, a bold red fox general in lacquered samurai armor with a crested kabuto helmet, fierce confident grin",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Kira, a bold red fox general in lacquered samurai armor with a crested kabuto helmet, fierce confident grin. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "tanuki",
+      "name": "Tanuki",
+      "faction": "eastern",
+      "subject": "Tanuki, a plump shrewd tanuki merchant-commander in a straw hat with a gold coin pouch, sly smile",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Tanuki, a plump shrewd tanuki merchant-commander in a straw hat with a gold coin pouch, sly smile. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "sensei",
+      "name": "Sensei",
+      "faction": "eastern",
+      "subject": "Sensei, an ancient snow monkey sage with a long white beard and a wooden staff, calm knowing eyes",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Sensei, an ancient snow monkey sage with a long white beard and a wooden staff, calm knowing eyes. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "grimjaw",
+      "name": "Grimjaw",
+      "faction": "northern",
+      "subject": "Grimjaw, a grizzled old badger veteran with a scarred muzzle and a battered iron helm, stern frown",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Grimjaw, a grizzled old badger veteran with a scarred muzzle and a battered iron helm, stern frown. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "frost",
+      "name": "Frost",
+      "faction": "northern",
+      "subject": "Frost, a sharp-eyed stoat in a white winter ermine cloak with a silver circlet, cold smirk",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Frost, a sharp-eyed stoat in a white winter ermine cloak with a silver circlet, cold smirk. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "bjorn",
+      "name": "Bjorn",
+      "faction": "northern",
+      "subject": "Bjorn, a young brown bear warrior with braided fur, a fur cape and a round shield, eager grin",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Bjorn, a young brown bear warrior with braided fur, a fur cape and a round shield, eager grin. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "bandit",
+      "name": "Bandit",
+      "faction": "western",
+      "subject": "Bandit, a cunning raccoon raider with a feathered hat and a bulging coin sack, roguish grin",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Bandit, a cunning raccoon raider with a feathered hat and a bulging coin sack, roguish grin. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "talon_co",
+      "name": "Talon",
+      "faction": "western",
+      "subject": "Talon, a sharp-eyed red-tailed hawk scout commander with a leather hood and a brass spyglass, intense gaze",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Talon, a sharp-eyed red-tailed hawk scout commander with a leather hood and a brass spyglass, intense gaze. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "dusty",
+      "name": "Dusty",
+      "faction": "western",
+      "subject": "Dusty, a wily coyote with a dusty bandana and a quiver of arrows, sly smile",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Dusty, a wily coyote with a dusty bandana and a quiver of arrows, sly smile. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "lionheart",
+      "name": "Lionheart",
+      "faction": "southern",
+      "subject": "Lionheart, a majestic lion king with a golden mane, a sun-emblem crown and bronze pauldrons, proud expression",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Lionheart, a majestic lion king with a golden mane, a sun-emblem crown and bronze pauldrons, proud expression. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "tusker",
+      "name": "Tusker",
+      "faction": "southern",
+      "subject": "Tusker, a wise old elephant general with bronze-capped tusks and a ceremonial headdress, steady gaze",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Tusker, a wise old elephant general with bronze-capped tusks and a ceremonial headdress, steady gaze. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "prowler",
+      "name": "Prowler",
+      "faction": "southern",
+      "subject": "Prowler, a lean cheetah commander with tear-mark face stripes and a light bronze gorget, focused stare",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Prowler, a lean cheetah commander with tear-mark face stripes and a light bronze gorget, focused stare. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "burrower",
+      "name": "Burrower",
+      "faction": "nether",
+      "subject": "Burrower, an ancient blind mole with dirt-caked fur, a hooded purple cloak and a dim lantern, knowing smile",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Burrower, an ancient blind mole with dirt-caked fur, a hooded purple cloak and a dim lantern, knowing smile. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "hivemind",
+      "name": "Hivemind",
+      "faction": "nether",
+      "subject": "Hivemind, the naked mole rat queen with a crown of roots and glowing fungus, many small eyes watching from the dark behind her, unsettling smile",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Hivemind, the naked mole rat queen with a crown of roots and glowing fungus, many small eyes watching from the dark behind her, unsettling smile. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "dredge",
+      "name": "Dredge",
+      "faction": "nether",
+      "subject": "Dredge, a massive battle-scarred stag beetle warlord with huge mandibles and bone armor, menacing glare",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Dredge, a massive battle-scarred stag beetle warlord with huge mandibles and bone armor, menacing glare. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    }
+  ]
+}
