@@ -77,6 +77,10 @@ pub struct GameResult {
     pub game_over: bool,
     pub winner: Option<Faction>,
     pub victory_type: VictoryType,
+    /// Armies that have had units on the board this battle. Only they can be
+    /// routed, so maps that start empty (like AW's Spann Island) don't end at
+    /// the first unit built.
+    pub fielded: Vec<Faction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -172,16 +176,20 @@ fn check_victory_condition(
         } else if faction.faction == ai {
             ai_units += 1;
         }
+        if !game_result.fielded.contains(&faction.faction) {
+            game_result.fielded.push(faction.faction);
+        }
     }
+    let routed = |count: i32, faction: Faction| count == 0 && game_result.fielded.contains(&faction);
 
-    // Check elimination victory
-    if player_units == 0 && ai_units > 0 {
+    // Check elimination victory: an army that had units and lost them all
+    if routed(player_units, player) && ai_units > 0 {
         game_result.game_over = true;
         game_result.winner = Some(ai);
         game_result.victory_type = VictoryType::Elimination;
         info!("{:?} wins by elimination!", ai);
         return;
-    } else if ai_units == 0 && player_units > 0 {
+    } else if routed(ai_units, ai) && player_units > 0 {
         game_result.game_over = true;
         game_result.winner = Some(player);
         game_result.victory_type = VictoryType::Elimination;
@@ -259,7 +267,7 @@ fn resupply_units(
         // Build a map of supply buildings owned by this faction
         let supply_buildings: HashMap<(i32, i32), Terrain> = tiles.iter()
             .filter(|t| t.owner == Some(event.faction))
-            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Storehouse))
+            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Workshop | Terrain::Storehouse))
             .map(|t| ((t.position.x, t.position.y), t.terrain))
             .collect();
 

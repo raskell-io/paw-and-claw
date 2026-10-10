@@ -126,6 +126,18 @@
             "naval_transport": 1,
         },
 
+        "lily_pads": {
+            // Pads on deep water - naval units weave through slowly (AW reef)
+            "foot": 99,
+            "wheels": 99,
+            "treads": 99,
+            "air": 1,
+            "naval": 2,
+            "transport": 99,
+            "air_transport": 1,
+            "naval_transport": 2,
+        },
+
         "shore": {
             // Muddy shore - slow for everyone
             "foot": 2,
@@ -142,6 +154,18 @@
 
         "base": {
             // Fortified base - easy movement, resupply point
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
+        "workshop": {
+            // Workshop - builds units
             "foot": 1,
             "wheels": 1,
             "treads": 1,

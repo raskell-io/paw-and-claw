@@ -10,7 +10,7 @@ Goal: All game content moddable without recompiling Rust code.
 hardcoded fallbacks in Rust; game logic, AI, rendering and UI all read `GameData`.
 - `factions.ron` - 5 factions (Eastern, Northern, Western, Southern, Nether)
 - `units.ron` - 20 unit types with full stats
-- `terrain.ron` - 13 terrain types with properties
+- `terrain.ron` - 15 terrain types with properties (`produces: true` marks terrain that builds units)
 - `commanders.ron` - 15 commanders with CO powers
 - `damage_tables.ron` - base damage % per attacker/defender pair
 - `movement_costs.ron` - movement cost per terrain/unit class

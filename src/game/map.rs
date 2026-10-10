@@ -120,7 +120,9 @@ pub fn spawn_map_from_data(
             let columns = texture.as_ref().and_then(|t| images.get(t)).map_or(1, |image| {
                 (image.width() / image.height().max(1)).max(1)
             });
+            let bridge = bridge_span(x as i32, y as i32, &terrain_at);
             let column = match terrain {
+                Terrain::Log if bridge.is_some() => BRIDGE_COLUMN + bridge.unwrap_or(0),
                 Terrain::Log => trail as u32,
                 Terrain::Shore => water_sides(x as i32, y as i32, &terrain_at) as u32,
                 _ => tile_variant(x, y),
@@ -156,7 +158,7 @@ pub fn spawn_map_from_data(
 
             // Trees, rocks and buildings stand on their tile when there's a sprite for them.
             // A log that's part of a trail is just the trail; only a lone one lies there.
-            let lone = terrain != Terrain::Log || trail == 0;
+            let lone = terrain != Terrain::Log || (trail == 0 && bridge.is_none());
             if let Some(feature) = sprite_assets.feature_sprite(images, terrain).filter(|_| lone) {
                 super::spawn_terrain_feature(commands, meshes, materials, game_data, feature,
                     x, y, tile_height, terrain, owner, offset_x, offset_z);
@@ -185,6 +187,25 @@ fn water_sides(x: i32, y: i32, terrain_at: &impl Fn(i32, i32) -> Option<Terrain>
         .fold(0, |mask, (_, _, bit)| mask | bit)
 }
 
+/// First plank-bridge column in the trail atlas (east-west, then north-south)
+const BRIDGE_COLUMN: u32 = 16;
+
+/// A trail tile with water on two opposite sides is a bridge, as AW draws a road
+/// over sea or river. Returns 0 when it runs east-west, 1 when north-south.
+fn bridge_span(x: i32, y: i32, terrain_at: &impl Fn(i32, i32) -> Option<Terrain>) -> Option<u32> {
+    if terrain_at(x, y) != Some(Terrain::Log) {
+        return None;
+    }
+    let water = |dx: i32, dy: i32| terrain_at(x + dx, y + dy).is_some_and(is_water);
+    if water(0, -1) && water(0, 1) {
+        Some(0)
+    } else if water(-1, 0) && water(1, 0) {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 /// A stable pseudo-random variant index for a tile, so neighbors rarely match
 fn tile_variant(x: u32, y: u32) -> u32 {
     let h = x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663);
@@ -192,7 +213,7 @@ fn tile_variant(x: u32, y: u32) -> u32 {
 }
 
 fn is_water(terrain: Terrain) -> bool {
-    matches!(terrain, Terrain::Pond | Terrain::Creek)
+    matches!(terrain, Terrain::Pond | Terrain::Creek | Terrain::LilyPads)
 }
 
 // Neighbor bits for shoreline autotiling: sides, then corners
@@ -209,7 +230,10 @@ const SHORE_NW: u8 = 128;
 /// water, and a corner only counts when both sides next to it are water
 /// (otherwise the side edges already cover it). Grid -y is north.
 fn shore_mask(x: i32, y: i32, terrain_at: &impl Fn(i32, i32) -> Option<Terrain>) -> u8 {
-    let land = |dx: i32, dy: i32| terrain_at(x + dx, y + dy).is_some_and(|t| !is_water(t));
+    // Bridges span the water, so the shore runs under them
+    let land = |dx: i32, dy: i32| {
+        terrain_at(x + dx, y + dy).is_some_and(|t| !is_water(t)) && bridge_span(x + dx, y + dy, terrain_at).is_none()
+    };
     let mut mask = 0;
     for (dx, dy, bit) in [(0, -1, SHORE_N), (1, 0, SHORE_E), (0, 1, SHORE_S), (-1, 0, SHORE_W)] {
         if land(dx, dy) {
@@ -373,12 +397,16 @@ pub enum Terrain {
     Creek,
     /// Deep pond - impassable for ground, naval units only
     Pond,
+    /// Lily pads on deep water - naval units only, with a little cover (AW reef)
+    LilyPads,
     /// Muddy shore/bank - slow movement, no defense
     Shore,
 
     // === SPECIAL TERRAIN ===
-    /// Fortified base - spawn point, high defense
+    /// Fortified base - the army's headquarters, spawn point, high defense
     Base,
+    /// Workshop - builds units and earns income, but losing it doesn't lose the battle (AW factory)
+    Workshop,
     /// Small fortified outpost - can be captured for income
     Outpost,
     /// Supply cache - can be captured for resources
@@ -399,8 +427,10 @@ impl Terrain {
             Terrain::Hollow,
             Terrain::Creek,
             Terrain::Pond,
+            Terrain::LilyPads,
             Terrain::Shore,
             Terrain::Base,
+            Terrain::Workshop,
             Terrain::Outpost,
             Terrain::Storehouse,
         ]
@@ -480,6 +510,19 @@ mod tests {
         assert_eq!(trail_mask(2, 1, &at), 1 | 8, "leads to the base, not the outpost");
         assert_eq!(trail_mask(0, 0, &at), 4);
         assert_eq!(trail_mask(1, 0, &at), 0, "grass is never a trail");
+    }
+
+    #[test]
+    fn trail_over_water_is_a_bridge() {
+        let rows = ["~=~", ".=.", "~~~", "=.="];
+        let at = |x: i32, y: i32| -> Option<Terrain> {
+            let c = rows.get(y as usize)?.chars().nth(x as usize)?;
+            Some(match c { '=' => Terrain::Log, '~' => Terrain::Pond, _ => Terrain::Grass })
+        };
+        assert_eq!(bridge_span(1, 0, &at), Some(1), "water east and west: runs north-south");
+        assert_eq!(bridge_span(1, 1, &at), None, "on land it's a trail");
+        assert_eq!(bridge_span(0, 3, &at), None, "water on one side only");
+        assert_eq!(shore_mask(0, 0, &at) & SHORE_E, 0, "no beach drawn toward a bridge");
     }
 
     #[test]

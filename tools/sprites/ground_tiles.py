@@ -13,7 +13,8 @@ per tile (see `src/game/map.rs`):
 - most ground tiles have a few variants (flowers, clover) picked by position,
   so a field of grass doesn't repeat one stamp
 - `log.png` is the trail atlas: 16 columns, one per combination of trail
-  neighbors (bit 1 north, 2 east, 4 south, 8 west), so paths join up
+  neighbors (bit 1 north, 2 east, 4 south, 8 west), so paths join up, then two
+  plank-bridge columns (16 east-west, 17 north-south) for trail over water
 - `shore.png` is the bank atlas, indexed the same way by which sides face
   water: sand runs along those sides and fades into grass inland
 
@@ -47,6 +48,9 @@ TRAIL = [(206, 168, 108), (178, 140, 86), (226, 194, 138)]
 TRAIL_EDGE = (150, 132, 70)  # where trodden dirt meets the grass
 PETALS = [(250, 248, 236), (252, 220, 96), (236, 160, 196)]
 CLOVER = (96, 170, 72)
+PAD = [(46, 120, 62), (78, 160, 74), (124, 196, 96)]  # rim, leaf, highlight
+PLANK = [(150, 102, 62), (186, 134, 84), (214, 170, 116)]
+RAIL = (112, 72, 46)
 
 VARIANTS = 4
 
@@ -212,13 +216,55 @@ def bank(rng, mask):
     return img
 
 
+def lily_pads(rng):
+    """Deep water with a few round pads (each with its notch) and one water lily."""
+    img = blank(SEA[0]); speckle(img, rng, SEA[1], 20); ripples(img, rng, SEA, 3)
+    for cx, cy, r in [(9, 10, 4.5), (21, 8, 3.5), (20, 21, 5), (8, 23, 3)]:
+        notch = rng.uniform(0, 6.28)
+        for y in range(SIZE):
+            for x in range(SIZE):
+                dx, dy = x + 0.5 - cx, y + 0.5 - cy
+                d = math.hypot(dx, dy)
+                if d > r:
+                    continue
+                angle = math.atan2(dy, dx) - notch
+                if abs(math.atan2(math.sin(angle), math.cos(angle))) < 0.35 and d > 0.8:
+                    continue  # the wedge cut into every lily pad
+                lit = dx + dy < -r * 0.6
+                img[y][x] = PAD[0] if d > r - 1 else PAD[2] if lit else PAD[1]
+    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        img[20 + dy][20 + dx] = PETALS[2]
+    img[20][20] = PETALS[1]
+    return img
+
+
+def bridge(rng, north_south):
+    """Plank bridge over deep water, boards across the way of travel, log rails each side."""
+    img = blank(SEA[0]); speckle(img, rng, SEA[1], 20); ripples(img, rng, SEA, 4)
+    for y in range(SIZE):
+        for x in range(SIZE):
+            along, across = (y, x) if north_south else (x, y)
+            if not 8 <= across <= 24:
+                continue
+            if across in (8, 23):
+                color = RAIL
+            elif across == 24:
+                color = SEA[1]  # the deck's shadow on the water
+            elif along % 4 == 3:
+                color = PLANK[0]  # gaps between boards
+            else:
+                color = PLANK[2] if across == 9 else PLANK[1]
+            img[y][x] = color
+    return img
+
+
 def tile(name, variant=0):
     rng = random.Random(f"{name}{variant}")  # stable per terrain and variant
     if name == "grass":
         img = meadow(rng, variant)
     elif name == "log":
-        img = trail(rng, variant)
-    elif name in ("tall_grass", "thicket", "brambles", "boulder", "hollow", "outpost", "storehouse"):
+        img = trail(rng, variant) if variant < 16 else bridge(rng, north_south=variant == 17)
+    elif name in ("tall_grass", "thicket", "brambles", "boulder", "hollow", "workshop", "outpost", "storehouse"):
         # Features stand on plain ground, as in AW: the sprite says what's there
         img = meadow(rng, variant, tuft_count=3)
     elif name == "base":
@@ -229,6 +275,8 @@ def tile(name, variant=0):
         img = blank(RIVER[0]); speckle(img, rng, RIVER[1], 20); ripples(img, rng, RIVER, 5)
     elif name == "pond":
         img = blank(SEA[0]); speckle(img, rng, SEA[1], 24); ripples(img, rng, SEA, 6)
+    elif name == "lily_pads":
+        img = lily_pads(rng)
     else:
         raise SystemExit(f"unknown terrain {name}")
     return img
@@ -236,15 +284,17 @@ def tile(name, variant=0):
 
 def columns(name):
     """How many variants a tile's strip has (see the module docs)."""
-    if name in ("log", "shore"):
+    if name == "log":
+        return 18
+    if name == "shore":
         return 16
-    if name in ("grass", "tall_grass", "thicket", "brambles", "boulder", "hollow", "outpost", "storehouse"):
+    if name in ("grass", "tall_grass", "thicket", "brambles", "boulder", "hollow", "workshop", "outpost", "storehouse"):
         return VARIANTS
     return 1
 
 
 TERRAIN = ["grass", "tall_grass", "thicket", "brambles", "log", "boulder", "hollow",
-           "creek", "pond", "shore", "base", "outpost", "storehouse"]
+           "creek", "pond", "lily_pads", "shore", "base", "workshop", "outpost", "storehouse"]
 
 
 def main():

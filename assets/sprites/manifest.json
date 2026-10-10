@@ -935,6 +935,11 @@
         "prompt": "Pixel art seamless top-down ground tile texture. Deep blue pond water with subtle ripples. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
       },
       {
+        "id": "lily_pads",
+        "subject": "deep pond water with floating lily pads and a pink water lily",
+        "prompt": "Pixel art seamless top-down ground tile texture. Deep pond water with floating lily pads and a pink water lily. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
         "id": "shore",
         "subject": "sandy riverbank with pebbles and wet sand",
         "prompt": "Pixel art seamless top-down ground tile texture. Sandy riverbank with pebbles and wet sand. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
@@ -943,6 +948,11 @@
         "id": "base",
         "subject": "trampled earth courtyard with flagstones",
         "prompt": "Pixel art seamless top-down ground tile texture. Trampled earth courtyard with flagstones. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "workshop",
+        "subject": "short green meadow grass with tiny clover",
+        "prompt": "Pixel art seamless top-down ground tile texture. Short green meadow grass with tiny clover. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
       },
       {
         "id": "outpost",
@@ -997,6 +1007,12 @@
         "subject": "a cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
         "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
+      },
+      {
+        "id": "workshop",
+        "subject": "a little woodland carpenter's workshop: a hollow-log hut with a crooked stone chimney puffing smoke, a saw and a stack of twigs by the open door",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A little woodland carpenter's workshop: a hollow-log hut with a crooked stone chimney puffing smoke, a saw and a stack of twigs by the open door. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
       },
       {
         "id": "outpost",

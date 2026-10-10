@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use super::{
     Faction, UnitType, Unit, FactionMember, GridPosition,
-    FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, Terrain, SpriteAssets,
+    FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, SpriteAssets,
     BattleConfig, GameData, CommanderData,
 };
 
@@ -413,7 +413,7 @@ fn apply_power_effects(
                     .collect();
 
                 for tile in tiles.iter() {
-                    if tile.terrain == Terrain::Base
+                    if game_data.terrain_produces(tile.terrain)
                         && tile.owner == Some(event.faction)
                         && !unit_positions.contains(&(tile.position.x, tile.position.y))
                     {

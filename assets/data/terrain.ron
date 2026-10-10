@@ -144,6 +144,19 @@
             tile_height: 2.0,
             asset_name: "pond",
         ),
+        // Reef: 1 star defense
+        "lily_pads": (
+            name: "Lily Pads",
+            description: "Floating pads on deep water - naval units only, some cover",
+            defense: 1,
+            capturable: false,
+            capture_points: 0,
+            income: 0,
+            color: (0.3, 0.55, 0.5),
+            feature_height: 0.0,
+            tile_height: 2.0,
+            asset_name: "lily_pads",
+        ),
         // Shoal: 0 stars defense
         "shore": (
             name: "Shore",
@@ -171,6 +184,21 @@
             feature_height: 48.0,
             tile_height: 4.0,
             asset_name: "base",
+            produces: true,
+        ),
+        // Factory: 3 stars defense
+        "workshop": (
+            name: "Workshop",
+            description: "Builds units and earns income",
+            defense: 3,
+            capturable: true,
+            capture_points: 20,
+            income: 1000,
+            color: (0.55, 0.42, 0.3),
+            feature_height: 40.0,
+            tile_height: 4.0,
+            asset_name: "workshop",
+            produces: true,
         ),
         // City: 3 stars defense
         "outpost": (

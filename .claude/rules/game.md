@@ -48,8 +48,10 @@ src/
 - Grid coordinates: (x, y) maps to world (x, 0, z)
 
 ## Input
-- Mouse for selection and commands
-- WASD for camera pan
+- Mouse for selection and commands; the mouse takes the cursor only when it
+  actually moves, so a resting pointer never overrides keys
+- Arrows/WASD move the grid cursor; the camera follows a key-driven cursor,
+  keeping `SCROLL_LOOKAHEAD` tiles of map visible beyond it (`keep_cursor_in_view`)
 - All gameplay should work with gamepad (portability goal)
 
 ## UI Guidelines
@@ -65,6 +67,6 @@ src/
 ## Screenshots
 Drive the real game and capture screens with the dev script, e.g.:
 `PAW_SCRIPT="wait 90; key Enter; wait 30; shot setup; quit" cargo run`
-(steps: wait N, key NAME, click X Y, move X Y, shot NAME, gameover win|lose, quit;
+(steps: wait N, key NAME, hold NAME N, click X Y, move X Y, shot NAME, gameover win|lose, quit;
 output goes to `screenshots/`, which is gitignored). Captures land a few frames after
 `shot`, so wait before sending the next input.

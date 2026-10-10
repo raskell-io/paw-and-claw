@@ -183,6 +183,7 @@ fn update_fog_of_war(
             // Bases and outposts provide 2 vision
             let base_vision = match tile.terrain {
                 Terrain::Base => 3,
+                Terrain::Workshop => 2,
                 Terrain::Outpost => 2,
                 Terrain::Storehouse => 1,
                 _ => 1,

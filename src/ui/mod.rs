@@ -83,7 +83,7 @@ impl Default for BattleSetupState {
             needs_setup: false,
             player_faction: Faction::Eastern,
             player_co: Some(CommanderId::Kira),  // Pre-select first CO
-            selected_map: MapId::Woodland,
+            selected_map: MapId::default(),
         }
     }
 }

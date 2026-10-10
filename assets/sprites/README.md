@@ -110,7 +110,7 @@ Lessons from the first tests:
 ### Terrain the Dual Strike way
 
 - **Ground tiles are drawn by code**, not generated:
-  `python3 tools/sprites/ground_tiles.py` writes all 13 tiles in a fixed,
+  `python3 tools/sprites/ground_tiles.py` writes all 15 tiles in a fixed,
   bright palette (meadow, sand, creek, pond, flagstones).
   Generated ground came out far too busy to repeat across a map.
 - **Tiles can be strips of variants** (32px columns), and the game picks one per tile:

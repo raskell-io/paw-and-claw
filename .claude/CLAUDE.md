@@ -30,7 +30,7 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 ### Data Files (assets/data/)
 - `factions.ron` - 5 factions with names, colors, cost modifiers
 - `units.ron` - 20 unit types with full stats
-- `terrain.ron` - 13 terrain types with properties
+- `terrain.ron` - 15 terrain types with properties (`produces: true` marks terrain that builds units)
 - `commanders.ron` - 15 commanders with CO powers
 - `damage_tables.ron` - attacker vs defender base damage (missing entry = can't attack)
 - `movement_costs.ron` - movement cost per terrain and unit class

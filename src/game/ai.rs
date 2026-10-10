@@ -8,6 +8,7 @@ use super::{
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
     Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssetsParam,
     UnitAnimation, effective_movement, GameData, BattleConfig, TurnStartEvent,
+    find_path, route_waypoints,
 };
 
 /// Bundled AI-related resources to stay under Bevy's system parameter limit
@@ -325,8 +326,8 @@ fn build_influence_maps(
             };
             *maps.strategic_value.entry((x, y)).or_insert(0.0) += base_value + ownership_bonus;
 
-            // Bases are extra valuable (production!)
-            if tile.terrain == Terrain::Base {
+            // Bases and workshops are extra valuable (production!)
+            if game_data.terrain_produces(tile.terrain) {
                 *maps.strategic_value.entry((x, y)).or_insert(0.0) += 30.0;
             }
         }
@@ -1137,7 +1138,7 @@ fn score_capture_action(
     let total_progress = progress + unit.unit.hp;
     let required = game_data.terrain_capture_points(tile.terrain) as i32;
 
-    let is_base = tile.terrain == Terrain::Base;
+    let is_base = game_data.terrain_produces(tile.terrain);
     let income = game_data.terrain_income(tile.terrain);
 
     // === BASE CAPTURE UTILITY ===
@@ -1366,7 +1367,7 @@ fn score_move_action(
     if low_stamina || low_ammo {
         // Find distance to nearest friendly resupply building (Base or Storehouse)
         let dist_to_supply = analysis.our_properties.iter()
-            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Storehouse))
+            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Workshop | Terrain::Storehouse))
             .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
             .min_by(|a, b| a.partial_cmp(b).unwrap());
 
@@ -1555,7 +1556,7 @@ fn smart_production(
 
     let empty_bases: Vec<_> = tiles.iter()
         .filter(|(_, t)| {
-            t.terrain == Terrain::Base
+            game_data.terrain_produces(t.terrain)
                 && t.owner == Some(faction)
                 && !unit_positions.contains(&(t.position.x, t.position.y))
         })
@@ -1768,7 +1769,7 @@ fn should_ai_activate_power(
         PowerEffect::FreeUnits { unit_type: _ } => {
             // Endless Horde - use when we have empty bases
             let empty_bases = tiles.iter()
-                .filter(|(_, t)| t.terrain == Terrain::Base && t.owner == Some(faction))
+                .filter(|(_, t)| game_data.terrain_produces(t.terrain) && t.owner == Some(faction))
                 .filter(|(_, t)| {
                     !units.iter().any(|(_, p, _, _, _)| p.x == t.position.x && p.y == t.position.y)
                 })
@@ -1926,6 +1927,7 @@ fn ai_turn_system(
                 planned.unit,
                 &mut units,
                 &map,
+                &ai_res.game_data,
                 &mut attack_events,
                 &mut capture_events,
             );
@@ -2040,22 +2042,29 @@ fn execute_action(
     entity: Entity,
     units: &mut Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     map: &GameMap,
+    game_data: &GameData,
     attack_events: &mut MessageWriter<AttackEvent>,
     capture_events: &mut MessageWriter<CaptureEvent>,
 ) {
+    // Walk the unit tile by tile along the cheapest orthogonal route, like a player move
+    let occupied: HashSet<(i32, i32)> = units.iter()
+        .filter(|(e, ..)| *e != entity)
+        .map(|(_, p, ..)| (p.x, p.y))
+        .collect();
+    let walk = |pos: &GridPosition, unit: &Unit, transform: &Transform, to: (i32, i32)| {
+        let (start, goal) = (IVec2::new(pos.x, pos.y), IVec2::from(to));
+        let class = game_data.unit_class(unit.unit_type);
+        let route = find_path(start, goal, map, &occupied, class, game_data);
+        UnitAnimation::from_path(route_waypoints(route, start, goal, transform.translation.y, map))
+    };
     match action {
         AiAction::Attack { move_to, target } => {
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} ({},{}) -> ({},{}) attacks",
                     unit.unit_type, pos.x, pos.y, move_to.0, move_to.1);
-                let start_pos = transform.translation;
+                commands.entity(entity).insert(walk(&pos, &unit, transform, move_to));
                 pos.x = move_to.0;
                 pos.y = move_to.1;
-                // Calculate end position (preserve Y height)
-                let new_world_pos = pos.to_world(map);
-                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
-                // Add animation component for smooth movement
-                commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.attacked = true;
                 unit.exhausted = true;
@@ -2065,14 +2074,9 @@ fn execute_action(
         AiAction::Capture { move_to, tile } => {
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} captures at ({},{})", unit.unit_type, move_to.0, move_to.1);
-                let start_pos = transform.translation;
+                commands.entity(entity).insert(walk(&pos, &unit, transform, move_to));
                 pos.x = move_to.0;
                 pos.y = move_to.1;
-                // Calculate end position (preserve Y height)
-                let new_world_pos = pos.to_world(map);
-                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
-                // Add animation component for smooth movement
-                commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.attacked = true;
                 unit.exhausted = true;
@@ -2083,14 +2087,9 @@ fn execute_action(
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} ({},{}) -> ({},{})",
                     unit.unit_type, pos.x, pos.y, move_to.0, move_to.1);
-                let start_pos = transform.translation;
+                commands.entity(entity).insert(walk(&pos, &unit, transform, move_to));
                 pos.x = move_to.0;
                 pos.y = move_to.1;
-                // Calculate end position (preserve Y height)
-                let new_world_pos = pos.to_world(map);
-                let end_pos = Vec3::new(new_world_pos.x, start_pos.y, new_world_pos.z);
-                // Add animation component for smooth movement
-                commands.entity(entity).insert(UnitAnimation::new(start_pos, end_pos));
                 unit.moved = true;
                 unit.exhausted = true;
             }

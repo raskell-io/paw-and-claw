@@ -10,6 +10,7 @@
 //! Steps:
 //! - `wait N`     - let N frames pass
 //! - `key NAME`   - press and release a key (`Space`, `Enter`, `Escape`, `Tab`, arrows, `KeyA`..`KeyZ`)
+//! - `hold NAME N` - hold a key down for N frames (zoom, key repeat)
 //! - `click X Y`  - left-click at logical window coordinates (reaches egui and cursor-based picking)
 //! - `move X Y`   - move the cursor without clicking (hover)
 //! - `shot NAME`  - save `NAME.png` into `PAW_SHOT_DIR` (default `screenshots/`)
@@ -35,7 +36,7 @@ impl Plugin for DevScriptPlugin {
         let steps = parse(&script);
         let out_dir = PathBuf::from(std::env::var("PAW_SHOT_DIR").unwrap_or_else(|_| "screenshots".into()));
         std::fs::create_dir_all(&out_dir).expect("create screenshot dir");
-        app.insert_resource(DevScript { steps, wait: 0, release: None, out_dir })
+        app.insert_resource(DevScript { steps, wait: 0, release: None, held: None, out_dir })
             .add_systems(First, run_script);
     }
 }
@@ -44,6 +45,7 @@ impl Plugin for DevScriptPlugin {
 enum Step {
     Wait(u32),
     Key(KeyCode),
+    Hold(KeyCode, u32),
     Click(f32, f32),
     Move(f32, f32),
     Shot(String),
@@ -57,6 +59,8 @@ struct DevScript {
     wait: u32,
     /// Key or mouse button to release on the next frame
     release: Option<Release>,
+    /// Key held down by `hold`, released once its wait runs out
+    held: Option<KeyCode>,
     out_dir: PathBuf,
 }
 
@@ -78,6 +82,7 @@ fn parse(script: &str) -> VecDeque<Step> {
             match parts[0] {
                 "wait" => Step::Wait(num(1) as u32),
                 "key" => Step::Key(key_code(parts[1])),
+                "hold" => Step::Hold(key_code(parts[1]), num(2) as u32),
                 "click" => Step::Click(num(1), num(2)),
                 "move" => Step::Move(num(1), num(2)),
                 "shot" => Step::Shot(parts[1].to_string()),
@@ -147,12 +152,22 @@ fn run_script(
         return;
     }
 
+    if let Some(key_code) = script.held.take() {
+        keys.write(key_message(key_code, ButtonState::Released, window));
+        return;
+    }
+
     let Some(step) = script.steps.pop_front() else { return };
     match step {
         Step::Wait(frames) => script.wait = frames,
         Step::Key(key_code) => {
             keys.write(key_message(key_code, ButtonState::Pressed, window));
             script.release = Some(Release::Key(key_code));
+        }
+        Step::Hold(key_code, frames) => {
+            keys.write(key_message(key_code, ButtonState::Pressed, window));
+            script.held = Some(key_code);
+            script.wait = frames;
         }
         Step::Move(x, y) => {
             cursor.write(CursorMoved { window, position: Vec2::new(x, y), delta: None });

@@ -121,7 +121,7 @@ impl MovementPath {
         pos: IVec2,
         map: &GameMap,
         valid_tiles: &HashSet<(i32, i32)>,
-        tile_costs: &HashMap<(i32, i32), u32>,
+        _tile_costs: &HashMap<(i32, i32), u32>,
         unit_class: UnitClass,
         game_data: &GameData,
     ) -> bool {
@@ -148,9 +148,9 @@ impl MovementPath {
         let dy = (pos.y - last.y).abs();
 
         if (dx == 1 && dy == 0) || (dx == 0 && dy == 1) {
-            // Adjacent - add to path
+            // Adjacent - add to path, paying that tile's terrain cost
             self.path.push(pos);
-            self.total_cost += tile_costs.get(&(pos.x, pos.y)).copied().unwrap_or(1);
+            self.recalculate_cost(map, unit_class, game_data);
             return true;
         }
 
@@ -163,6 +163,19 @@ impl MovementPath {
             let terrain = map.get(pos.x, pos.y).unwrap_or(Terrain::Grass);
             self.total_cost += game_data.movement_cost(terrain, unit_class);
         }
+    }
+
+    /// Replace the path with a whole route (start included), e.g. when the
+    /// cursor skips past tiles it can't stop on
+    pub fn reroute(&mut self, route: Vec<IVec2>, map: &GameMap, unit_class: UnitClass, game_data: &GameData) {
+        self.path = route;
+        self.drawing = true;
+        self.recalculate_cost(map, unit_class, game_data);
+    }
+
+    /// Whether the path ends where the cursor is (otherwise moves use the cursor)
+    pub fn ends_at(&self, x: i32, y: i32) -> bool {
+        self.path.len() >= 2 && self.path.last() == Some(&IVec2::new(x, y))
     }
 
     /// Get the final destination of the path
@@ -236,6 +249,11 @@ impl Plugin for MovementPlugin {
             // Input handling - registered separately due to parameter count limits
             .add_systems(Update, handle_keyboard_input.run_if(in_state(GameState::Battle)).run_if(board_input_allowed))
             .add_systems(Update, handle_keyboard_path_drawing.run_if(in_state(GameState::Battle)).run_if(board_input_allowed))
+            .add_systems(Update, keep_cursor_in_view
+                .after(handle_keyboard_input)
+                .after(handle_keyboard_path_drawing)
+                .before(update_camera_angle)
+                .run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 handle_click_input,
                 handle_path_drawing,
@@ -424,6 +442,8 @@ pub struct GridCursor {
     pub x: i32,
     pub y: i32,
     pub visible: bool,
+    /// Moved by keys or gamepad (not the mouse): the camera scrolls to keep it in view
+    pub follow: bool,
 }
 
 impl Default for GridCursor {
@@ -432,6 +452,7 @@ impl Default for GridCursor {
             x: 5,
             y: 4,
             visible: true, // Always visible like Advance Wars
+            follow: false,
         }
     }
 }
@@ -540,6 +561,83 @@ pub fn calculate_movement_range_with_costs(
     // Remove starting position from reachable (can't stay in place... or can we?)
     // Actually, let's keep it - unit can choose not to move
     (reachable, visited)
+}
+
+/// Cheapest orthogonal route from `start` to `goal` (both included), by the same
+/// rules as the movement range: terrain costs for the unit class, and no passing
+/// through occupied tiles (the goal itself may be occupied, for joining). Units
+/// never cut corners, so this is the route a move animates along.
+pub fn find_path(
+    start: IVec2,
+    goal: IVec2,
+    map: &GameMap,
+    occupied: &HashSet<(i32, i32)>,
+    unit_class: UnitClass,
+    game_data: &GameData,
+) -> Option<Vec<IVec2>> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
+    let mut best: HashMap<IVec2, u32> = HashMap::from([(start, 0)]);
+    let mut came_from: HashMap<IVec2, IVec2> = HashMap::new();
+    let mut open = BinaryHeap::from([Reverse((0u32, start.x, start.y))]);
+    while let Some(Reverse((cost, x, y))) = open.pop() {
+        let here = IVec2::new(x, y);
+        if here == goal {
+            let mut path = vec![goal];
+            while let Some(&prev) = came_from.get(path.last()?) {
+                path.push(prev);
+            }
+            path.reverse();
+            return Some(path);
+        }
+        if cost > best.get(&here).copied().unwrap_or(u32::MAX) {
+            continue;
+        }
+        for step in [IVec2::Y, IVec2::NEG_Y, IVec2::X, IVec2::NEG_X] {
+            let next = here + step;
+            let Some(terrain) = map.get(next.x, next.y) else { continue };
+            if !game_data.is_passable(terrain, unit_class)
+                || (next != goal && occupied.contains(&(next.x, next.y)))
+            {
+                continue;
+            }
+            let next_cost = cost + game_data.movement_cost(terrain, unit_class);
+            if next_cost < best.get(&next).copied().unwrap_or(u32::MAX) {
+                best.insert(next, next_cost);
+                came_from.insert(next, here);
+                open.push(Reverse((next_cost, next.x, next.y)));
+            }
+        }
+    }
+    None
+}
+
+/// The orthogonal route a player's unit takes to `goal` when no path was drawn
+fn fallback_move_route(
+    units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
+    mover: Entity,
+    goal: IVec2,
+    unit_class: Option<UnitClass>,
+    map: &GameMap,
+    game_data: &GameData,
+) -> Option<Vec<IVec2>> {
+    let start = units.get(mover).map(|(_, p, ..)| IVec2::new(p.x, p.y)).ok()?;
+    let occupied = units.iter().filter(|(e, ..)| *e != mover).map(|(_, p, ..)| (p.x, p.y)).collect();
+    find_path(start, goal, map, &occupied, unit_class?, game_data)
+}
+
+/// World waypoints for moving a unit along a grid route at height `y`. Without
+/// a route it goes along one axis, then the other, never diagonally.
+pub fn route_waypoints(route: Option<Vec<IVec2>>, start: IVec2, goal: IVec2, y: f32, map: &GameMap) -> Vec<Vec3> {
+    let route = route.unwrap_or_else(|| {
+        let corner = IVec2::new(goal.x, start.y);
+        if corner == start || corner == goal { vec![start, goal] } else { vec![start, corner, goal] }
+    });
+    route.iter().map(|p| {
+        let world = GridPosition::new(p.x, p.y).to_world(map);
+        Vec3::new(world.x, y, world.z)
+    }).collect()
 }
 
 /// Calculate reachable tiles including those occupied by joinable friendly units
@@ -727,9 +825,19 @@ fn handle_keyboard_input(
                 }
             };
 
-            if should_move {
-                input.cursor.x = (input.cursor.x + dx).clamp(0, map.width as i32 - 1);
-                input.cursor.y = (input.cursor.y + dy).clamp(0, map.height as i32 - 1);
+            let target = (
+                (input.cursor.x + dx).clamp(0, map.width as i32 - 1),
+                (input.cursor.y + dy).clamp(0, map.height as i32 - 1),
+            );
+            let attack_positions = || units.iter()
+                .filter(|(e, ..)| highlights.attack_targets.contains(e))
+                .map(|(_, p, ..)| (p.x, p.y));
+            // While a route is being drawn, `handle_keyboard_path_drawing` moves the cursor
+            let routing = highlights.selected_unit.is_some() && input.movement_path.drawing;
+            if should_move && !routing && cursor_allowed(&highlights, target, attack_positions) {
+                input.cursor.x = target.0;
+                input.cursor.y = target.1;
+                input.cursor.follow = true;
                 moved_cursor = true;
             }
         } else {
@@ -787,6 +895,7 @@ fn handle_keyboard_input(
             input.cursor.x = next_x;
             input.cursor.y = next_y;
             input.cursor.visible = true;
+            input.cursor.follow = true;
 
             // Select the unit (same logic as Space/Enter selection)
             if let Ok((entity, pos, _, faction, unit)) = units.get(next_entity) {
@@ -841,12 +950,8 @@ fn handle_keyboard_input(
 
         if let Some(selected_entity) = highlights.selected_unit {
             // Use path destination if path exists, otherwise use cursor
-            let (target_x, target_y) = if input.movement_path.path.len() >= 2 {
-                let dest = input.movement_path.path.last().unwrap();
-                (dest.x, dest.y)
-            } else {
-                (input.cursor.x, input.cursor.y)
-            };
+            // The cursor is where the unit goes; the drawn path only says how
+            let (target_x, target_y) = (input.cursor.x, input.cursor.y);
 
             // Check if target is an attack target (before moving)
             let target_entity = units.iter()
@@ -914,6 +1019,8 @@ fn handle_keyboard_input(
                     let faction_copy;
                     let unit_copy;
                     let original_pos;
+                    // Without a drawn path, walk the cheapest orthogonal route (never diagonal)
+                    let fallback_route = fallback_move_route(&units, selected_entity, IVec2::from((input.cursor.x, input.cursor.y)), highlights.selected_unit_class, &map, &game_data);
                     if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
                         let start_pos = transform.translation;
                         // Save original position before moving (for cancel)
@@ -924,15 +1031,14 @@ fn handle_keyboard_input(
                         // Only create animation if actually moving
                         if !staying_in_place {
                             // Convert path to world positions for animation
-                            let waypoints: Vec<Vec3> = if input.movement_path.path.len() >= 2 {
+                            let waypoints: Vec<Vec3> = if input.movement_path.ends_at(grid_pos.x, grid_pos.y) {
                                 input.movement_path.path.iter().map(|p| {
                                     let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
                                     Vec3::new(world_pos.x, start_pos.y, world_pos.z)
                                 }).collect()
                             } else {
-                                // Fallback: direct path if no drawn path
-                                let end_world = grid_pos.to_world(&map);
-                                vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
+                                let goal = IVec2::new(grid_pos.x, grid_pos.y);
+                                route_waypoints(fallback_route, IVec2::from(original_pos), goal, start_pos.y, &map)
                             };
 
                             // Add animation component for smooth movement along path
@@ -1054,7 +1160,7 @@ fn handle_keyboard_input(
                     .collect();
                 for (tile_entity, tile) in tiles.iter() {
                     if tile.position.x == input.cursor.x && tile.position.y == input.cursor.y
-                        && tile.terrain == Terrain::Base
+                        && game_data.terrain_produces(tile.terrain)
                         && tile.owner == Some(turn_state.current_faction)
                         && !unit_positions.contains(&(input.cursor.x, input.cursor.y))
                     {
@@ -1256,7 +1362,8 @@ fn update_camera_angle(
     );
 }
 
-/// Update cursor position from mouse hover (Advance Wars style - cursor always follows mouse)
+/// Update cursor position from mouse hover. Only an actual mouse movement takes
+/// the cursor: a resting pointer never overrides keyboard or gamepad moves.
 /// When a movement path is being drawn, cursor follows the path endpoint instead
 fn update_cursor_from_mouse(
     windows: Query<&Window>,
@@ -1264,9 +1371,16 @@ fn update_cursor_from_mouse(
     map: Res<GameMap>,
     mut input: InputState,
     input_mode: Res<InputMode>,
+    mut pointer_moved: MessageReader<CursorMoved>,
+    highlights: Res<MovementHighlights>,
+    unit_positions: Query<(Entity, &GridPosition), With<Unit>>,
 ) {
     // Skip if in keyboard-only mode
     if *input_mode == InputMode::Keyboard {
+        return;
+    }
+
+    if pointer_moved.read().count() == 0 {
         return;
     }
 
@@ -1288,9 +1402,88 @@ fn update_cursor_from_mouse(
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
     if let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) {
-        input.cursor.x = grid_pos.x;
-        input.cursor.y = grid_pos.y;
+        let attack_positions = || unit_positions.iter()
+            .filter(|(e, _)| highlights.attack_targets.contains(e))
+            .map(|(_, p)| (p.x, p.y));
+        if cursor_allowed(&highlights, (grid_pos.x, grid_pos.y), attack_positions) {
+            input.cursor.x = grid_pos.x;
+            input.cursor.y = grid_pos.y;
+        }
+        input.cursor.follow = false;
     }
+}
+
+/// With a unit selected, the cursor stays on the tiles it can move to or the
+/// enemies it can attack; otherwise it can go anywhere on the map
+fn cursor_allowed<I: Iterator<Item = (i32, i32)>>(
+    highlights: &MovementHighlights,
+    tile: (i32, i32),
+    attack_positions: impl FnOnce() -> I,
+) -> bool {
+    highlights.selected_unit.is_none()
+        || highlights.tiles.contains(&tile)
+        || attack_positions().any(|p| p == tile)
+}
+
+/// Tiles of map kept visible beyond a key-driven cursor before the camera scrolls
+const SCROLL_LOOKAHEAD: i32 = 3;
+
+/// Advance Wars style scrolling: while the cursor is moved by keys or gamepad,
+/// keep `SCROLL_LOOKAHEAD` tiles of map visible beyond it on every side (as far
+/// as the map goes, so the camera stops at the map's edge). The camera pans
+/// smoothly once the cursor gets that close to the edge of the screen.
+fn keep_cursor_in_view(
+    cursor: Res<GridCursor>,
+    map: Res<GameMap>,
+    time: Res<Time>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut angle: ResMut<CameraAngle>,
+) {
+    if !cursor.follow || map.width == 0 || map.height == 0 {
+        return;
+    }
+    let Ok((camera, camera_transform)) = cameras.single() else { return };
+    let Some(size) = camera.logical_viewport_size() else { return };
+    let screen = |x: i32, y: i32, nudge: Vec3| {
+        camera.world_to_viewport(camera_transform, GridPosition::new(x, y).to_world(&map) + nudge).ok()
+    };
+
+    let (w, h) = (map.width as i32, map.height as i32);
+    let (x, y) = (cursor.x, cursor.y);
+    let (Some(left), Some(right), Some(top), Some(bottom)) = (
+        screen((x - SCROLL_LOOKAHEAD).max(0), y, Vec3::ZERO),
+        screen((x + SCROLL_LOOKAHEAD).min(w - 1), y, Vec3::ZERO),
+        screen(x, (y - SCROLL_LOOKAHEAD).max(0), Vec3::ZERO),
+        screen(x, (y + SCROLL_LOOKAHEAD).min(h - 1), Vec3::ZERO),
+    ) else { return };
+
+    let (Some(here), Some(east), Some(south)) = (
+        screen(x, y, Vec3::ZERO),
+        screen(x, y, Vec3::X * TILE_SIZE),
+        screen(x, y, Vec3::Z * TILE_SIZE),
+    ) else { return };
+
+    // The area those tiles must stay inside, clear of the HUD cards. Zoomed in
+    // so far that both sides can't fit, just center the cursor on that axis.
+    let (min, max) = (size * Vec2::new(0.05, 0.12), size * Vec2::new(0.95, 0.88));
+    let center = (min + max) / 2.0;
+    let axis = |low: f32, high: f32, min: f32, max: f32, here: f32, center: f32| {
+        let (under, over) = ((low - min).min(0.0), (high - max).max(0.0));
+        if under < 0.0 && over > 0.0 { here - center } else { under + over }
+    };
+    let push = Vec2::new(
+        axis(left.x, right.x, min.x, max.x, here.x, center.x),
+        axis(top.y, bottom.y, min.y, max.y, here.y, center.y),
+    );
+    if push.length_squared() < 1.0 {
+        return;
+    }
+
+    // Screen pixels per tile around the cursor, to turn the push into world units
+    let per_tile = Vec2::new((east.x - here.x).abs(), (south.y - here.y).abs()).max(Vec2::ONE);
+    let shift = push / per_tile * TILE_SIZE;
+    let ease = 1.0 - (-16.0 * time.delta_secs()).exp();
+    angle.look_at += shift * ease;
 }
 
 /// Handle mouse click for selection and movement
@@ -1525,6 +1718,8 @@ fn handle_click_input(
             let faction_copy;
             let unit_copy;
             let original_pos;
+            // Without a drawn path, walk the cheapest orthogonal route (never diagonal)
+            let fallback_route = fallback_move_route(&units, selected_entity, IVec2::from((grid_x, grid_y)), highlights.selected_unit_class, &map, &game_data);
             if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
                 let start_pos = transform.translation;
                 // Save original position before moving (for cancel)
@@ -1535,15 +1730,14 @@ fn handle_click_input(
                 // Only create animation if actually moving
                 if !staying_in_place {
                     // Convert path to world positions for animation
-                    let waypoints: Vec<Vec3> = if input.movement_path.path.len() >= 2 {
+                    let waypoints: Vec<Vec3> = if input.movement_path.ends_at(grid_x, grid_y) {
                         input.movement_path.path.iter().map(|p| {
                             let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
                             Vec3::new(world_pos.x, start_pos.y, world_pos.z)
                         }).collect()
                     } else {
-                        // Fallback: direct path if no drawn path
-                        let end_world = grid_pos.to_world(&map);
-                        vec![start_pos, Vec3::new(end_world.x, start_pos.y, end_world.z)]
+                        let goal = IVec2::new(grid_pos.x, grid_pos.y);
+                        route_waypoints(fallback_route, IVec2::from(original_pos), goal, start_pos.y, &map)
                     };
 
                     // Add animation component for smooth movement along path
@@ -1670,7 +1864,7 @@ fn handle_click_input(
 
     for (tile_entity, tile) in tiles.iter() {
         if tile.position.x == grid_x && tile.position.y == grid_y
-            && tile.terrain == Terrain::Base
+            && game_data.terrain_produces(tile.terrain)
             && tile.owner == Some(turn_state.current_faction)
             && !unit_positions.contains(&(grid_x, grid_y))
         {
@@ -1863,6 +2057,7 @@ fn handle_keyboard_path_drawing(
     game_data: Res<GameData>,
     time: Res<Time>,
     mut cursor_repeat: ResMut<CursorRepeat>,
+    unit_positions: Query<(Entity, &GridPosition), With<Unit>>,
 ) {
     // Skip during non-select phases
     if turn_state.phase != TurnPhase::Select {
@@ -1930,20 +2125,43 @@ fn handle_keyboard_path_drawing(
             }
         };
 
-        if should_move {
-            if let Some(last_pos) = movement_path.path.last().copied() {
-                let new_pos = IVec2::new(last_pos.x + dx, last_pos.y + dy);
-
-                // Try to extend path
-                if let Some(unit_class) = highlights.selected_unit_class {
-                    if movement_path.try_extend(new_pos, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
-                        // Update cursor to follow path
-                        cursor.x = new_pos.x;
-                        cursor.y = new_pos.y;
-                        cursor.visible = true;
+        if let (true, Some(unit_class)) = (should_move, highlights.selected_unit_class) {
+            let step = IVec2::new(cursor.x + dx, cursor.y + dy);
+            let extended = movement_path.ends_at(cursor.x, cursor.y) || movement_path.path.len() == 1
+                && movement_path.path.last() == Some(&IVec2::new(cursor.x, cursor.y));
+            if extended && movement_path.try_extend(step, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
+                cursor.x = step.x;
+                cursor.y = step.y;
+            } else {
+                // Can't step there (a unit in the way, out of range): skip ahead to
+                // the next tile in this direction the unit can move to or attack,
+                // and draw the cheapest route to it
+                let attack_positions = || unit_positions.iter()
+                    .filter(|(e, _)| highlights.attack_targets.contains(e))
+                    .map(|(_, p)| (p.x, p.y));
+                let next = (1..map.width.max(map.height) as i32)
+                    .map(|i| (cursor.x + dx * i, cursor.y + dy * i))
+                    .take_while(|&(x, y)| map.get(x, y).is_some())
+                    .find(|&tile| cursor_allowed(&highlights, tile, attack_positions));
+                if let Some((x, y)) = next {
+                    cursor.x = x;
+                    cursor.y = y;
+                    let start = movement_path.path.first().copied();
+                    if let (Some(start), Some(mover)) = (start, highlights.selected_unit) {
+                        if highlights.tiles.contains(&(x, y)) {
+                            let occupied = unit_positions.iter()
+                                .filter(|(e, _)| *e != mover)
+                                .map(|(_, p)| (p.x, p.y))
+                                .collect();
+                            if let Some(route) = find_path(start, IVec2::new(x, y), &map, &occupied, unit_class, &game_data) {
+                                movement_path.reroute(route, &map, unit_class, &game_data);
+                            }
+                        }
                     }
                 }
             }
+            cursor.visible = true;
+            cursor.follow = true;
         }
     } else {
         // No direction pressed - reset repeat state
@@ -2316,6 +2534,77 @@ mod tests {
             width: rows[0].len() as u32,
             height: rows.len() as u32,
             tiles: rows.iter().map(|r| r.to_vec()).collect(),
+        }
+    }
+
+    fn assert_orthogonal(route: &[IVec2]) {
+        for pair in route.windows(2) {
+            let step = (pair[1] - pair[0]).abs();
+            assert_eq!(step.x + step.y, 1, "diagonal or jumping step {:?} -> {:?}", pair[0], pair[1]);
+        }
+    }
+
+    #[test]
+    fn drawn_path_costs_each_tiles_terrain_once() {
+        use Terrain::*;
+        let data = GameData::load_defaults();
+        let map = map_from_rows(&[&[Grass, Grass, Thicket, Grass]]);
+        let tiles: HashSet<_> = (0..4).map(|x| (x, 0)).collect();
+        let mut path = MovementPath::default();
+        path.start(IVec2::new(0, 0));
+        for x in 1..4 {
+            assert!(path.try_extend(IVec2::new(x, 0), &map, &tiles, &HashMap::new(), UnitClass::Foot, &data));
+        }
+        assert_eq!(path.total_cost, 1 + 2 + 1, "grass, thicket, grass");
+    }
+
+    #[test]
+    fn cursor_stays_in_range_while_a_unit_is_selected() {
+        let mut highlights = MovementHighlights::default();
+        let enemies = || [(5, 5)].into_iter();
+        assert!(cursor_allowed(&highlights, (9, 9), enemies), "free roam with nothing selected");
+        highlights.selected_unit = Some(Entity::PLACEHOLDER);
+        highlights.tiles.insert((1, 1));
+        assert!(cursor_allowed(&highlights, (1, 1), enemies));
+        assert!(cursor_allowed(&highlights, (5, 5), enemies), "an attackable enemy");
+        assert!(!cursor_allowed(&highlights, (9, 9), enemies));
+    }
+
+    #[test]
+    fn path_goes_around_water_in_straight_steps() {
+        use Terrain::*;
+        let data = GameData::load_defaults();
+        let map = map_from_rows(&[
+            &[Grass, Grass, Grass],
+            &[Grass, Pond, Grass],
+            &[Grass, Grass, Grass],
+        ]);
+        let route = find_path(IVec2::new(0, 1), IVec2::new(2, 1), &map, &HashSet::new(), UnitClass::Foot, &data).unwrap();
+        assert_orthogonal(&route);
+        assert_eq!(route.len(), 5);
+        assert!(!route.contains(&IVec2::new(1, 1)));
+    }
+
+    #[test]
+    fn path_avoids_occupied_tiles_but_may_end_on_one() {
+        use Terrain::*;
+        let data = GameData::load_defaults();
+        let map = map_from_rows(&[&[Grass, Grass, Grass], &[Grass, Grass, Grass]]);
+        let occupied = HashSet::from([(1, 0), (2, 0)]);
+        let route = find_path(IVec2::new(0, 0), IVec2::new(2, 0), &map, &occupied, UnitClass::Foot, &data).unwrap();
+        assert_orthogonal(&route);
+        assert!(!route.contains(&IVec2::new(1, 0)));
+        assert_eq!(route.last(), Some(&IVec2::new(2, 0)));
+    }
+
+    #[test]
+    fn fallback_waypoints_never_cut_corners() {
+        use Terrain::*;
+        let map = map_from_rows(&[&[Grass; 3], &[Grass; 3]]);
+        let points = route_waypoints(None, IVec2::new(0, 0), IVec2::new(2, 1), 0.0, &map);
+        assert_eq!(points.len(), 3);
+        for pair in points.windows(2) {
+            assert!(pair[0].x == pair[1].x || pair[0].z == pair[1].z, "diagonal segment");
         }
     }
 

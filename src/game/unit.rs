@@ -141,23 +141,14 @@ pub struct UnitAnimation {
 }
 
 impl UnitAnimation {
-    /// Create a new movement animation with a single destination (backwards compatible)
-    pub fn new(start: Vec3, end: Vec3) -> Self {
-        Self {
-            waypoints: vec![start, end],
-            current_waypoint: 1,
-            segment_progress: 0.0,
-            speed: 5.0, // Complete each tile in ~0.2 seconds
-        }
-    }
-
-    /// Create a new movement animation following a path of waypoints
+    /// Create a movement animation following a path of waypoints. Build them with
+    /// `route_waypoints` so units walk tile by tile and never move diagonally.
     pub fn from_path(waypoints: Vec<Vec3>) -> Self {
         Self {
             waypoints,
             current_waypoint: 1,
             segment_progress: 0.0,
-            speed: 5.0,
+            speed: 5.0, // Complete each tile in ~0.2 seconds
         }
     }
 

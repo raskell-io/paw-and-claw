@@ -123,6 +123,9 @@ pub struct TerrainData {
     pub tile_height: f32,
     /// Asset filename (without extension)
     pub asset_name: String,
+    /// Owned and empty, it can build units
+    #[serde(default)]
+    pub produces: bool,
 }
 
 /// Moddable CO power data
@@ -430,6 +433,11 @@ impl GameData {
         self.terrain(terrain).capturable
     }
 
+    /// Whether an owned, empty tile of this terrain can build units
+    pub fn terrain_produces(&self, terrain: Terrain) -> bool {
+        self.terrain(terrain).produces
+    }
+
     pub fn terrain_capture_points(&self, terrain: Terrain) -> u32 {
         self.terrain(terrain).capture_points
     }
@@ -555,8 +563,10 @@ fn terrain_to_key(terrain: Terrain) -> &'static str {
         Terrain::Hollow => "hollow",
         Terrain::Creek => "creek",
         Terrain::Pond => "pond",
+        Terrain::LilyPads => "lily_pads",
         Terrain::Shore => "shore",
         Terrain::Base => "base",
+        Terrain::Workshop => "workshop",
         Terrain::Outpost => "outpost",
         Terrain::Storehouse => "storehouse",
     }
@@ -644,6 +654,8 @@ mod tests {
         // One turn of a single base's income should buy at least one infantry
         let data = GameData::load_defaults();
         let scout = data.unit_stats(UnitType::Scout).cost;
+        assert!(data.terrain_produces(Terrain::Base) && data.terrain_produces(Terrain::Workshop));
+        assert!(!data.terrain_produces(Terrain::Outpost) && !data.terrain_produces(Terrain::Storehouse));
         assert!(data.terrain_income(Terrain::Base) >= scout);
         assert!(data.terrain_income(Terrain::Base) < data.unit_stats(UnitType::Ironclad).cost);
     }

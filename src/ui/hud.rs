@@ -343,7 +343,7 @@ fn terrain_section(ui: &mut egui::Ui, game_data: &GameData, terrain: Terrain, ow
                 Some(f) => theme::chip(ui, game_data.faction_name(f), theme::faction_color(game_data, f)),
                 None => theme::chip(ui, "Neutral", theme::INK_SOFT),
             }
-            if terrain == Terrain::Base {
+            if game_data.terrain_produces(terrain) {
                 theme::chip(ui, "Builds units", theme::LEAF);
             }
         }

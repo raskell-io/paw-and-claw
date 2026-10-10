@@ -12,10 +12,10 @@ use crate::states::GameState;
 /// (see `MapData::with_factions`)
 const ARMIES: [(Faction, &str); 2] = [(Faction::Eastern, "First army"), (Faction::Northern, "Second army")];
 
-const PALETTE: [Terrain; 13] = [
+const PALETTE: [Terrain; 15] = [
     Terrain::Grass, Terrain::TallGrass, Terrain::Thicket, Terrain::Brambles, Terrain::Log,
-    Terrain::Boulder, Terrain::Hollow, Terrain::Creek, Terrain::Pond, Terrain::Shore,
-    Terrain::Base, Terrain::Outpost, Terrain::Storehouse,
+    Terrain::Boulder, Terrain::Hollow, Terrain::Creek, Terrain::Pond, Terrain::LilyPads, Terrain::Shore,
+    Terrain::Base, Terrain::Workshop, Terrain::Outpost, Terrain::Storehouse,
 ];
 
 const PLACEABLE_UNITS: [UnitType; 5] =
@@ -104,7 +104,7 @@ fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut Nex
         }
         EditorMode::Properties => {
             army_picker(ui, editor, game_data);
-            ui.label(theme::body("Click a base, outpost or storehouse to give it to this army.", 14.0).color(theme::INK_SOFT));
+            ui.label(theme::body("Click a base, workshop, outpost or storehouse to give it to this army.", 14.0).color(theme::INK_SOFT));
         }
     }
     ui.add_space(8.0);
@@ -219,7 +219,7 @@ fn canvas(ui: &mut egui::Ui, editor: &mut EditorState, game_data: &GameData) {
             if game_data.terrain_has_feature(terrain) && cell >= 24.0 {
                 // Small glyph so features read at a glance
                 let glyph = match terrain {
-                    Terrain::Base => "⌂", Terrain::Outpost => "▲", Terrain::Storehouse => "■",
+                    Terrain::Base => "⌂", Terrain::Workshop => "⚒", Terrain::Outpost => "▲", Terrain::Storehouse => "■",
                     Terrain::Thicket | Terrain::Brambles => "♣", Terrain::Boulder => "●", Terrain::Log => "═",
                     _ => "◦",
                 };
