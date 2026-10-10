@@ -29,7 +29,6 @@ SIZE = 32
 # Palette (Dual Strike-like: saturated, few tones)
 PLAINS = [(124, 200, 90), (110, 184, 78), (152, 220, 110)]       # base, shade, highlight
 TALL = [(104, 178, 72), (88, 158, 62), (140, 206, 96)]
-FOREST_FLOOR = [(96, 164, 70), (82, 146, 60), (126, 190, 88)]
 BRAMBLE = [(118, 150, 70), (98, 128, 58), (146, 176, 88)]
 DIRT = [(214, 182, 118), (190, 156, 96), (232, 206, 146)]
 DARK_EARTH = [(150, 120, 80), (126, 98, 64), (176, 146, 100)]
@@ -102,15 +101,13 @@ def tile(name):
         img = blank(PLAINS[0]); speckle(img, rng, PLAINS[1], 18); tufts(img, rng, PLAINS, 4)
     elif name == "tall_grass":
         img = blank(TALL[0]); speckle(img, rng, TALL[1], 26); tufts(img, rng, TALL, 9)
-    elif name == "thicket":
-        img = blank(FOREST_FLOOR[0]); speckle(img, rng, FOREST_FLOOR[1], 30); tufts(img, rng, FOREST_FLOOR, 5)
     elif name == "brambles":
         img = blank(BRAMBLE[0]); speckle(img, rng, BRAMBLE[1], 30); tufts(img, rng, BRAMBLE, 7)
     elif name == "log":
         img = blank(DIRT[0]); speckle(img, rng, DIRT[1], 24); stones(img, rng, DIRT, 3)
     elif name == "hollow":
         img = blank(DARK_EARTH[0]); speckle(img, rng, DARK_EARTH[1], 28); stones(img, rng, DARK_EARTH, 3)
-    elif name in ("boulder", "outpost", "storehouse"):
+    elif name in ("thicket", "boulder", "outpost", "storehouse"):
         # Features stand on plain ground, as in AW
         img = blank(PLAINS[0]); speckle(img, rng, PLAINS[1], 18); tufts(img, rng, PLAINS, 3)
     elif name == "base":

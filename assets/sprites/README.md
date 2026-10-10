@@ -114,6 +114,15 @@ Lessons from the first tests:
   `python3 tools/sprites/soften_outline.py RAW.png assets/sprites/terrain/features/NAME.png`,
   which recolors any remaining near-black pixels. Keep the raw download in
   `assets/sprites/originals/features/` so the step can be re-tuned.
+- **Features don't bring their own ground.** PixelLab draws trees, mountains
+  and buildings on a little grass-and-earth platform no matter the prompt or
+  view setting (tested: Low top-down, None, Side). Strip it with
+  `python3 tools/sprites/strip_ground.py RAW.png OUT.png --cut N --grass-from M`
+  (`--preview` prints the rows to choose N and M), then soften the outline.
+  Current values: forest `--cut 27 --grass-from 22`, mountain `--cut 24 --grass-from 20`,
+  base `--cut 29 --grass-from 22`.
+- Forests and mountains stand on plain grass (no separate forest-floor tile),
+  so the feature carries the look, as in Dual Strike.
 - **Coastlines are autotiled in the game:** each water tile gets sand and foam
   along every side (and corner) that touches land, built once per neighbor
   pattern and cached (`shoreline_texture` in `src/game/map.rs`).

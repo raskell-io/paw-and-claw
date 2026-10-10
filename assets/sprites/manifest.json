@@ -65,7 +65,7 @@
         "detail": "Low detail",
         "outline": "Selective outline"
       },
-      "post": "python3 tools/sprites/soften_outline.py (colored outlines instead of black, like Dual Strike terrain); keep the raw download in assets/sprites/originals/features/"
+      "post": "1) python3 tools/sprites/strip_ground.py (remove the generator's ground platform), 2) python3 tools/sprites/soften_outline.py (colored outlines like Dual Strike terrain); keep the raw download in assets/sprites/originals/features/"
     },
     "portraits": {
       "size": [
