@@ -58,14 +58,18 @@
       "prefix": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape)",
       "suffix": "Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette",
       "pixellab": {
-        "model": "Pixen",
-        "transparent_background": true,
-        "direction": "None",
-        "view": "Low top-down",
-        "detail": "Low detail",
-        "outline": "Selective outline"
+        "model": "Pro Flash",
+        "style_image": "assets/sprites/terrain/features/thicket.png",
+        "copy_from_style": [
+          "Color palette",
+          "Outline",
+          "Detail",
+          "Shading"
+        ],
+        "remove_background": true,
+        "size": "one object per call at 32x32, or a sheet of several (128x64 for a 4x2 grid) to save generations"
       },
-      "post": "1) python3 tools/sprites/strip_ground.py (remove the generator's ground platform), 2) python3 tools/sprites/soften_outline.py (colored outlines like Dual Strike terrain); keep the raw download in assets/sprites/originals/features/"
+      "post": "Slice the sheet by gaps (objects don't sit on the grid), fit each into 32x32 standing on the bottom row, then python3 tools/sprites/soften_outline.py; keep the raw download in assets/sprites/originals/features/"
     },
     "portraits": {
       "size": [
@@ -955,7 +959,7 @@
       {
         "id": "tall_grass",
         "subject": "a tuft of long grass blades fanning out",
-        "source": "code: tools/sprites/nature_features.py",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A tuft of long grass blades fanning out. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
       },
       {
@@ -968,43 +972,43 @@
         "id": "brambles",
         "subject": "a tangled thorny bramble bush with dark red berries",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A tangled thorny bramble bush with dark red berries. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "code: tools/sprites/nature_features.py"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       },
       {
         "id": "log",
         "subject": "a fallen mossy twig lying sideways with a tiny mushroom growing on it",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A fallen mossy twig lying sideways with a tiny mushroom growing on it. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "code: tools/sprites/nature_features.py"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       },
       {
         "id": "boulder",
         "subject": "a big smooth grey pebble with a patch of soft moss on top",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A big smooth grey pebble with a patch of soft moss on top. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "code: tools/sprites/nature_features.py"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       },
       {
         "id": "hollow",
         "subject": "a hollow old tree stump with a round burrow entrance at its base",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A hollow old tree stump with a round burrow entrance at its base. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "code: tools/sprites/nature_features.py"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       },
       {
         "id": "base",
         "subject": "a cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "pixellab"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       },
       {
         "id": "outpost",
         "subject": "a small lookout tower built from twigs and bark with a leaf roof and an empty twig flagpole",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A small lookout tower built from twigs and bark with a leaf roof and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "code: tools/sprites/nature_features.py"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       },
       {
         "id": "storehouse",
         "subject": "a little granary made from a hollow stump with an acorn-cap roof and seeds and nuts stacked by the door",
         "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A little granary made from a hollow stump with an acorn-cap roof and seeds and nuts stacked by the door. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "code: tools/sprites/nature_features.py"
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
       }
     ]
   },

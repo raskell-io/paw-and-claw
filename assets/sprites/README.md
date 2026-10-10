@@ -126,17 +126,17 @@ Lessons from the first tests:
 - **Features stand on plain meadow:** every land feature's ground tile is
   ordinary grass, so the sprite alone says what's there. Owned properties
   aren't tinted; their pennant shows the owner.
-- **Features are drawn by code** at animal scale:
-  `python3 tools/sprites/nature_features.py` writes:
-  - the bush (thicket), bramble, pebble (boulder), fallen log, hollow stump
-    and tall-grass tuft;
-  - the twig lookout (outpost) and acorn granary (storehouse).
-
-  Each is built from shaded shapes in ramps next to the ground palette, with
-  colored outlines, so the whole forest floor shares one palette. Generated
-  versions kept drifting in shape, color and background at this simple scale.
-  The base and the units stay generated; `source` in the manifest says which
-  is which.
+- **Features match the bush.** The bush (thicket) is drawn by code:
+  `python3 tools/sprites/nature_features.py`. Every other feature (pebble,
+  log, stump, brambles, tall grass, lookout, granary, burrow-home base) is
+  generated with **Create image → Pro → Pro Flash**, with the bush as the
+  **style image** (copy palette, outline, detail and shading). That's 5–6
+  generations a call, so ask for a sheet: one 128×64 call gave a 4×2 grid of
+  objects. The objects don't sit on the grid, and ones at the edge can come
+  out clipped, so slice by the gaps between them, fit each into 32×32
+  standing on the bottom row, and soften the outline. Keep the raw sheet in
+  `assets/sprites/originals/features/`. Code-drawn versions of these looked
+  like programmer art next to the bush; Pixen (no style image) drifted in style.
 - **Features have no black outlines.** Dual Strike outlines terrain in darker
   shades of the object's own colors, so it stays subtle while units, which keep
   dark outlines, stand out. Generate with "Selective outline", then run
