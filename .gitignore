@@ -4,3 +4,4 @@ web/*.js
 web/*.wasm
 .DS_Store
 screenshots/
+__pycache__/
