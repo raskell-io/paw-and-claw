@@ -97,7 +97,7 @@
             power: (
                 name: "Endless Horde",
                 description: "All bases produce a free Scout",
-                effect: FreeUnits(unit_type: Scout, count: 1),
+                effect: FreeUnits(unit_type: Scout),
             ),
             power_cost: 140,
         ),
@@ -116,7 +116,7 @@
             power: (
                 name: "Charge!",
                 description: "All units can move again this turn",
-                effect: ExtraMove(bonus: 99),
+                effect: ExtraMove,
             ),
             power_cost: 180,
         ),
@@ -137,7 +137,7 @@
             power: (
                 name: "Heist",
                 description: "Steal 30% of enemy funds and gain +15% attack",
-                effect: StealFunds(percentage: 0.3),
+                effect: StealFunds(steal_percent: 0.3, attack_boost: 1.15),
             ),
             power_cost: 130,
         ),
@@ -234,7 +234,7 @@
             power: (
                 name: "Blinding Speed",
                 description: "All units can move again and gain +20% attack",
-                effect: ExtraMove(bonus: 99),
+                effect: ExtraMove,
             ),
             power_cost: 160,
         ),
@@ -274,7 +274,7 @@
             power: (
                 name: "Endless Swarm",
                 description: "Spawn a free Scout at every owned property",
-                effect: FreeUnits(unit_type: Scout, count: 1),
+                effect: FreeUnits(unit_type: Scout),
             ),
             power_cost: 140,
         ),

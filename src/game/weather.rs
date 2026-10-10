@@ -6,7 +6,6 @@ pub struct WeatherPlugin;
 impl Plugin for WeatherPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Weather>()
-            .add_event::<WeatherChangedEvent>()
             .add_systems(Update, weather_change_system);
     }
 }
@@ -35,17 +34,6 @@ impl WeatherType {
             WeatherType::Snow => "Snow",
             WeatherType::Sandstorm => "Sandstorm",
             WeatherType::Fog => "Dense Fog",
-        }
-    }
-
-    /// Description of effects
-    pub fn description(&self) -> &'static str {
-        match self {
-            WeatherType::Clear => "Perfect conditions. No combat modifiers.",
-            WeatherType::Rain => "Vision -1. Forests provide no defense bonus.",
-            WeatherType::Snow => "Movement -1 for all units. Defense +10%.",
-            WeatherType::Sandstorm => "Vision -2. Attack -15% for all units.",
-            WeatherType::Fog => "Vision reduced to 1. Perfect for ambushes.",
         }
     }
 
@@ -196,12 +184,6 @@ impl Weather {
         self.effects = WeatherEffects::from_weather(weather_type);
     }
 
-    /// Set weather with duration
-    pub fn set_for_turns(&mut self, weather_type: WeatherType, turns: u32) {
-        self.set(weather_type);
-        self.turns_remaining = turns;
-    }
-
     /// Get current weather effects
     pub fn effects(&self) -> &WeatherEffects {
         &self.effects
@@ -220,16 +202,6 @@ impl Weather {
     /// Apply movement modifier (returns modified movement, minimum 1)
     pub fn apply_movement(&self, base_movement: u32) -> u32 {
         (base_movement as i32 + self.effects.movement_modifier).max(1) as u32
-    }
-
-    /// Apply attack modifier
-    pub fn apply_attack(&self, base_attack: f32) -> f32 {
-        base_attack * self.effects.attack_multiplier
-    }
-
-    /// Apply defense modifier
-    pub fn apply_defense(&self, base_defense: f32) -> f32 {
-        base_defense * self.effects.defense_multiplier
     }
 
     /// Check if forests provide cover in current weather
@@ -280,13 +252,6 @@ impl Weather {
     }
 }
 
-/// Event fired when weather changes
-#[derive(Message)]
-pub struct WeatherChangedEvent {
-    pub old_weather: WeatherType,
-    pub new_weather: WeatherType,
-}
-
 // ============================================================================
 // SYSTEMS
 // ============================================================================
@@ -295,7 +260,6 @@ pub struct WeatherChangedEvent {
 fn weather_change_system(
     mut weather: ResMut<Weather>,
     turn_state: Res<crate::game::TurnState>,
-    mut weather_events: MessageWriter<WeatherChangedEvent>,
     mut last_turn: Local<u32>,
 ) {
     // Only check at start of new turns
@@ -312,9 +276,5 @@ fn weather_change_system(
     let old_weather = weather.current;
     if let Some(new_weather) = weather.try_random_change() {
         info!("Weather changed from {:?} to {:?}!", old_weather, new_weather);
-        weather_events.write(WeatherChangedEvent {
-            old_weather,
-            new_weather,
-        });
     }
 }

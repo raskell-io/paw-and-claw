@@ -3,6 +3,8 @@ use bevy::prelude::*;
 mod states;
 mod game;
 mod ui;
+#[cfg(not(target_arch = "wasm32"))]
+mod dev;
 
 use states::GameState;
 use game::GamePlugin;
@@ -12,7 +14,10 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
 
-    App::new()
+    let mut app = App::new();
+    app
+        // Deep forest floor around the board
+        .insert_resource(ClearColor(Color::srgb_u8(0x1F, 0x2B, 0x21)))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Paw & Claw".into(),
@@ -26,8 +31,12 @@ fn main() {
         .init_state::<GameState>()
         .add_plugins(GamePlugin)
         .add_plugins(UiPlugin)
-        .add_systems(Startup, (setup_camera, setup_lighting))
-        .run();
+        .add_systems(Startup, (setup_camera, setup_lighting));
+
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_plugins(dev::DevScriptPlugin);
+
+    app.run();
 }
 
 fn setup_camera(mut commands: Commands) {

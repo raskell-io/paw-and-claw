@@ -3,7 +3,7 @@ use bevy::ecs::system::SystemParam;
 use bevy_egui::input::EguiWantsInput;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{GameMap, GridPosition, Unit, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass, BattleConfig, AiState};
+use super::{GameMap, GridPosition, Unit, UnitType, FactionMember, TurnState, TurnPhase, AttackEvent, Tile, Terrain, TILE_SIZE, GameResult, Commanders, Weather, UnitAnimation, Faction, GameData, UnitClass, BattleConfig, AiState, BattleEntity};
 use crate::states::GameState;
 
 /// Message to cancel a unit's move and return it to original position
@@ -11,6 +11,15 @@ use crate::states::GameState;
 pub struct CancelMoveEvent {
     pub unit: Entity,
     pub original_position: (i32, i32),
+}
+
+/// Set by the UI while a modal screen (setup, pause, production, game over)
+/// owns input, so the board ignores keys and clicks meant for the menu
+#[derive(Resource, Default)]
+pub struct ModalOpen(pub bool);
+
+fn board_input_allowed(modal: Res<ModalOpen>) -> bool {
+    !modal.0
 }
 
 /// Bundled read-only game state for systems with many parameters
@@ -34,14 +43,17 @@ pub struct InputState<'w> {
 
 /// Marker component for movement highlight mesh entities
 #[derive(Component)]
+#[require(BattleEntity)]
 pub struct MovementHighlightMesh;
 
 /// Marker component for attack target highlight mesh entities
 #[derive(Component)]
+#[require(BattleEntity)]
 pub struct AttackHighlightMesh;
 
 /// Marker component for path indicator mesh entities
 #[derive(Component)]
+#[require(BattleEntity)]
 pub struct PathIndicatorMesh;
 
 /// Input mode for controlling units
@@ -149,7 +161,7 @@ impl MovementPath {
         self.total_cost = 0;
         for pos in self.path.iter().skip(1) {  // Skip starting position
             let terrain = map.get(pos.x, pos.y).unwrap_or(Terrain::Grass);
-            self.total_cost += game_data.movement_cost_or_default(terrain, unit_class);
+            self.total_cost += game_data.movement_cost(terrain, unit_class);
         }
     }
 
@@ -158,10 +170,6 @@ impl MovementPath {
         self.path.last().copied()
     }
 
-    /// Check if path has more than just the starting position
-    pub fn has_movement(&self) -> bool {
-        self.path.len() > 1
-    }
 }
 
 /// Convert screen position to grid coordinates using ray-plane intersection
@@ -218,20 +226,21 @@ impl Plugin for MovementPlugin {
             .init_resource::<MovementPath>()
             // Split systems into smaller groups to avoid tuple size limits
             // Camera systems can run independently
+            .init_resource::<ModalOpen>()
+            .add_systems(Update, (fit_camera_to_map, update_camera_angle).run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 handle_camera_movement,
                 handle_camera_zoom,
                 handle_camera_angle_toggle,
-                update_camera_angle,
-            ).run_if(in_state(GameState::Battle)))
+            ).run_if(in_state(GameState::Battle)).run_if(board_input_allowed))
             // Input handling - registered separately due to parameter count limits
-            .add_systems(Update, handle_keyboard_input.run_if(in_state(GameState::Battle)))
-            .add_systems(Update, handle_keyboard_path_drawing.run_if(in_state(GameState::Battle)))
+            .add_systems(Update, handle_keyboard_input.run_if(in_state(GameState::Battle)).run_if(board_input_allowed))
+            .add_systems(Update, handle_keyboard_path_drawing.run_if(in_state(GameState::Battle)).run_if(board_input_allowed))
             .add_systems(Update, (
                 handle_click_input,
                 handle_path_drawing,
                 update_cursor_from_mouse,
-            ).run_if(in_state(GameState::Battle)))
+            ).run_if(in_state(GameState::Battle)).run_if(board_input_allowed))
             .add_systems(Update, (
                 spawn_movement_highlight_meshes,
                 spawn_path_indicator_meshes,
@@ -309,7 +318,7 @@ impl Default for CameraZoom {
         Self {
             current: 1.0,
             min: 0.3,   // Zoomed in close
-            max: 2.5,   // Zoomed out far
+            max: 4.0,   // Zoomed out far (large maps)
             speed: 0.15,
         }
     }
@@ -432,21 +441,20 @@ pub fn calculate_attack_targets(
     attacker: &Unit,
     attacker_pos: &GridPosition,
     attacker_faction: &FactionMember,
-    units: &[(Entity, GridPosition, FactionMember)],
+    units: &[(Entity, GridPosition, FactionMember, UnitType)],
+    game_data: &GameData,
 ) -> HashSet<Entity> {
     let mut targets = HashSet::new();
-    let stats = attacker.unit_type.stats();
+    let (min_range, max_range) = game_data.unit_stats(attacker.unit_type).attack_range;
 
-    // Skip if unit can't attack
-    if stats.attack == 0 {
-        return targets;
-    }
-
-    let (min_range, max_range) = stats.attack_range;
-
-    for (entity, pos, faction) in units {
+    for (entity, pos, faction, unit_type) in units {
         // Can't attack own faction
         if faction.faction == attacker_faction.faction {
+            continue;
+        }
+
+        // Damage table decides which unit types this attacker can hit
+        if !game_data.can_damage(attacker.unit_type, *unit_type) {
             continue;
         }
 
@@ -471,14 +479,6 @@ pub fn calculate_movement_range(
 ) -> HashSet<(i32, i32)> {
     let (reachable, _) = calculate_movement_range_with_costs(start, movement, map, units, unit_class, game_data);
     reachable
-}
-
-/// Unit info for movement calculation
-pub struct UnitInfo {
-    pub entity: Entity,
-    pub faction: Faction,
-    pub unit_type: super::UnitType,
-    pub hp: i32,
 }
 
 /// Calculate reachable tiles and their costs using BFS
@@ -512,7 +512,7 @@ pub fn calculate_movement_range_with_costs(
 
             if let Some(terrain) = map.get(nx, ny) {
                 // Use GameData for movement cost based on unit class
-                let move_cost = game_data.movement_cost_or_default(terrain, unit_class);
+                let move_cost = game_data.movement_cost(terrain, unit_class);
                 let new_cost = cost + move_cost;
 
                 // Can't move through units (but can stop on friendly same-type for joining)
@@ -590,7 +590,7 @@ pub fn calculate_movement_range_with_joins(
 
             if let Some(terrain) = map.get(nx, ny) {
                 // Use GameData for movement cost based on unit class
-                let move_cost = game_data.movement_cost_or_default(terrain, unit_class);
+                let move_cost = game_data.movement_cost(terrain, unit_class);
                 let new_cost = cost + move_cost;
 
                 // Can't move through blocked tiles (enemy units)
@@ -647,6 +647,11 @@ fn handle_keyboard_input(
 ) {
     // Don't process input if game is over
     if game_ctx.game_result.game_over {
+        return;
+    }
+
+    // No map yet (e.g. battle setup screen is open)
+    if map.width == 0 || map.height == 0 {
         return;
     }
 
@@ -785,8 +790,8 @@ fn handle_keyboard_input(
 
             // Select the unit (same logic as Space/Enter selection)
             if let Ok((entity, pos, _, faction, unit)) = units.get(next_entity) {
-                let stats = unit.unit_type.stats();
-                let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
+                let stats = game_data.unit_stats(unit.unit_type);
+                let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
                 let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
                 let weather_movement = game_ctx.weather.apply_movement(base_movement);
                 let total_movement = effective_movement(weather_movement, unit.stamina);
@@ -803,9 +808,9 @@ fn handle_keyboard_input(
 
                 // Calculate attack targets
                 let all_units: Vec<_> = units.iter()
-                    .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                    .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                     .collect();
-                let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+                let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
 
                 highlights.selected_unit = Some(entity);
                 highlights.selected_unit_class = Some(unit_class);
@@ -948,16 +953,16 @@ fn handle_keyboard_input(
 
                     // Calculate attack targets from current/new position
                     let all_units: Vec<_> = units.iter()
-                        .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                         .collect();
-                    let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units);
+                    let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data);
 
                     // Check if unit can capture the tile
-                    let (can_capture, capture_tile) = if unit_copy.unit_type.stats().can_capture {
+                    let (can_capture, capture_tile) = if game_data.unit_stats(unit_copy.unit_type).can_capture {
                         tiles.iter()
                             .find(|(_, t)| t.position.x == input.cursor.x && t.position.y == input.cursor.y)
                             .map(|(e, tile)| {
-                                let capturable = tile.terrain.is_capturable() && tile.owner != Some(faction_copy.faction);
+                                let capturable = game_data.terrain_capturable(tile.terrain) && tile.owner != Some(faction_copy.faction);
                                 (capturable, if capturable { Some(e) } else { None })
                             })
                             .unwrap_or((false, None))
@@ -1006,8 +1011,8 @@ fn handle_keyboard_input(
                     && !unit.exhausted
                     && faction.faction == turn_state.current_faction
                 {
-                    let stats = unit.unit_type.stats();
-                    let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
+                    let stats = game_data.unit_stats(unit.unit_type);
+                    let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
                     let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
                     let weather_movement = game_ctx.weather.apply_movement(base_movement);
                     // Limit movement by stamina
@@ -1017,7 +1022,7 @@ fn handle_keyboard_input(
                     let all_unit_info: Vec<_> = units.iter()
                         .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
                         .collect();
-                    let unit_class = unit.unit_type.stats().class;
+                    let unit_class = game_data.unit_stats(unit.unit_type).class;
                     let (tiles, tile_costs) = calculate_movement_range_with_joins(
                         &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
                         unit_class, &game_data
@@ -1025,9 +1030,9 @@ fn handle_keyboard_input(
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
-                        .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                         .collect();
-                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
 
                     found_unit = Some((entity, tiles, tile_costs, attack_targets, unit_class));
                     break;
@@ -1107,7 +1112,7 @@ fn handle_camera_movement(
 /// Handle camera zoom with scroll wheel, touchpad pinch, and keyboard (Q/E or +/-)
 /// Only updates zoom.current - actual camera positioning is done by update_camera_angle
 fn handle_camera_zoom(
-    mut scroll_events: EventReader<bevy::input::mouse::MouseWheel>,
+    mut scroll_events: MessageReader<bevy::input::mouse::MouseWheel>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut zoom: ResMut<CameraZoom>,
@@ -1141,6 +1146,39 @@ fn handle_camera_zoom(
 }
 
 /// Handle keyboard toggle for camera angle (T key)
+/// Frame the whole board when a new map is loaded
+fn fit_camera_to_map(
+    map: Res<GameMap>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    projection: Query<&Projection, With<Camera3d>>,
+    mut zoom: ResMut<CameraZoom>,
+    mut angle: ResMut<CameraAngle>,
+) {
+    if !map.is_changed() || map.width == 0 || map.height == 0 {
+        return;
+    }
+    let aspect = windows.single().map(|w| w.width() / w.height().max(1.0)).unwrap_or(16.0 / 9.0);
+    let fov = match projection.single() {
+        Ok(Projection::Perspective(p)) => p.fov,
+        _ => std::f32::consts::FRAC_PI_6,
+    };
+    let height = fit_height(map.width as f32 * TILE_SIZE, map.height as f32 * TILE_SIZE, aspect, angle.perspective_pitch, fov);
+    zoom.current = (height / angle.perspective_height).clamp(zoom.min, zoom.max);
+    angle.look_at = Vec2::ZERO;
+    angle.mode = CameraMode::Perspective;
+}
+
+/// Camera height needed to see a `width` x `depth` board (world units) with
+/// room left for the HUD cards at the top and bottom of the screen
+fn fit_height(width: f32, depth: f32, aspect: f32, pitch: f32, fov: f32) -> f32 {
+    // Ground depth seen per unit of height between the bottom and top screen edges
+    let depth_per_height = 1.0 / (pitch - fov / 2.0).tan() - 1.0 / (pitch + fov / 2.0).tan();
+    // Ground width seen per unit of height at the screen center
+    let width_per_height = 2.0 * (fov / 2.0).tan() * aspect / pitch.sin();
+    let hud_margin = 1.45;
+    (depth * hud_margin / depth_per_height).max(width * 1.1 / width_per_height)
+}
+
 fn handle_camera_angle_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut angle: ResMut<CameraAngle>,
@@ -1430,17 +1468,17 @@ fn handle_click_input(
                         .iter()
                         .map(|(e, p, _, _, _)| ((p.x, p.y), e))
                         .collect();
-                    let stats = unit.unit_type.stats();
-                    let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
+                    let stats = game_data.unit_stats(unit.unit_type);
+                    let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
                     let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
                     let total_movement = game_ctx.weather.apply_movement(base_movement);
                     let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions, stats.class, &game_data);
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
-                        .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                         .collect();
-                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
 
                     switch_to = Some((entity, tiles, attack_targets, stats.class));
                     break;
@@ -1526,16 +1564,16 @@ fn handle_click_input(
 
             // Calculate attack targets from new position
             let all_units: Vec<_> = units.iter()
-                .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                 .collect();
-            let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units);
+            let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data);
 
             // Check if unit can capture the tile it moved to
-            let (can_capture, capture_tile) = if unit_copy.unit_type.stats().can_capture {
+            let (can_capture, capture_tile) = if game_data.unit_stats(unit_copy.unit_type).can_capture {
                 tiles.iter()
                     .find(|(_, t)| t.position.x == grid_x && t.position.y == grid_y)
                     .map(|(e, tile)| {
-                        let capturable = tile.terrain.is_capturable() && tile.owner != Some(faction_copy.faction);
+                        let capturable = game_data.terrain_capturable(tile.terrain) && tile.owner != Some(faction_copy.faction);
                         (capturable, if capturable { Some(e) } else { None })
                     })
                     .unwrap_or((false, None))
@@ -1585,8 +1623,8 @@ fn handle_click_input(
             && !unit.exhausted
             && faction.faction == turn_state.current_faction
         {
-            let stats = unit.unit_type.stats();
-            let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction);
+            let stats = game_data.unit_stats(unit.unit_type);
+            let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
             let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
             let weather_movement = game_ctx.weather.apply_movement(base_movement);
             // Limit movement by stamina
@@ -1603,9 +1641,9 @@ fn handle_click_input(
 
             // Calculate attack targets
             let all_units: Vec<_> = units.iter()
-                .map(|(e, p, _, f, _)| (e, p.clone(), f.clone()))
+                .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                 .collect();
-            let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units);
+            let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
 
             select_unit = Some((entity, move_tiles, move_costs, attack_targets, pos.x, pos.y, stats.class));
             break;
@@ -1656,6 +1694,7 @@ fn handle_click_input(
 
 /// Spawn mesh entities for movement and attack highlights
 fn spawn_movement_highlight_meshes(
+    game_data: Res<GameData>,
     mut commands: Commands,
     highlights: Res<MovementHighlights>,
     map: Res<GameMap>,
@@ -1708,7 +1747,7 @@ fn spawn_movement_highlight_meshes(
 
         // Get tile height to place highlight on top of tile
         let tile_height = map.get(x, y)
-            .map(|t| t.tile_height())
+            .map(|t| game_data.terrain(t).tile_height)
             .unwrap_or(4.0);
 
         // Create a flat plane mesh for this tile
@@ -1730,7 +1769,7 @@ fn spawn_movement_highlight_meshes(
 
             // Get tile height
             let tile_height = map.get(pos.x, pos.y)
-                .map(|t| t.tile_height())
+                .map(|t| game_data.terrain(t).tile_height)
                 .unwrap_or(4.0);
 
             let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
@@ -1933,6 +1972,7 @@ fn create_arrow_mesh() -> Mesh {
 
 /// Spawn mesh entities for path indicators
 fn spawn_path_indicator_meshes(
+    game_data: Res<GameData>,
     mut commands: Commands,
     movement_path: Res<MovementPath>,
     map: Res<GameMap>,
@@ -1987,7 +2027,7 @@ fn spawn_path_indicator_meshes(
         let world_z = pos.y as f32 * TILE_SIZE + offset_z;
 
         let tile_height = map.get(pos.x, pos.y)
-            .map(|t| t.tile_height())
+            .map(|t| game_data.terrain(t).tile_height)
             .unwrap_or(4.0);
 
         let is_destination = i == movement_path.path.len() - 1;
@@ -1999,7 +2039,7 @@ fn spawn_path_indicator_meshes(
             let next_world_x = next_pos.x as f32 * TILE_SIZE + offset_x;
             let next_world_z = next_pos.y as f32 * TILE_SIZE + offset_z;
             let next_tile_height = map.get(next_pos.x, next_pos.y)
-                .map(|t| t.tile_height())
+                .map(|t| game_data.terrain(t).tile_height)
                 .unwrap_or(4.0);
 
             // Calculate midpoint for arrow placement
@@ -2076,6 +2116,7 @@ fn spawn_path_indicator_meshes(
 
 /// Draw the grid cursor (Advance Wars style corner brackets)
 fn draw_grid_cursor(
+    game_data: Res<GameData>,
     cursor: Res<GridCursor>,
     mut gizmos: Gizmos,
     map: Res<GameMap>,
@@ -2093,7 +2134,7 @@ fn draw_grid_cursor(
 
     // Get tile height to position cursor on top of tile
     let tile_height = map.get(cursor.x, cursor.y)
-        .map(|t| t.tile_height())
+        .map(|t| game_data.terrain(t).tile_height)
         .unwrap_or(4.0);
     let y = tile_height + 0.2; // Height above tile surface
 
@@ -2181,6 +2222,7 @@ fn draw_action_targets(
 
 /// Draw warning indicators on units with low stamina/ammo
 fn draw_resource_warnings(
+    game_data: Res<GameData>,
     mut gizmos: Gizmos,
     map: Res<GameMap>,
     turn_state: Res<TurnState>,
@@ -2200,7 +2242,7 @@ fn draw_resource_warnings(
             continue;
         }
 
-        let stats = unit.unit_type.stats();
+        let stats = game_data.unit_stats(unit.unit_type);
         let low_stamina = stats.max_stamina > 0 && unit.stamina <= stats.max_stamina / 3;
         let low_ammo = stats.max_ammo > 0 && unit.ammo <= stats.max_ammo / 3;
         let no_ammo = stats.max_ammo > 0 && unit.ammo == 0;
@@ -2262,5 +2304,58 @@ fn draw_resource_warnings(
                 color,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map_from_rows(rows: &[&[Terrain]]) -> GameMap {
+        GameMap {
+            width: rows[0].len() as u32,
+            height: rows.len() as u32,
+            tiles: rows.iter().map(|r| r.to_vec()).collect(),
+        }
+    }
+
+    #[test]
+    fn movement_range_pays_terrain_costs() {
+        use Terrain::*;
+        let data = GameData::load_defaults();
+        let map = map_from_rows(&[&[Grass, Grass, Thicket, Grass, Grass]]);
+        let reach = calculate_movement_range(&GridPosition::new(0, 0), 3, &map, &HashMap::new(), UnitClass::Foot, &data);
+        // grass(1) + thicket(2) = 3 movement used reaching x=2
+        assert!(reach.contains(&(2, 0)));
+        assert!(!reach.contains(&(3, 0)));
+    }
+
+    #[test]
+    fn movement_range_blocked_by_impassable_terrain() {
+        use Terrain::*;
+        let data = GameData::load_defaults();
+        let map = map_from_rows(&[&[Grass, Pond, Grass]]);
+        let foot = calculate_movement_range(&GridPosition::new(0, 0), 5, &map, &HashMap::new(), UnitClass::Foot, &data);
+        assert!(!foot.contains(&(1, 0)) && !foot.contains(&(2, 0)));
+        let air = calculate_movement_range(&GridPosition::new(0, 0), 5, &map, &HashMap::new(), UnitClass::Air, &data);
+        assert!(air.contains(&(2, 0)));
+    }
+
+    #[test]
+    fn attack_targets_skip_friendlies_and_untargetable_units() {
+        let data = GameData::load_defaults();
+        let scout = Unit::new(UnitType::Scout, &data);
+        let me = FactionMember { faction: Faction::Eastern };
+        let mut world = World::new();
+        let [enemy, friend, enemy_jet, far_enemy] = [(); 4].map(|_| world.spawn_empty().id());
+        let enemy_faction = FactionMember { faction: Faction::Northern };
+        let units = vec![
+            (enemy, GridPosition::new(1, 0), enemy_faction.clone(), UnitType::Scout),
+            (friend, GridPosition::new(0, 1), me.clone(), UnitType::Scout),
+            (enemy_jet, GridPosition::new(-1, 0), enemy_faction.clone(), UnitType::Raptor),
+            (far_enemy, GridPosition::new(3, 0), enemy_faction, UnitType::Scout),
+        ];
+        let targets = calculate_attack_targets(&scout, &GridPosition::new(0, 0), &me, &units, &data);
+        assert_eq!(targets, HashSet::from([enemy]));
     }
 }

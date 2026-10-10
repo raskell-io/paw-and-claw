@@ -23,12 +23,12 @@
 ## Phase 1: Complete Moddability
 
 ### Data-Driven Refactor
-- [ ] Replace hardcoded `Faction::name()` with `GameData` lookups
-- [ ] Replace hardcoded `UnitType` stats with `GameData` lookups
-- [ ] Replace hardcoded `Terrain` properties with `GameData` lookups
-- [ ] Replace hardcoded `Commander` data with `GameData` lookups
-- [ ] Externalize damage tables to RON
-- [ ] Externalize movement cost tables to RON
+- [x] Replace hardcoded `Faction::name()` with `GameData` lookups
+- [x] Replace hardcoded `UnitType` stats with `GameData` lookups
+- [x] Replace hardcoded `Terrain` properties with `GameData` lookups
+- [x] Replace hardcoded `Commander` data with `GameData` lookups
+- [x] Externalize damage tables to RON
+- [x] Externalize movement cost tables to RON
 
 ### Map System
 - [ ] Standardize map format as RON files
@@ -54,7 +54,7 @@
 - [ ] Tutorial/campaign mode
 
 ### Quality of Life
-- [ ] Undo move (before confirming action)
+- [x] Undo move (before confirming action)
 - [ ] Quick save/load
 - [ ] Game speed options
 - [ ] Accessibility options
@@ -94,13 +94,13 @@
 ## Technical Debt
 
 ### Bevy 0.17 Migration Cleanup
-- [ ] Replace deprecated `EventReader` with `MessageReader`
-- [ ] Replace deprecated `add_event` with `add_message`
-- [ ] Update deprecated egui methods
+- [x] Replace deprecated `EventReader` with `MessageReader`
+- [x] Replace deprecated `add_event` with `add_message`
+- [x] Update deprecated egui methods
 
 ### Code Quality
-- [ ] Remove unused code (dead_code warnings)
-- [ ] Add unit tests for game logic
+- [x] Remove unused code (dead_code warnings)
+- [ ] Add unit tests for game logic (started: combat, data, commanders, movement, funds)
 - [ ] Integration tests for save/load
 
 ---

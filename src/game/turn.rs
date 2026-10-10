@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition, MovementHighlights};
+use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition, MovementHighlights, GameData};
 
 pub struct TurnPlugin;
 
@@ -11,7 +11,7 @@ impl Plugin for TurnPlugin {
             .init_resource::<FactionFunds>()
             .init_resource::<GameResult>()
             .init_resource::<BattleConfig>()
-            .add_event::<TurnStartEvent>()
+            .add_message::<TurnStartEvent>()
             .add_systems(Update, (check_victory_condition, generate_income, resupply_units));
     }
 }
@@ -91,26 +91,12 @@ pub enum VictoryType {
 #[derive(Message)]
 pub struct TurnStartEvent {
     pub faction: Faction,
-    #[allow(dead_code)]
-    pub income: u32,
 }
 
 /// Tracks funds for each faction
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct FactionFunds {
     funds: HashMap<Faction, u32>,
-}
-
-impl Default for FactionFunds {
-    fn default() -> Self {
-        let mut funds = HashMap::new();
-        funds.insert(Faction::Eastern, 100);
-        funds.insert(Faction::Northern, 100);
-        funds.insert(Faction::Western, 0);
-        funds.insert(Faction::Southern, 0);
-        funds.insert(Faction::Nether, 0);
-        Self { funds }
-    }
 }
 
 impl FactionFunds {
@@ -152,7 +138,6 @@ impl Default for TurnState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum TurnPhase {
     Select,     // Selecting a unit
     Move,       // Unit selected, choosing where to move
@@ -161,16 +146,6 @@ pub enum TurnPhase {
 }
 
 impl TurnState {
-    #[allow(dead_code)]
-    pub fn end_turn<'a>(&mut self, units: impl Iterator<Item = &'a mut Unit>) {
-        // Reset all units of current faction
-        for unit in units {
-            unit.reset_turn();
-        }
-
-        // Note: For proper faction switching, use advance_turn() with BattleConfig
-        self.phase = TurnPhase::Select;
-    }
 }
 
 fn check_victory_condition(
@@ -242,20 +217,21 @@ fn check_victory_condition(
 
 /// Generate income from owned properties when turn start event fires
 fn generate_income(
-    mut events: EventReader<TurnStartEvent>,
+    mut events: MessageReader<TurnStartEvent>,
     tiles: Query<&Tile>,
     mut funds: ResMut<FactionFunds>,
     commanders: Res<Commanders>,
+    game_data: Res<GameData>,
 ) {
     for event in events.read() {
         // Calculate base income from owned properties
         let base_income: u32 = tiles.iter()
             .filter(|t| t.owner == Some(event.faction))
-            .map(|t| t.terrain.income_value())
+            .map(|t| game_data.terrain_income(t.terrain))
             .sum();
 
         // Apply CO income bonus
-        let co_bonuses = commanders.get_bonuses(event.faction);
+        let co_bonuses = commanders.get_bonuses(event.faction, &game_data);
         let income = (base_income as f32 * co_bonuses.income).round() as u32;
 
         if income > 0 {
@@ -273,10 +249,11 @@ fn generate_income(
 
 /// Resupply and heal units on friendly bases and storehouses at turn start
 fn resupply_units(
-    mut events: EventReader<TurnStartEvent>,
+    mut events: MessageReader<TurnStartEvent>,
     mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
     tiles: Query<&Tile>,
     mut funds: ResMut<FactionFunds>,
+    game_data: Res<GameData>,
 ) {
     for event in events.read() {
         // Build a map of supply buildings owned by this faction
@@ -295,7 +272,7 @@ fn resupply_units(
 
             // Check if unit is on a supply building
             if let Some(terrain) = supply_buildings.get(&(pos.x, pos.y)) {
-                let stats = unit.unit_type.stats();
+                let stats = game_data.unit_stats(unit.unit_type);
                 let old_hp = unit.hp;
                 let old_stamina = unit.stamina;
                 let old_ammo = unit.ammo;
@@ -312,7 +289,7 @@ fn resupply_units(
                 if hp_needed > 0 {
                     // Calculate healing cost: (heal_amount / max_hp) * unit_cost
                     let actual_heal = heal_amount.min(hp_needed);
-                    let unit_cost = unit.unit_type.cost();
+                    let unit_cost = stats.cost;
                     let heal_cost = (actual_heal as u32 * unit_cost) / stats.max_hp as u32;
 
                     // Only heal if we can afford it (or heal as much as we can afford)
@@ -322,7 +299,7 @@ fn resupply_units(
                         funds.spend(event.faction, heal_cost);
                         info!(
                             "{} healed at {:?}: HP {}->{} (cost: {})",
-                            unit.unit_type.name(),
+                            game_data.unit_name(unit.unit_type),
                             terrain,
                             old_hp,
                             unit.hp,
@@ -338,7 +315,7 @@ fn resupply_units(
                             funds.spend(event.faction, partial_cost.max(1));
                             info!(
                                 "{} partially healed at {:?}: HP {}->{} (cost: {})",
-                                unit.unit_type.name(),
+                                game_data.unit_name(unit.unit_type),
                                 terrain,
                                 old_hp,
                                 unit.hp,
@@ -352,7 +329,7 @@ fn resupply_units(
                 if old_stamina < stats.max_stamina || old_ammo < stats.max_ammo {
                     info!(
                         "{} resupplied at {:?}: stamina {}->{}, ammo {}->{}",
-                        unit.unit_type.name(),
+                        game_data.unit_name(unit.unit_type),
                         terrain,
                         old_stamina,
                         unit.stamina,
@@ -362,5 +339,21 @@ fn resupply_units(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn funds_start_empty_and_refuse_overspending() {
+        let mut funds = FactionFunds::default();
+        assert_eq!(funds.get(Faction::Western), 0);
+        funds.add(Faction::Western, 1000);
+        assert!(!funds.spend(Faction::Western, 1001));
+        assert_eq!(funds.get(Faction::Western), 1000);
+        assert!(funds.spend(Faction::Western, 1000));
+        assert_eq!(funds.get(Faction::Western), 0);
     }
 }

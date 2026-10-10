@@ -25,70 +25,6 @@ pub enum Faction {
 }
 
 impl Faction {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Faction::Eastern => "Eastern Empire",
-            Faction::Northern => "Northern Realm",
-            Faction::Western => "Western Frontier",
-            Faction::Southern => "Southern Pride",
-            Faction::Nether => "Nether Dominion",
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn description(&self) -> &'static str {
-        match self {
-            Faction::Eastern => "Disciplined armies of the rising sun. Strength in numbers.",
-            Faction::Northern => "Stalwart defenders of the ancient forests. Unbreakable lines.",
-            Faction::Western => "Cunning survivalists of the wild frontier. Strike and fade.",
-            Faction::Southern => "Mighty beasts of the savanna. Power and endurance.",
-            Faction::Nether => "Relentless swarm from below. They emerge without warning.",
-        }
-    }
-
-    pub fn color(&self) -> Color {
-        match self {
-            Faction::Eastern => Color::srgb(0.9, 0.3, 0.3),   // Red (East Asian motif)
-            Faction::Northern => Color::srgb(0.3, 0.5, 0.9),  // Blue (European motif)
-            Faction::Western => Color::srgb(0.4, 0.7, 0.3),   // Green (American wilderness)
-            Faction::Southern => Color::srgb(0.9, 0.7, 0.2),  // Gold (African savanna)
-            Faction::Nether => Color::srgb(0.5, 0.2, 0.6),    // Purple (underground menace)
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn unit_cost_modifier(&self) -> f32 {
-        match self {
-            Faction::Eastern => 0.85,   // Cheaper units, swarm tactics
-            Faction::Northern => 1.0,   // Standard costs
-            Faction::Western => 0.95,   // Slightly cheaper, hit and run
-            Faction::Southern => 1.1,   // More expensive but powerful units
-            Faction::Nether => 0.9,     // Cheap expendable units, endless horde
-        }
-    }
-
-    /// Representative animals for this faction
-    #[allow(dead_code)]
-    pub fn animals(&self) -> &'static [&'static str] {
-        match self {
-            Faction::Eastern => &["Tanuki", "Red Panda", "Crane", "Kitsune", "Macaque"],
-            Faction::Northern => &["Badger", "Hedgehog", "Stoat", "Owl", "Fox"],
-            Faction::Western => &["Raccoon", "Opossum", "Coyote", "Hawk", "Armadillo"],
-            Faction::Southern => &["Lion", "Elephant", "Rhino", "Hyena", "Cheetah"],
-            Faction::Nether => &["Mole", "Naked Mole Rat", "Beetle", "Worm", "Ant"],
-        }
-    }
-
-    /// Get the asset folder name for this faction
-    pub fn asset_folder_name(&self) -> &'static str {
-        match self {
-            Faction::Eastern => "eastern",
-            Faction::Northern => "northern",
-            Faction::Western => "western",
-            Faction::Southern => "southern",
-            Faction::Nether => "nether",
-        }
-    }
 
     /// Get all faction variants
     pub fn all() -> &'static [Faction] {
@@ -108,7 +44,3 @@ pub struct FactionMember {
     pub faction: Faction,
 }
 
-/// Resource tracking the current player's faction
-#[derive(Resource, Default)]
-#[allow(dead_code)]
-pub struct CurrentFaction(pub Option<Faction>);

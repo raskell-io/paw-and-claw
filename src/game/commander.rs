@@ -2,9 +2,9 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 
 use super::{
-    Faction, UnitType, AiPersonality, Unit, FactionMember, GridPosition,
+    Faction, UnitType, Unit, FactionMember, GridPosition,
     FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, Terrain, SpriteAssets,
-    BattleConfig,
+    BattleConfig, GameData, CommanderData,
 };
 
 pub struct CommanderPlugin;
@@ -12,7 +12,7 @@ pub struct CommanderPlugin;
 impl Plugin for CommanderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Commanders>()
-            .add_event::<PowerActivatedEvent>()
+            .add_message::<PowerActivatedEvent>()
             .add_systems(Update, (
                 clear_power_at_turn_end,
                 apply_power_effects,
@@ -50,396 +50,28 @@ pub enum CommanderId {
 }
 
 impl CommanderId {
-    /// Get the commander data for this ID
-    pub fn data(&self) -> Commander {
-        match self {
-            // === EASTERN EMPIRE ===
-            CommanderId::Kira => Commander {
-                id: *self,
-                name: "Kira",
-                faction: Faction::Eastern,
-                personality: AiPersonality::Aggressive,
-                description: "A bold commander who leads from the front. Her aggressive tactics inspire troops to fight harder.",
-                attack_bonus: 1.1,      // +10% attack
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Blitz",
-                    description: "All units gain +1 movement and +20% attack this turn",
-                    effect: PowerEffect::StatBoost {
-                        attack: 1.2,
-                        defense: 1.0,
-                        movement: 1,
-                    },
-                },
-                power_cost: 100,
-            },
-            CommanderId::Tanuki => Commander {
-                id: *self,
-                name: "Tanuki",
-                faction: Faction::Eastern,
-                personality: AiPersonality::Methodical,
-                description: "A shrewd merchant-commander who knows the value of gold. Properties under his control generate more income.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.15,     // +15% income
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Gold Rush",
-                    description: "Gain 50% of current funds instantly",
-                    effect: PowerEffect::BonusFunds { multiplier: 0.5 },
-                },
-                power_cost: 120,
-            },
-            CommanderId::Sensei => Commander {
-                id: *self,
-                name: "Sensei",
-                faction: Faction::Eastern,
-                personality: AiPersonality::Aggressive, // Balanced, but defaults to aggressive
-                description: "An ancient master whose wisdom reveals hidden truths. Units under his command see farther.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 1,        // +1 vision
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Fog Piercer",
-                    description: "Reveal entire map and gain +30% attack for 1 turn",
-                    effect: PowerEffect::RevealAndBoost {
-                        attack_boost: 1.3,
-                    },
-                },
-                power_cost: 150,
-            },
-
-            // === NORTHERN REALM ===
-            CommanderId::Grimjaw => Commander {
-                id: *self,
-                name: "Grimjaw",
-                faction: Faction::Northern,
-                personality: AiPersonality::Cautious,
-                description: "A grizzled veteran who has never lost a defensive battle. His troops dig in like stone.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.15,    // +15% defense
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Iron Wall",
-                    description: "All units gain +40% defense and heal 2 HP",
-                    effect: PowerEffect::DefenseAndHeal {
-                        defense: 1.4,
-                        heal: 20,
-                    },
-                },
-                power_cost: 100,
-            },
-            CommanderId::Frost => Commander {
-                id: *self,
-                name: "Frost",
-                faction: Faction::Northern,
-                personality: AiPersonality::Reckless,
-                description: "A commander who believes in strength through numbers. Units are cheaper to produce.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 0.9,     // -10% unit cost
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Endless Horde",
-                    description: "All bases produce a free Scout",
-                    effect: PowerEffect::FreeUnits { unit_type: UnitType::Scout },
-                },
-                power_cost: 140,
-            },
-            CommanderId::Bjorn => Commander {
-                id: *self,
-                name: "Bjorn",
-                faction: Faction::Northern,
-                personality: AiPersonality::Aggressive,
-                description: "A swift commander who strikes before the enemy can react. Ground units move faster.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.0,
-                movement_bonus: 1,      // +1 movement
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Charge!",
-                    description: "All units can move again this turn",
-                    effect: PowerEffect::ExtraMove,
-                },
-                power_cost: 180,
-            },
-
-            // === WESTERN FRONTIER ===
-            CommanderId::Bandit => Commander {
-                id: *self,
-                name: "Bandit",
-                faction: Faction::Western,
-                personality: AiPersonality::Aggressive,
-                description: "A cunning raccoon who raids enemy supplies. Attacks on properties steal funds.",
-                attack_bonus: 1.05,     // +5% attack
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 0.95,    // -5% unit cost
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Heist",
-                    description: "Steal 30% of enemy funds and gain +15% attack",
-                    effect: PowerEffect::StealFunds {
-                        steal_percent: 0.3,
-                        attack_boost: 1.15,
-                    },
-                },
-                power_cost: 130,
-            },
-            CommanderId::Talon => Commander {
-                id: *self,
-                name: "Talon",
-                faction: Faction::Western,
-                personality: AiPersonality::Cautious,
-                description: "A sharp-eyed hawk who spots enemies from miles away. Master of reconnaissance.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 2,        // +2 vision
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Eagle Eye",
-                    description: "Reveal all enemies and deal +50% damage to revealed units",
-                    effect: PowerEffect::RevealAndBoost {
-                        attack_boost: 1.5,
-                    },
-                },
-                power_cost: 120,
-            },
-            CommanderId::Dusty => Commander {
-                id: *self,
-                name: "Dusty",
-                faction: Faction::Western,
-                personality: AiPersonality::Reckless,
-                description: "A wily coyote who uses hit-and-run tactics. Units can strike and retreat.",
-                attack_bonus: 1.0,
-                defense_bonus: 0.9,     // -10% defense (glass cannon)
-                movement_bonus: 1,      // +1 movement
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Ambush",
-                    description: "All units gain +30% attack and can move after attacking",
-                    effect: PowerEffect::StatBoost {
-                        attack: 1.3,
-                        defense: 1.0,
-                        movement: 2,    // Extra movement for retreat
-                    },
-                },
-                power_cost: 140,
-            },
-
-            // === SOUTHERN PRIDE ===
-            CommanderId::Lionheart => Commander {
-                id: *self,
-                name: "Lionheart",
-                faction: Faction::Southern,
-                personality: AiPersonality::Aggressive,
-                description: "A majestic lion whose roar inspires courage. His presence strengthens all allies.",
-                attack_bonus: 1.1,      // +10% attack
-                defense_bonus: 1.05,    // +5% defense
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.1,     // +10% unit cost (premium units)
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "King's Roar",
-                    description: "All units gain +25% attack and +25% defense for 1 turn",
-                    effect: PowerEffect::StatBoost {
-                        attack: 1.25,
-                        defense: 1.25,
-                        movement: 0,
-                    },
-                },
-                power_cost: 110,
-            },
-            CommanderId::Tusker => Commander {
-                id: *self,
-                name: "Tusker",
-                faction: Faction::Southern,
-                personality: AiPersonality::Methodical,
-                description: "A mighty elephant who never forgets a battle. His units are incredibly resilient.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.2,     // +20% defense
-                movement_bonus: -1,     // -1 movement (slow but tough)
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Stampede",
-                    description: "All units heal 3 HP and gain +50% defense",
-                    effect: PowerEffect::DefenseAndHeal {
-                        defense: 1.5,
-                        heal: 30,
-                    },
-                },
-                power_cost: 100,
-            },
-            CommanderId::Prowler => Commander {
-                id: *self,
-                name: "Prowler",
-                faction: Faction::Southern,
-                personality: AiPersonality::Reckless,
-                description: "A lightning-fast cheetah who strikes before enemies can react. Speed is everything.",
-                attack_bonus: 1.15,     // +15% attack
-                defense_bonus: 0.85,    // -15% defense (fragile)
-                movement_bonus: 2,      // +2 movement!
-                income_bonus: 1.0,
-                vision_bonus: 1,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Blinding Speed",
-                    description: "All units can move again and gain +20% attack",
-                    effect: PowerEffect::ExtraMove,
-                },
-                power_cost: 160,
-            },
-
-            // === NETHER DOMINION ===
-            CommanderId::Burrower => Commander {
-                id: *self,
-                name: "Burrower",
-                faction: Faction::Nether,
-                personality: AiPersonality::Methodical,
-                description: "An ancient mole who knows every tunnel beneath the earth. Terrain means nothing to his forces.",
-                attack_bonus: 1.0,
-                defense_bonus: 1.0,
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 1,  // Units ignore 1 terrain movement cost
-                power: CoPower {
-                    name: "Undermine",
-                    description: "All units ignore terrain movement costs this turn",
-                    effect: PowerEffect::IgnoreTerrain,
-                },
-                power_cost: 120,
-            },
-            CommanderId::Hivemind => Commander {
-                id: *self,
-                name: "Hivemind",
-                faction: Faction::Nether,
-                personality: AiPersonality::Aggressive,
-                description: "The naked mole rat queen whose colony spans continents. Her children are legion.",
-                attack_bonus: 0.95,     // -5% attack (weak individually)
-                defense_bonus: 0.95,    // -5% defense (weak individually)
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 0.8,     // -20% unit cost! Swarm tactics
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "Endless Swarm",
-                    description: "Spawn a free Scout at every owned property",
-                    effect: PowerEffect::FreeUnits { unit_type: UnitType::Scout },
-                },
-                power_cost: 140,
-            },
-            CommanderId::Dredge => Commander {
-                id: *self,
-                name: "Dredge",
-                faction: Faction::Nether,
-                personality: AiPersonality::Reckless,
-                description: "A massive stag beetle who crushes all opposition. Strike first, strike hard.",
-                attack_bonus: 1.15,     // +15% attack (aggressive)
-                defense_bonus: 0.9,     // -10% defense (glass cannon)
-                movement_bonus: 0,
-                income_bonus: 1.0,
-                vision_bonus: 0,
-                cost_modifier: 1.0,
-                terrain_cost_reduction: 0,
-                power: CoPower {
-                    name: "From Below",
-                    description: "All units heal 3 HP and attack first in combat this turn",
-                    effect: PowerEffect::DefenseAndHeal { defense: 1.0, heal: 3 },
-                },
-                power_cost: 130,
-            },
-        }
+    pub fn all() -> &'static [CommanderId] {
+        &[
+            CommanderId::Kira, CommanderId::Tanuki, CommanderId::Sensei,
+            CommanderId::Grimjaw, CommanderId::Frost, CommanderId::Bjorn,
+            CommanderId::Bandit, CommanderId::Talon, CommanderId::Dusty,
+            CommanderId::Lionheart, CommanderId::Tusker, CommanderId::Prowler,
+            CommanderId::Burrower, CommanderId::Hivemind, CommanderId::Dredge,
+        ]
     }
 
-    /// Alias for data() - get the commander
-    pub fn get_commander(&self) -> Commander {
-        self.data()
+    /// Get all COs belonging to a faction (as defined in commanders.ron)
+    pub fn for_faction(faction: Faction, game_data: &GameData) -> Vec<CommanderId> {
+        Self::all()
+            .iter()
+            .copied()
+            .filter(|&id| game_data.commander(id).faction == faction)
+            .collect()
     }
-
-    /// Get all COs for a faction
-    pub fn for_faction(faction: Faction) -> Vec<CommanderId> {
-        match faction {
-            Faction::Eastern => vec![CommanderId::Kira, CommanderId::Tanuki, CommanderId::Sensei],
-            Faction::Northern => vec![CommanderId::Grimjaw, CommanderId::Frost, CommanderId::Bjorn],
-            Faction::Western => vec![CommanderId::Bandit, CommanderId::Talon, CommanderId::Dusty],
-            Faction::Southern => vec![CommanderId::Lionheart, CommanderId::Tusker, CommanderId::Prowler],
-            Faction::Nether => vec![CommanderId::Burrower, CommanderId::Hivemind, CommanderId::Dredge],
-        }
-    }
-}
-
-/// Full commander data
-#[derive(Clone)]
-pub struct Commander {
-    pub id: CommanderId,
-    pub name: &'static str,
-    pub faction: Faction,
-    pub personality: AiPersonality,
-    pub description: &'static str,
-
-    // Passive bonuses (always active)
-    pub attack_bonus: f32,
-    pub defense_bonus: f32,
-    pub movement_bonus: i32,
-    pub income_bonus: f32,
-    pub vision_bonus: u32,
-    pub cost_modifier: f32,
-    pub terrain_cost_reduction: u32,  // Reduce terrain movement cost by this amount
-
-    // CO Power
-    pub power: CoPower,
-    pub power_cost: u32,
-}
-
-/// CO Power definition
-#[derive(Clone)]
-pub struct CoPower {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub effect: PowerEffect,
 }
 
 /// Effects that CO powers can have
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum PowerEffect {
     /// Boost attack/defense/movement for this turn
     StatBoost {
@@ -455,7 +87,7 @@ pub enum PowerEffect {
     RevealAndBoost {
         attack_boost: f32,
     },
-    /// Defense boost and heal all units
+    /// Defense boost and heal all units (heal is in HP, 10 = 1 displayed HP)
     DefenseAndHeal {
         defense: f32,
         heal: i32,
@@ -541,15 +173,15 @@ impl Commanders {
         self.active.get(&faction).copied().unwrap_or(CommanderId::Kira)
     }
 
-    /// Get the active commander for a faction
-    pub fn get_commander(&self, faction: Faction) -> Option<Commander> {
-        self.active.get(&faction).map(|id| id.data())
+    /// Get the active commander's data for a faction
+    pub fn get_commander<'a>(&self, faction: Faction, game_data: &'a GameData) -> Option<&'a CommanderData> {
+        self.active.get(&faction).map(|&id| game_data.commander(id))
     }
 
     /// Add charge to power meter (from dealing/taking damage)
-    pub fn charge(&mut self, faction: Faction, amount: u32) {
+    pub fn charge(&mut self, faction: Faction, amount: u32, game_data: &GameData) {
         let current = self.power_meter.get(&faction).copied().unwrap_or(0);
-        if let Some(co) = self.get_commander(faction) {
+        if let Some(co) = self.get_commander(faction, game_data) {
             let new_value = (current + amount).min(co.power_cost);
             self.power_meter.insert(faction, new_value);
         }
@@ -561,14 +193,14 @@ impl Commanders {
     }
 
     /// Get power cost for faction's CO
-    pub fn get_power_cost(&self, faction: Faction) -> u32 {
-        self.get_commander(faction).map(|c| c.power_cost).unwrap_or(100)
+    pub fn get_power_cost(&self, faction: Faction, game_data: &GameData) -> u32 {
+        self.get_commander(faction, game_data).map(|c| c.power_cost).unwrap_or(100)
     }
 
     /// Check if power can be activated
-    pub fn can_activate(&self, faction: Faction) -> bool {
+    pub fn can_activate(&self, faction: Faction, game_data: &GameData) -> bool {
         let charge = self.get_charge(faction);
-        let cost = self.get_power_cost(faction);
+        let cost = self.get_power_cost(faction, game_data);
         charge >= cost && !self.is_power_active(faction)
     }
 
@@ -578,17 +210,17 @@ impl Commanders {
     }
 
     /// Activate CO power - returns the effect to apply
-    pub fn activate_power(&mut self, faction: Faction) -> Option<PowerEffect> {
-        if !self.can_activate(faction) {
+    pub fn activate_power(&mut self, faction: Faction, game_data: &GameData) -> Option<PowerEffect> {
+        if !self.can_activate(faction, game_data) {
             return None;
         }
 
-        if let Some(co) = self.get_commander(faction) {
+        if let Some(co) = self.get_commander(faction, game_data) {
             self.power_meter.insert(faction, 0);
             self.power_active.insert(faction, true);
             self.active_effect.insert(faction, co.power.effect.clone());
             info!("{} activated {}!", co.name, co.power.name);
-            return Some(co.power.effect);
+            return Some(co.power.effect.clone());
         }
         None
     }
@@ -609,10 +241,10 @@ impl Commanders {
     }
 
     /// Get computed bonuses for a faction (passive + active power)
-    pub fn get_bonuses(&self, faction: Faction) -> CoBonuses {
-        let co = match self.get_commander(faction) {
+    pub fn get_bonuses(&self, faction: Faction, game_data: &GameData) -> CoBonuses {
+        let co = match self.get_commander(faction, game_data) {
             Some(c) => c,
-            None => return CoBonuses::default(),
+            None => return CoBonuses::none(),
         };
 
         let mut bonuses = CoBonuses {
@@ -650,7 +282,7 @@ impl Commanders {
 }
 
 /// Computed bonuses from active CO (passive + power effects)
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct CoBonuses {
     pub attack: f32,
     pub defense: f32,
@@ -658,6 +290,12 @@ pub struct CoBonuses {
     pub income: f32,
     pub vision: u32,
     pub cost: f32,
+}
+
+impl Default for CoBonuses {
+    fn default() -> Self {
+        Self::none()
+    }
 }
 
 impl CoBonuses {
@@ -708,7 +346,7 @@ fn clear_power_at_turn_end(
 
 /// Apply CO power effects when activated
 fn apply_power_effects(
-    mut events: EventReader<PowerActivatedEvent>,
+    mut events: MessageReader<PowerActivatedEvent>,
     mut units: Query<(&mut Unit, &FactionMember, &GridPosition)>,
     mut funds: ResMut<FactionFunds>,
     mut fog: ResMut<FogOfWar>,
@@ -720,6 +358,7 @@ fn apply_power_effects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     battle_config: Res<BattleConfig>,
+    game_data: Res<GameData>,
 ) {
     for event in events.read() {
         info!("Applying power effect for {:?}", event.faction);
@@ -755,7 +394,7 @@ fn apply_power_effects(
                 let heal_amount = *heal;
                 for (mut unit, faction, _pos) in units.iter_mut() {
                     if faction.faction == event.faction {
-                        let max_hp = unit.unit_type.stats().max_hp;
+                        let max_hp = game_data.unit_stats(unit.unit_type).max_hp;
                         let old_hp = unit.hp;
                         unit.hp = (unit.hp + heal_amount).min(max_hp);
                         if unit.hp > old_hp {
@@ -785,6 +424,7 @@ fn apply_power_effects(
                             &mut materials,
                             &sprite_assets,
                             &images,
+                            &game_data,
                             event.faction,
                             *unit_type,
                             tile.position.x,
@@ -829,5 +469,51 @@ fn apply_power_effects(
                 info!("Undermine activated - all units ignore terrain movement costs!");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_commander_means_neutral_bonuses() {
+        let data = GameData::load_defaults();
+        let mut commanders = Commanders::default();
+        commanders.active.clear();
+        let bonuses = commanders.get_bonuses(Faction::Eastern, &data);
+        assert_eq!((bonuses.attack, bonuses.defense, bonuses.cost, bonuses.income), (1.0, 1.0, 1.0, 1.0));
+    }
+
+    #[test]
+    fn passive_bonuses_come_from_data() {
+        let data = GameData::load_defaults();
+        let mut commanders = Commanders::default();
+        commanders.set_commander(Faction::Eastern, CommanderId::Kira);
+        let bonuses = commanders.get_bonuses(Faction::Eastern, &data);
+        assert_eq!(bonuses.attack, data.commander(CommanderId::Kira).attack_bonus);
+    }
+
+    #[test]
+    fn power_charges_activates_and_stacks_with_passive() {
+        let data = GameData::load_defaults();
+        let mut commanders = Commanders::default();
+        commanders.set_commander(Faction::Eastern, CommanderId::Kira);
+        let cost = commanders.get_power_cost(Faction::Eastern, &data);
+
+        commanders.charge(Faction::Eastern, cost - 1, &data);
+        assert!(!commanders.can_activate(Faction::Eastern, &data));
+        commanders.charge(Faction::Eastern, 1000, &data);
+        assert_eq!(commanders.get_charge(Faction::Eastern), cost, "meter caps at power cost");
+
+        let effect = commanders.activate_power(Faction::Eastern, &data).expect("power should activate");
+        assert_eq!(commanders.get_charge(Faction::Eastern), 0);
+        let PowerEffect::StatBoost { attack, .. } = effect else { panic!("Kira's Blitz is a StatBoost") };
+        let kira = data.commander(CommanderId::Kira);
+        let bonuses = commanders.get_bonuses(Faction::Eastern, &data);
+        assert!((bonuses.attack - kira.attack_bonus * attack).abs() < 1e-6);
+
+        commanders.clear_power(Faction::Eastern);
+        assert_eq!(commanders.get_bonuses(Faction::Eastern, &data).attack, kira.attack_bonus);
     }
 }

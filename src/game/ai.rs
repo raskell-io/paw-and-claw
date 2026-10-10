@@ -46,6 +46,9 @@ pub enum AiPersonality {
 }
 
 /// AI strategy types - affects WHAT the AI prioritizes (objectives, goals)
+// Only Balanced/Annihilation are selected today; the rest have production
+// logic ready for when strategy selection is exposed
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AiStrategy {
     #[default]
@@ -75,10 +78,6 @@ impl Default for AiConfig {
 }
 
 impl AiConfig {
-    pub fn new(personality: AiPersonality, strategy: AiStrategy) -> Self {
-        Self { personality, strategy }
-    }
-
     /// Get risk tolerance multiplier (how much the AI discounts danger)
     pub fn risk_tolerance(&self) -> f32 {
         match self.personality {
@@ -129,15 +128,6 @@ impl Default for AiState {
     }
 }
 
-impl AiState {
-    pub fn with_config(personality: AiPersonality, strategy: AiStrategy) -> Self {
-        Self {
-            config: AiConfig::new(personality, strategy),
-            ..Default::default()
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AiTurnPhase {
     #[default]
@@ -160,6 +150,13 @@ pub struct AiMemory {
     targeted_unit_types: HashMap<UnitType, u32>,
     /// Turns since game start
     turn_count: u32,
+}
+
+/// Forget everything the AI planned and remembered (new battle)
+pub fn reset_ai(commands: &mut Commands, enabled: bool) {
+    commands.insert_resource(AiState { enabled, ..default() });
+    commands.insert_resource(AiMemory::default());
+    commands.insert_resource(AiTurnPlan::default());
 }
 
 #[derive(Resource, Default)]
@@ -188,10 +185,7 @@ enum AiAction {
 // ============================================================================
 
 /// Influence map containing multiple layers of spatial information
-#[allow(dead_code)]
 struct InfluenceMaps {
-    width: i32,
-    height: i32,
     /// Our military control (positive = we control, negative = enemy controls)
     territory: HashMap<(i32, i32), f32>,
     /// Threat level from enemy units
@@ -207,10 +201,8 @@ struct InfluenceMaps {
 }
 
 impl InfluenceMaps {
-    fn new(width: i32, height: i32) -> Self {
+    fn new() -> Self {
         Self {
-            width,
-            height,
             territory: HashMap::new(),
             enemy_threat: HashMap::new(),
             friendly_support: HashMap::new(),
@@ -252,23 +244,23 @@ fn build_influence_maps(
     game_data: &GameData,
     ai_faction: Faction,
 ) -> InfluenceMaps {
-    let mut maps = InfluenceMaps::new(map.width as i32, map.height as i32);
+    let mut maps = InfluenceMaps::new();
 
     // === TERRITORY INFLUENCE ===
     // Each unit projects influence that decays with distance
     for unit in &analysis.ai_units {
-        let strength = get_unit_strength(unit) * unit.hp_percent;
+        let strength = get_unit_strength(unit, game_data) * unit.hp_percent;
         project_influence(&mut maps.territory, unit.pos.x, unit.pos.y, strength, 5, map);
     }
     for unit in &analysis.enemy_units {
-        let strength = get_unit_strength(unit) * unit.hp_percent;
+        let strength = get_unit_strength(unit, game_data) * unit.hp_percent;
         project_influence(&mut maps.territory, unit.pos.x, unit.pos.y, -strength, 5, map);
     }
 
     // === ENEMY THREAT MAP ===
     // Project threat based on attack range and damage potential
     for enemy in &analysis.enemy_units {
-        let stats = enemy.unit.unit_type.stats();
+        let stats = game_data.unit_stats(enemy.unit.unit_type);
         if stats.attack == 0 {
             continue;
         }
@@ -310,7 +302,7 @@ fn build_influence_maps(
     // === FRIENDLY SUPPORT MAP ===
     // How much backup each position has
     for unit in &analysis.ai_units {
-        let stats = unit.unit.unit_type.stats();
+        let stats = game_data.unit_stats(unit.unit.unit_type);
         if stats.attack > 0 {
             let support = stats.attack as f32 * unit.hp_percent * 0.5;
             project_influence(&mut maps.friendly_support, unit.pos.x, unit.pos.y, support, 3, map);
@@ -324,8 +316,8 @@ fn build_influence_maps(
         let y = tile.position.y;
 
         // Capturable properties are valuable
-        if tile.terrain.is_capturable() {
-            let base_value = tile.terrain.income_value() as f32 * 2.0;
+        if game_data.terrain_capturable(tile.terrain) {
+            let base_value = game_data.terrain_income(tile.terrain) as f32 * 2.0;
             let ownership_bonus = match tile.owner {
                 Some(f) if f == ai_faction => 5.0,  // Defend our stuff
                 Some(_) => 15.0,                     // Enemy property = high value target
@@ -340,7 +332,7 @@ fn build_influence_maps(
         }
 
         // Defensive terrain is strategically valuable
-        let defense = map.get(x, y).map(|t| t.defense_bonus()).unwrap_or(0);
+        let defense = map.get(x, y).map(|t| game_data.terrain_defense(t) as i32).unwrap_or(0);
         if defense >= 2 {
             *maps.strategic_value.entry((x, y)).or_insert(0.0) += defense as f32 * 3.0;
         }
@@ -402,8 +394,8 @@ fn project_influence(
     }
 }
 
-fn get_unit_strength(unit: &UnitInfo) -> f32 {
-    let stats = unit.unit.unit_type.stats();
+fn get_unit_strength(unit: &UnitInfo, game_data: &GameData) -> f32 {
+    let stats = game_data.unit_stats(unit.unit.unit_type);
     (stats.attack as f32 + stats.defense as f32 * 0.5) * (unit.value as f32 / 50.0)
 }
 
@@ -428,15 +420,16 @@ fn determine_strategic_goals(
     _influence: &InfluenceMaps,
     memory: &AiMemory,
     config: &AiConfig,
+    game_data: &GameData,
 ) -> Vec<StrategicGoal> {
     let mut goals = Vec::new();
 
     // Calculate strategic situation
     let our_strength: f32 = analysis.ai_units.iter()
-        .map(|u| get_unit_strength(u) * u.hp_percent)
+        .map(|u| get_unit_strength(u, game_data) * u.hp_percent)
         .sum();
     let enemy_strength: f32 = analysis.enemy_units.iter()
-        .map(|u| get_unit_strength(u) * u.hp_percent)
+        .map(|u| get_unit_strength(u, game_data) * u.hp_percent)
         .sum();
 
     let strength_ratio = if enemy_strength > 0.0 {
@@ -724,7 +717,7 @@ fn predict_enemy_actions(
     let mut predictions = Vec::new();
 
     for enemy in &analysis.enemy_units {
-        let stats = enemy.unit.unit_type.stats();
+        let stats = game_data.unit_stats(enemy.unit.unit_type);
 
         // Calculate possible moves (limited by stamina)
         let actual_movement = effective_movement(stats.movement, enemy.unit.stamina);
@@ -883,6 +876,7 @@ fn analyze_game_state(
     units: &[(Entity, GridPosition, FactionMember, Unit)],
     tiles: &[(Entity, Tile)],
     ai_faction: Faction,
+    game_data: &GameData,
 ) -> GameAnalysis {
     let mut ai_units = Vec::new();
     let mut enemy_units = Vec::new();
@@ -891,14 +885,14 @@ fn analyze_game_state(
     for (entity, pos, faction, unit) in units {
         unit_positions.insert((pos.x, pos.y), *entity);
 
-        let stats = unit.unit_type.stats();
+        let stats = game_data.unit_stats(unit.unit_type);
         let info = UnitInfo {
             entity: *entity,
             pos: pos.clone(),
             unit: unit.clone(),
             unit_type: unit.unit_type,
-            hp_percent: unit.hp_percentage(),
-            value: get_unit_value_by_type(unit.unit_type),
+            hp_percent: unit.hp_percentage(game_data),
+            value: unit_value(unit.unit_type, game_data),
             is_indirect: stats.attack_range.0 > 1,
         };
 
@@ -923,7 +917,7 @@ fn analyze_game_state(
             capturing_faction: tile.capturing_faction,
         };
 
-        if tile.terrain.is_capturable() {
+        if game_data.terrain_capturable(tile.terrain) {
             if tile.owner == Some(ai_faction) {
                 our_properties.push(info.clone());
             } else if tile.owner.is_some() && tile.owner != Some(ai_faction) {
@@ -945,22 +939,9 @@ fn analyze_game_state(
     }
 }
 
-fn get_unit_value_by_type(unit_type: UnitType) -> u32 {
-    match unit_type {
-        UnitType::Scout => 10,
-        UnitType::Shocktrooper => 30,
-        UnitType::Recon => 40,
-        UnitType::Siege => 60,
-        UnitType::Ironclad => 70,
-        UnitType::Juggernaut => 100,
-        UnitType::Behemoth => 150,
-        UnitType::Flak => 50,
-        UnitType::Barrage => 80,
-        UnitType::Stinger => 60,
-        UnitType::Carrier => 40,
-        UnitType::Supplier => 40,
-        _ => 50,
-    }
+/// How much the AI values a unit, scaled down from its production cost
+fn unit_value(unit_type: UnitType, game_data: &GameData) -> u32 {
+    game_data.unit_stats(unit_type).cost / 100
 }
 
 // ============================================================================
@@ -986,10 +967,10 @@ fn score_action(
             score_attack_action(unit, *move_to, *target, analysis, influence, &primary_goal, predictions, map, config, game_data)
         }
         AiAction::Capture { move_to, tile } => {
-            score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map, config, ai_faction)
+            score_capture_action(unit, *move_to, *tile, analysis, influence, &primary_goal, predictions, map, config, ai_faction, game_data)
         }
         AiAction::Move { move_to } => {
-            score_move_action(unit, *move_to, analysis, influence, &primary_goal, predictions, map, config)
+            score_move_action(unit, *move_to, analysis, influence, &primary_goal, predictions, map, config, game_data)
         }
         AiAction::Wait => {
             score_wait_action(unit, influence, config)
@@ -1015,7 +996,7 @@ fn score_attack_action(
     };
 
     // Check ammo - can't attack without ammo if unit uses ammo
-    let attacker_stats = attacker.unit.unit_type.stats();
+    let attacker_stats = game_data.unit_stats(attacker.unit.unit_type);
     if attacker_stats.max_ammo > 0 && attacker.unit.ammo == 0 {
         return -1000.0; // No ammo, can't attack
     }
@@ -1037,7 +1018,7 @@ fn score_attack_action(
 
     // === COUNTER-ATTACK RISK ===
     // Apply personality risk tolerance (lower = ignores risk more)
-    let target_stats = target_unit.unit.unit_type.stats();
+    let target_stats = game_data.unit_stats(target_unit.unit.unit_type);
     if target_stats.attack > 0 && target_stats.attack_range.0 == 1 && target_unit.unit.hp > damage {
         let attacker_terrain = map.get(move_to.0, move_to.1).unwrap_or(Terrain::Grass);
         let mut temp_target = target_unit.unit.clone();
@@ -1140,6 +1121,7 @@ fn score_capture_action(
     _map: &GameMap,
     config: &AiConfig,
     ai_faction: Faction,
+    game_data: &GameData,
 ) -> f32 {
     let tile = match analysis.capturable_tiles.iter().find(|t| t.entity == tile_entity) {
         Some(t) => t,
@@ -1153,10 +1135,10 @@ fn score_capture_action(
         0
     };
     let total_progress = progress + unit.unit.hp;
-    let required = tile.terrain.capture_points();
+    let required = game_data.terrain_capture_points(tile.terrain) as i32;
 
     let is_base = tile.terrain == Terrain::Base;
-    let income = tile.terrain.income_value();
+    let income = game_data.terrain_income(tile.terrain);
 
     // === BASE CAPTURE UTILITY ===
     let mut score = UtilityCurves::capture_utility(total_progress, required, income, is_base);
@@ -1242,11 +1224,12 @@ fn score_move_action(
     predictions: &[PredictedAction],
     map: &GameMap,
     config: &AiConfig,
+    game_data: &GameData,
 ) -> f32 {
     let mut score = 0.0;
 
     let terrain = map.get(move_to.0, move_to.1).unwrap_or(Terrain::Grass);
-    let defense_bonus = terrain.defense_bonus();
+    let defense_bonus = game_data.terrain_defense(terrain) as i32;
 
     // === TERRAIN DEFENSE ===
     // Personality affects how much we value defensive terrain
@@ -1333,7 +1316,7 @@ fn score_move_action(
         }
         StrategicGoal::Expand { priority } => {
             // Move toward capturable tiles
-            let stats = unit.unit.unit_type.stats();
+            let stats = game_data.unit_stats(unit.unit.unit_type);
             if stats.can_capture {
                 let dist_to_capture = analysis.capturable_tiles.iter()
                     .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
@@ -1364,7 +1347,7 @@ fn score_move_action(
         // Stay back but in range
         let can_hit_enemy = analysis.enemy_units.iter().any(|e| {
             let dist = ((move_to.0 - e.pos.x).abs() + (move_to.1 - e.pos.y).abs()) as u32;
-            let stats = unit.unit.unit_type.stats();
+            let stats = game_data.unit_stats(unit.unit.unit_type);
             dist >= stats.attack_range.0 && dist <= stats.attack_range.1
         });
         if can_hit_enemy {
@@ -1376,7 +1359,7 @@ fn score_move_action(
 
     // === RESUPPLY SEEKING ===
     // If low on stamina or ammo, seek friendly supply buildings
-    let stats = unit.unit.unit_type.stats();
+    let stats = game_data.unit_stats(unit.unit.unit_type);
     let low_stamina = unit.unit.stamina <= stats.max_stamina / 3;
     let low_ammo = stats.max_ammo > 0 && unit.unit.ammo <= stats.max_ammo / 3;
 
@@ -1448,7 +1431,7 @@ fn plan_turn_advanced(
             continue;
         }
 
-        let stats = ai_unit.unit.unit_type.stats();
+        let stats = game_data.unit_stats(ai_unit.unit.unit_type);
         // Use effective movement (limited by stamina)
         let actual_movement = effective_movement(stats.movement, ai_unit.unit.stamina);
         let moves = calculate_movement_range(
@@ -1562,7 +1545,8 @@ fn smart_production(
     map: &GameMap,
     sprite_param: &mut SpriteAssetsParam,
     goals: &[StrategicGoal],
-    cost_modifier: f32,
+    co_cost_modifier: f32,
+    game_data: &GameData,
 ) {
     let unit_positions: HashSet<(i32, i32)> = analysis.ai_units.iter()
         .map(|u| (u.pos.x, u.pos.y))
@@ -1590,78 +1574,79 @@ fn smart_production(
 
     let primary_goal = goals.first();
 
-    let mut build_list: Vec<(UnitType, u32, f32)> = Vec::new();
+    // (unit type, priority)
+    let mut build_list: Vec<(UnitType, f32)> = Vec::new();
 
     // === STRATEGY-BASED PRODUCTION ===
     match config.strategy {
         AiStrategy::Annihilation => {
             // Build heavy combat units
-            build_list.push((UnitType::Ironclad, 70, 90.0));
-            build_list.push((UnitType::Shocktrooper, 30, 80.0));
-            build_list.push((UnitType::Siege, 60, 70.0));
+            build_list.push((UnitType::Ironclad, 90.0));
+            build_list.push((UnitType::Shocktrooper, 80.0));
+            build_list.push((UnitType::Siege, 70.0));
             // Minimal scouts
             if our_scouts < 1 {
-                build_list.push((UnitType::Scout, 10, 50.0));
+                build_list.push((UnitType::Scout, 50.0));
             }
         }
         AiStrategy::Domination => {
             // Lots of scouts for capturing
-            build_list.push((UnitType::Scout, 10, 95.0));
-            build_list.push((UnitType::Scout, 10, 90.0)); // Want multiple scouts
-            build_list.push((UnitType::Recon, 40, 60.0)); // Fast capture support
-            build_list.push((UnitType::Shocktrooper, 30, 50.0));
+            build_list.push((UnitType::Scout, 95.0));
+            build_list.push((UnitType::Scout, 90.0)); // Want multiple scouts
+            build_list.push((UnitType::Recon, 60.0)); // Fast capture support
+            build_list.push((UnitType::Shocktrooper, 50.0));
         }
         AiStrategy::Blitz => {
             // Fast, mobile units
-            build_list.push((UnitType::Recon, 40, 85.0));
-            build_list.push((UnitType::Scout, 10, 80.0)); // For capturing HQ
-            build_list.push((UnitType::Ironclad, 70, 70.0));
+            build_list.push((UnitType::Recon, 85.0));
+            build_list.push((UnitType::Scout, 80.0)); // For capturing HQ
+            build_list.push((UnitType::Ironclad, 70.0));
         }
         AiStrategy::Attrition => {
             // Balanced, cost-effective units
-            build_list.push((UnitType::Shocktrooper, 30, 80.0));
-            build_list.push((UnitType::Siege, 60, 75.0)); // Artillery for safe damage
+            build_list.push((UnitType::Shocktrooper, 80.0));
+            build_list.push((UnitType::Siege, 75.0)); // Artillery for safe damage
             if our_scouts < 2 {
-                build_list.push((UnitType::Scout, 10, 70.0));
+                build_list.push((UnitType::Scout, 70.0));
             }
         }
         AiStrategy::Swarm => {
             // Cheap units, lots of them
-            build_list.push((UnitType::Scout, 10, 95.0));
-            build_list.push((UnitType::Scout, 10, 90.0));
-            build_list.push((UnitType::Shocktrooper, 30, 85.0));
-            build_list.push((UnitType::Shocktrooper, 30, 80.0));
+            build_list.push((UnitType::Scout, 95.0));
+            build_list.push((UnitType::Scout, 90.0));
+            build_list.push((UnitType::Shocktrooper, 85.0));
+            build_list.push((UnitType::Shocktrooper, 80.0));
         }
         AiStrategy::Fortress => {
             // Defensive units
-            build_list.push((UnitType::Siege, 60, 85.0)); // Artillery
-            build_list.push((UnitType::Ironclad, 70, 80.0)); // Tanks to hold ground
-            build_list.push((UnitType::Shocktrooper, 30, 70.0));
+            build_list.push((UnitType::Siege, 85.0)); // Artillery
+            build_list.push((UnitType::Ironclad, 80.0)); // Tanks to hold ground
+            build_list.push((UnitType::Shocktrooper, 70.0));
             if our_scouts < 1 {
-                build_list.push((UnitType::Scout, 10, 60.0));
+                build_list.push((UnitType::Scout, 60.0));
             }
         }
         AiStrategy::Balanced => {
             // Standard production based on goals
             if our_scouts < 2 {
-                build_list.push((UnitType::Scout, 10, 85.0));
+                build_list.push((UnitType::Scout, 85.0));
             }
 
             match primary_goal {
                 Some(StrategicGoal::Attack { .. }) => {
-                    build_list.push((UnitType::Ironclad, 70, 70.0));
-                    build_list.push((UnitType::Shocktrooper, 30, 65.0));
+                    build_list.push((UnitType::Ironclad, 70.0));
+                    build_list.push((UnitType::Shocktrooper, 65.0));
                 }
                 Some(StrategicGoal::Defend { .. }) => {
-                    build_list.push((UnitType::Siege, 60, 70.0));
-                    build_list.push((UnitType::Shocktrooper, 30, 65.0));
+                    build_list.push((UnitType::Siege, 70.0));
+                    build_list.push((UnitType::Shocktrooper, 65.0));
                 }
                 Some(StrategicGoal::Expand { .. }) => {
-                    build_list.push((UnitType::Scout, 10, 90.0));
-                    build_list.push((UnitType::Recon, 40, 60.0));
+                    build_list.push((UnitType::Scout, 90.0));
+                    build_list.push((UnitType::Recon, 60.0));
                 }
                 _ => {
-                    build_list.push((UnitType::Shocktrooper, 30, 60.0));
+                    build_list.push((UnitType::Shocktrooper, 60.0));
                 }
             }
         }
@@ -1669,17 +1654,17 @@ fn smart_production(
 
     // Counter enemy composition (applies to all strategies)
     if enemy_tanks > 1 {
-        build_list.push((UnitType::Shocktrooper, 30, 75.0 + enemy_tanks as f32 * 10.0));
+        build_list.push((UnitType::Shocktrooper, 75.0 + enemy_tanks as f32 * 10.0));
     }
     if enemy_artillery > 1 {
-        build_list.push((UnitType::Recon, 40, 70.0 + enemy_artillery as f32 * 15.0));
+        build_list.push((UnitType::Recon, 70.0 + enemy_artillery as f32 * 15.0));
     }
 
     // Personality adjustments
     match config.personality {
         AiPersonality::Aggressive | AiPersonality::Reckless => {
             // Prefer offensive units
-            for (unit_type, _, priority) in build_list.iter_mut() {
+            for (unit_type, priority) in build_list.iter_mut() {
                 if *unit_type == UnitType::Ironclad || *unit_type == UnitType::Shocktrooper {
                     *priority += 10.0;
                 }
@@ -1687,7 +1672,7 @@ fn smart_production(
         }
         AiPersonality::Cautious | AiPersonality::Methodical => {
             // Prefer defensive units
-            for (unit_type, _, priority) in build_list.iter_mut() {
+            for (unit_type, priority) in build_list.iter_mut() {
                 if *unit_type == UnitType::Siege {
                     *priority += 10.0;
                 }
@@ -1695,14 +1680,13 @@ fn smart_production(
         }
     }
 
-    build_list.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    build_list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     for (x, y) in empty_bases {
-        for (unit_type, base_cost, _) in &build_list {
-            // Apply CO cost modifier
-            let adjusted_cost = (*base_cost as f32 * cost_modifier).round() as u32;
-            if funds.spend(faction, adjusted_cost) {
-                spawn_unit(commands, map, &mut sprite_param.meshes, &mut sprite_param.materials, &sprite_param.assets, &sprite_param.images, faction, *unit_type, x, y);
+        for (unit_type, _) in &build_list {
+            let cost = game_data.production_cost(*unit_type, faction, co_cost_modifier);
+            if funds.spend(faction, cost) {
+                spawn_unit(commands, map, &mut sprite_param.meshes, &mut sprite_param.materials, &sprite_param.assets, &sprite_param.images, game_data, faction, *unit_type, x, y);
                 info!("AI ({:?}/{:?}) built {:?} at ({}, {})",
                     config.strategy, config.personality, unit_type, x, y);
                 break;
@@ -1721,10 +1705,11 @@ fn should_ai_activate_power(
     units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: &Query<(Entity, &Tile)>,
     faction: Faction,
+    game_data: &GameData,
 ) -> bool {
     use super::PowerEffect;
 
-    let Some(co) = commanders.get_commander(faction) else {
+    let Some(co) = commanders.get_commander(faction, game_data) else {
         return false;
     };
 
@@ -1773,7 +1758,7 @@ fn should_ai_activate_power(
             // Iron Wall - use when units are damaged
             let damaged_units = ai_units.iter()
                 .filter(|(_, _, _, _, u)| {
-                    let max_hp = u.unit_type.stats().max_hp;
+                    let max_hp = game_data.unit_stats(u.unit_type).max_hp;
                     u.hp < max_hp - *heal // Would benefit from heal
                 })
                 .count();
@@ -1795,7 +1780,7 @@ fn should_ai_activate_power(
             // Charge! - use when we have unmoved units that can attack
             // Best used when enemies are in range
             let can_attack_count = ai_units.iter()
-                .filter(|(_, _, _, _, u)| !u.moved && u.unit_type.stats().attack > 0)
+                .filter(|(_, _, _, _, u)| !u.moved && game_data.unit_stats(u.unit_type).attack > 0)
                 .count();
             can_attack_count >= 2 && enemy_unit_count > 0
         }
@@ -1852,12 +1837,14 @@ fn ai_turn_system(
     }
 
     ai_res.ai_state.action_delay.tick(time.delta());
-    if !ai_res.ai_state.action_delay.finished() {
+    if !ai_res.ai_state.action_delay.is_finished() {
         return;
     }
 
+    let game_data: &GameData = &ai_res.game_data;
+
     // Get AI config from CO personality
-    let co = commanders.get_active(ai_faction).get_commander();
+    let co = game_data.commander(commanders.get_active(ai_faction));
     let config = AiConfig {
         personality: co.personality,
         strategy: ai_res.ai_state.config.strategy, // Keep strategy from state
@@ -1869,16 +1856,8 @@ fn ai_turn_system(
             update_memory(&mut ai_res.memory, &units, ai_faction);
             ai_res.memory.turn_count += 1;
             ai_res.ai_state.phase = AiTurnPhase::Planning;
-
-            // Fire TurnStartEvent for AI faction (income + resupply)
-            let income: u32 = tiles.iter()
-                .filter(|(_, t)| t.owner == Some(ai_faction))
-                .map(|(_, t)| t.terrain.income_value())
-                .sum();
-            turn_start_events.write(TurnStartEvent {
-                faction: ai_faction,
-                income,
-            });
+            // Income/resupply for this turn was already triggered by the
+            // TurnStartEvent sent when the previous faction ended its turn
 
             // Log AI configuration at start of turn
             info!("AI Turn ({}) - Strategy: {:?}, Personality: {:?}",
@@ -1887,16 +1866,17 @@ fn ai_turn_system(
 
         AiTurnPhase::Planning => {
             // Check if AI should activate CO power
-            if commanders.can_activate(ai_faction) {
+            if commanders.can_activate(ai_faction, game_data) {
                 let should_activate = should_ai_activate_power(
                     &commanders,
                     &units,
                     &tiles,
                     ai_faction,
+                    game_data,
                 );
 
                 if should_activate {
-                    if let Some(effect) = commanders.activate_power(ai_faction) {
+                    if let Some(effect) = commanders.activate_power(ai_faction, game_data) {
                         info!("AI activated CO Power: {}!", co.power.name);
                         power_events.write(PowerActivatedEvent {
                             faction: ai_faction,
@@ -1915,15 +1895,15 @@ fn ai_turn_system(
                 .collect();
 
             // Full analysis pipeline
-            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction);
-            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data, ai_faction);
-            let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config);
-            let predictions = predict_enemy_actions(&analysis, &influence, &ai_res.memory, &map, &ai_res.game_data);
+            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction, game_data);
+            let influence = build_influence_maps(&analysis, &map, &all_tiles, game_data, ai_faction);
+            let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config, game_data);
+            let predictions = predict_enemy_actions(&analysis, &influence, &ai_res.memory, &map, game_data);
 
             info!("AI Strategic Goals: {:?}", goals.iter().take(2).collect::<Vec<_>>());
 
             // Plan with all systems
-            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, &ai_res.game_data, ai_faction);
+            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, game_data, ai_faction);
 
             ai_res.turn_plan.actions = actions;
             ai_res.turn_plan.current_index = 0;
@@ -1973,11 +1953,11 @@ fn ai_turn_system(
                 .map(|(e, t)| (e, t.clone()))
                 .collect();
 
-            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction);
-            let influence = build_influence_maps(&analysis, &map, &all_tiles, &ai_res.game_data, ai_faction);
-            let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config);
+            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction, game_data);
+            let influence = build_influence_maps(&analysis, &map, &all_tiles, game_data, ai_faction);
+            let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config, game_data);
 
-            let co_bonuses = commanders.get_bonuses(ai_faction);
+            let co_bonuses = commanders.get_bonuses(ai_faction, game_data);
             smart_production(
                 &config,
                 &mut funds,
@@ -1989,6 +1969,7 @@ fn ai_turn_system(
                 &mut sprite_param,
                 &goals,
                 co_bonuses.cost,
+                game_data,
             );
 
             ai_res.ai_state.phase = AiTurnPhase::EndingTurn;
@@ -2014,14 +1995,8 @@ fn ai_turn_system(
             turn_state.phase = TurnPhase::Select;
             ai_res.ai_state.phase = AiTurnPhase::Waiting;
 
-            // Fire TurnStartEvent for player's turn (income + resupply)
-            let income: u32 = tiles.iter()
-                .filter(|(_, t)| t.owner == Some(next))
-                .map(|(_, t)| t.terrain.income_value())
-                .sum();
             turn_start_events.write(TurnStartEvent {
                 faction: next,
-                income,
             });
 
             info!("AI ended turn {}", turn_state.turn_number - 1);

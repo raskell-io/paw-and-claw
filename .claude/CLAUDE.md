@@ -32,18 +32,18 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 - `units.ron` - 20 unit types with full stats
 - `terrain.ron` - 13 terrain types with properties
 - `commanders.ron` - 15 commanders with CO powers
+- `damage_tables.ron` - attacker vs defender base damage (missing entry = can't attack)
+- `movement_costs.ron` - movement cost per terrain and unit class
 
 ### Core Module
-- `src/game/modding.rs` - Data structures and loading system
-- `GameData` resource provides lookup methods
+- `src/game/modding.rs` - Data structures, loading, validation
+- `GameData` resource is the single source of truth for game data. Enums like
+  `UnitType`/`Terrain`/`Faction`/`CommanderId` are identifiers only; never add
+  hardcoded stats/names to them. Pass `&GameData` to functions that need data.
 
 ### Build Targets
 - **WASM**: All RON embedded via `include_str!` - single artifact
 - **Native**: Embedded defaults + mod override support
-
-### Pending Work
-- Refactor game systems to use `GameData` lookups instead of hardcoded enum methods
-- Currently `Faction::name()`, `UnitType::cost()` etc. are still hardcoded
 
 See `modding.md` for detailed documentation.
 

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use super::{Faction, FactionMember, Unit, GridPosition, GameMap, Tile, Terrain, TurnState, Commanders, Weather, TerrainFeature};
+use super::{FactionMember, Unit, GridPosition, GameMap, Tile, Terrain, TurnState, Commanders, Weather, TerrainFeature, GameData, BattleConfig};
 
 pub struct FogPlugin;
 
@@ -72,7 +72,6 @@ impl FogOfWar {
     }
 
     /// Check if a position is currently visible
-    #[allow(dead_code)]
     pub fn is_visible(&self, x: i32, y: i32) -> bool {
         !self.enabled || self.visibility.contains(&(x, y))
     }
@@ -130,11 +129,6 @@ impl FogOfWar {
     }
 }
 
-/// Component to track visibility for rendering (for future fog overlay sprites)
-#[derive(Component)]
-#[allow(dead_code)]
-pub struct FogOverlay;
-
 /// System to update fog of war based on player unit positions
 fn update_fog_of_war(
     mut fog: ResMut<FogOfWar>,
@@ -144,6 +138,8 @@ fn update_fog_of_war(
     tiles: Query<&Tile>,
     commanders: Res<Commanders>,
     weather: Res<Weather>,
+    game_data: Res<GameData>,
+    battle_config: Res<BattleConfig>,
 ) {
     if !fog.enabled {
         return;
@@ -158,13 +154,13 @@ fn update_fog_of_war(
     fog.clear_visibility();
 
     // Get CO vision bonus for player faction
-    let co_bonuses = commanders.get_bonuses(Faction::Eastern);
+    let player = battle_config.player_faction;
+    let co_bonuses = commanders.get_bonuses(player, &game_data);
 
-    // Add vision from all player (Eastern) units
+    // Add vision from all player units
     for (pos, unit, faction) in units.iter() {
-        if faction.faction == Faction::Eastern {
-            let stats = unit.unit_type.stats();
-            let mut base_vision = stats.vision + co_bonuses.vision;
+        if faction.faction == player {
+            let mut base_vision = game_data.unit_stats(unit.unit_type).vision + co_bonuses.vision;
 
             // Terrain affects vision - boulders provide height advantage
             if let Some(terrain) = map.get(pos.x, pos.y) {
@@ -183,7 +179,7 @@ fn update_fog_of_war(
 
     // Properties we own also provide vision (like in Advance Wars)
     for tile in tiles.iter() {
-        if tile.owner == Some(Faction::Eastern) && tile.terrain.is_capturable() {
+        if tile.owner == Some(player) && game_data.terrain_capturable(tile.terrain) {
             // Bases and outposts provide 2 vision
             let base_vision = match tile.terrain {
                 Terrain::Base => 3,
@@ -201,6 +197,7 @@ fn update_fog_of_war(
 fn apply_fog_to_tiles(
     fog: Res<FogOfWar>,
     mut tiles: Query<(&Tile, &mut Sprite)>,
+    game_data: Res<GameData>,
 ) {
     if !fog.enabled {
         // Restore full brightness if fog disabled
@@ -216,12 +213,12 @@ fn apply_fog_to_tiles(
         match visibility {
             TileVisibility::Visible => {
                 // Full brightness
-                let base_color = tile.terrain.color();
+                let base_color = game_data.terrain_color(tile.terrain);
                 sprite.color = base_color;
             }
             TileVisibility::Fogged => {
                 // Darkened - 40% brightness
-                let base_color = tile.terrain.color();
+                let base_color = game_data.terrain_color(tile.terrain);
                 let darkened = Color::srgba(
                     base_color.to_srgba().red * 0.4,
                     base_color.to_srgba().green * 0.4,
@@ -232,7 +229,7 @@ fn apply_fog_to_tiles(
             }
             TileVisibility::Unexplored => {
                 // Very dark - 20% brightness
-                let base_color = tile.terrain.color();
+                let base_color = game_data.terrain_color(tile.terrain);
                 let very_dark = Color::srgba(
                     base_color.to_srgba().red * 0.2,
                     base_color.to_srgba().green * 0.2,
@@ -293,6 +290,7 @@ fn apply_fog_to_units(
     fog: Res<FogOfWar>,
     mut units: Query<(&GridPosition, &FactionMember, &mut Visibility, &Children)>,
     mut child_visibility: Query<&mut Visibility, Without<FactionMember>>,
+    battle_config: Res<BattleConfig>,
 ) {
     if !fog.enabled {
         // Show all units if fog disabled
@@ -309,7 +307,7 @@ fn apply_fog_to_units(
 
     for (pos, faction, mut vis, children) in units.iter_mut() {
         // Player units are always visible to the player
-        if faction.faction == Faction::Eastern {
+        if faction.faction == battle_config.player_faction {
             *vis = Visibility::Visible;
             for child in children.iter() {
                 if let Ok(mut child_vis) = child_visibility.get_mut(child) {

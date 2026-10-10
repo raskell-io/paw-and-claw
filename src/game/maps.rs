@@ -56,6 +56,24 @@ impl MapData {
         }
     }
 
+    /// Built-in maps are authored with Eastern as the first army and Northern as
+    /// the second. Reassign those two slots to the factions actually playing.
+    pub fn with_factions(&self, first: Faction, second: Faction) -> Self {
+        let remap = |faction: Faction| match faction {
+            Faction::Eastern => first,
+            Faction::Northern => second,
+            other => other,
+        };
+        let mut map = self.clone();
+        for unit in &mut map.units {
+            unit.faction = remap(unit.faction);
+        }
+        for property in &mut map.properties {
+            property.owner = remap(property.owner);
+        }
+        map
+    }
+
     /// Get terrain at a position
     pub fn get_terrain(&self, x: i32, y: i32) -> Option<Terrain> {
         if x >= 0 && y >= 0 && (x as u32) < self.width && (y as u32) < self.height {
@@ -84,19 +102,14 @@ impl MapData {
         Ok(())
     }
 
-    /// Load map from JSON file
+    /// Load map from JSON file (for custom map loading, see ROADMAP)
+    #[allow(dead_code)]
     pub fn load_from_file(path: &Path) -> Result<Self, String> {
         let json = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read map file: {}", e))?;
         serde_json::from_str(&json)
             .map_err(|e| format!("Failed to parse map: {}", e))
     }
-}
-
-/// Resource tracking which map is selected
-#[derive(Resource, Default)]
-pub struct SelectedMap {
-    pub map_id: MapId,
 }
 
 /// Identifier for built-in maps
@@ -111,6 +124,7 @@ pub enum MapId {
     MountainPass,
     MarshLands,
     AncientRuins,
+    #[allow(dead_code)] // Custom map loading, see ROADMAP
     Custom(usize),
 }
 
@@ -864,4 +878,18 @@ fn create_ancient_ruins_map() -> MapData {
     map.add_unit(UnitType::Siege, Faction::Northern, 15, 6);
 
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_factions_reassigns_both_armies() {
+        let map = get_builtin_map(MapId::Woodland).with_factions(Faction::Western, Faction::Southern);
+        assert!(map.units.iter().all(|u| matches!(u.faction, Faction::Western | Faction::Southern)));
+        assert!(map.units.iter().any(|u| u.faction == Faction::Western));
+        assert!(map.units.iter().any(|u| u.faction == Faction::Southern));
+        assert!(map.properties.iter().all(|p| matches!(p.owner, Faction::Western | Faction::Southern)));
+    }
 }

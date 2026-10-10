@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
 use std::collections::{HashMap, HashSet};
 
-use super::{Faction, UnitType, Terrain, TILE_SIZE};
+use super::{Faction, UnitType, Terrain, GameData};
 
 /// System parameter that bundles sprite assets and mesh/material stores for 3D rendering
 #[derive(SystemParam)]
@@ -11,18 +11,6 @@ pub struct SpriteAssetsParam<'w> {
     pub images: Res<'w, Assets<Image>>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<StandardMaterial>>,
-}
-
-impl<'w> SpriteAssetsParam<'w> {
-    /// Get unit sprite or fallback to procedural
-    pub fn get_unit_sprite(&self, faction: Faction, unit_type: UnitType) -> SpriteSource {
-        self.assets.get_unit_sprite(&self.images, faction, unit_type)
-    }
-
-    /// Get terrain feature sprite or fallback to procedural
-    pub fn get_terrain_feature_sprite(&self, terrain: Terrain) -> SpriteSource {
-        self.assets.get_terrain_feature_sprite(&self.images, terrain)
-    }
 }
 
 pub struct AssetPlugin;
@@ -40,8 +28,8 @@ impl Plugin for AssetPlugin {
 pub enum SpriteSource {
     /// Loaded image asset
     Image(Handle<Image>),
-    /// Procedural fallback with color and size
-    Procedural { color: Color, size: Vec2 },
+    /// Procedural fallback color
+    Procedural { color: Color },
 }
 
 /// Resource that caches loaded sprite handles
@@ -61,33 +49,34 @@ pub struct SpriteAssets {
 
 impl SpriteAssets {
     /// Get unit sprite path
-    pub fn unit_sprite_path(faction: Faction, unit_type: UnitType) -> String {
+    pub fn unit_sprite_path(game_data: &GameData, faction: Faction, unit_type: UnitType) -> String {
         format!(
             "sprites/units/{}/{}.png",
-            faction.asset_folder_name(),
-            unit_type.asset_file_name()
+            game_data.faction(faction).asset_folder,
+            game_data.unit(unit_type).asset_name
         )
     }
 
     /// Get terrain tile path
-    pub fn terrain_tile_path(terrain: Terrain) -> String {
-        format!("sprites/terrain/tiles/{}.png", terrain.asset_file_name())
+    pub fn terrain_tile_path(game_data: &GameData, terrain: Terrain) -> String {
+        format!("sprites/terrain/tiles/{}.png", game_data.terrain(terrain).asset_name)
     }
 
     /// Get terrain feature path
-    pub fn terrain_feature_path(terrain: Terrain) -> String {
-        format!("sprites/terrain/features/{}.png", terrain.asset_file_name())
+    pub fn terrain_feature_path(game_data: &GameData, terrain: Terrain) -> String {
+        format!("sprites/terrain/features/{}.png", game_data.terrain(terrain).asset_name)
     }
 
     /// Get unit sprite or fallback to procedural
     pub fn get_unit_sprite(
         &self,
         images: &Assets<Image>,
+        game_data: &GameData,
         faction: Faction,
         unit_type: UnitType,
     ) -> SpriteSource {
         let key = (faction, unit_type);
-        let path = Self::unit_sprite_path(faction, unit_type);
+        let path = Self::unit_sprite_path(game_data, faction, unit_type);
 
         if let Some(handle) = self.unit_sprites.get(&key) {
             // Check if the asset is actually loaded and not failed
@@ -98,18 +87,19 @@ impl SpriteAssets {
 
         // Fallback to procedural sprite
         SpriteSource::Procedural {
-            color: faction.color(),
-            size: Vec2::new(TILE_SIZE * 0.7, TILE_SIZE * 0.5),
+            color: game_data.faction_color(faction),
         }
     }
+
 
     /// Get terrain feature sprite or fallback to procedural
     pub fn get_terrain_feature_sprite(
         &self,
         images: &Assets<Image>,
+        game_data: &GameData,
         terrain: Terrain,
     ) -> SpriteSource {
-        let path = Self::terrain_feature_path(terrain);
+        let path = Self::terrain_feature_path(game_data, terrain);
 
         if let Some(handle) = self.terrain_features.get(&terrain) {
             if images.contains(handle) && !self.failed_assets.contains(&path) {
@@ -118,30 +108,10 @@ impl SpriteAssets {
         }
 
         // Fallback to procedural sprite
-        let (color, size) = get_procedural_feature_params(terrain);
-        SpriteSource::Procedural { color, size }
+        let (color, _) = super::sprites::get_procedural_feature_params(terrain);
+        SpriteSource::Procedural { color }
     }
 
-    /// Get terrain tile sprite or fallback to procedural
-    pub fn get_terrain_tile_sprite(
-        &self,
-        images: &Assets<Image>,
-        terrain: Terrain,
-    ) -> SpriteSource {
-        let path = Self::terrain_tile_path(terrain);
-
-        if let Some(handle) = self.terrain_tiles.get(&terrain) {
-            if images.contains(handle) && !self.failed_assets.contains(&path) {
-                return SpriteSource::Image(handle.clone());
-            }
-        }
-
-        // Fallback to procedural sprite
-        SpriteSource::Procedural {
-            color: terrain.color(),
-            size: Vec2::new(TILE_SIZE, TILE_SIZE),
-        }
-    }
 
     /// Mark an asset path as failed
     pub fn mark_failed(&mut self, path: String) {
@@ -149,56 +119,18 @@ impl SpriteAssets {
     }
 }
 
-/// Get procedural fallback parameters for terrain features
-fn get_procedural_feature_params(terrain: Terrain) -> (Color, Vec2) {
-    match terrain {
-        Terrain::Thicket => (
-            Color::srgb(0.15, 0.35, 0.12), // Dark green tree
-            Vec2::new(TILE_SIZE * 0.8, 32.0),
-        ),
-        Terrain::Brambles => (
-            Color::srgb(0.25, 0.32, 0.18), // Brown-green bushes
-            Vec2::new(TILE_SIZE * 0.9, 24.0),
-        ),
-        Terrain::Boulder => (
-            Color::srgb(0.45, 0.45, 0.50), // Gray rock
-            Vec2::new(TILE_SIZE * 0.7, 28.0),
-        ),
-        Terrain::Hollow => (
-            Color::srgb(0.35, 0.25, 0.18), // Dark brown stump
-            Vec2::new(TILE_SIZE * 0.6, 36.0),
-        ),
-        Terrain::Log => (
-            Color::srgb(0.45, 0.32, 0.20), // Brown log
-            Vec2::new(TILE_SIZE * 1.2, 16.0),
-        ),
-        Terrain::Base => (
-            Color::srgb(0.50, 0.45, 0.40), // Stone building
-            Vec2::new(TILE_SIZE * 0.85, 48.0),
-        ),
-        Terrain::Outpost => (
-            Color::srgb(0.55, 0.50, 0.45), // Wooden outpost
-            Vec2::new(TILE_SIZE * 0.75, 40.0),
-        ),
-        Terrain::Storehouse => (
-            Color::srgb(0.48, 0.42, 0.35), // Shed
-            Vec2::new(TILE_SIZE * 0.65, 32.0),
-        ),
-        _ => (Color::WHITE, Vec2::ZERO),
-    }
-}
-
 /// System to start loading all game assets at startup
 fn start_asset_loading(
     asset_server: Res<AssetServer>,
     mut sprite_assets: ResMut<SpriteAssets>,
+    game_data: Res<GameData>,
 ) {
     info!("Starting asset loading...");
 
     // Load unit sprites for all faction/unit combinations
     for faction in Faction::all() {
         for unit_type in UnitType::all() {
-            let path = SpriteAssets::unit_sprite_path(*faction, *unit_type);
+            let path = SpriteAssets::unit_sprite_path(&game_data, *faction, *unit_type);
             let handle = asset_server.load(&path);
             sprite_assets.unit_sprites.insert((*faction, *unit_type), handle);
         }
@@ -206,15 +138,15 @@ fn start_asset_loading(
 
     // Load terrain tile sprites
     for terrain in Terrain::all() {
-        let path = SpriteAssets::terrain_tile_path(*terrain);
+        let path = SpriteAssets::terrain_tile_path(&game_data, *terrain);
         let handle = asset_server.load(&path);
         sprite_assets.terrain_tiles.insert(*terrain, handle);
     }
 
     // Load terrain feature sprites (only for terrain with features)
     for terrain in Terrain::all() {
-        if terrain.has_feature() {
-            let path = SpriteAssets::terrain_feature_path(*terrain);
+        if game_data.terrain_has_feature(*terrain) {
+            let path = SpriteAssets::terrain_feature_path(&game_data, *terrain);
             let handle = asset_server.load(&path);
             sprite_assets.terrain_features.insert(*terrain, handle);
         }
@@ -232,6 +164,7 @@ fn start_asset_loading(
 fn check_asset_loading_state(
     asset_server: Res<AssetServer>,
     mut sprite_assets: ResMut<SpriteAssets>,
+    game_data: Res<GameData>,
 ) {
     if sprite_assets.loading_complete {
         return;
@@ -248,7 +181,7 @@ fn check_asset_loading_state(
                 loaded_count += 1;
             }
             Some(bevy::asset::LoadState::Failed(_)) => {
-                let path = SpriteAssets::unit_sprite_path(*faction, *unit_type);
+                let path = SpriteAssets::unit_sprite_path(&game_data, *faction, *unit_type);
                 if !sprite_assets.failed_assets.contains(&path) {
                     // Will mark as failed after iteration
                     failed_count += 1;
@@ -267,7 +200,7 @@ fn check_asset_loading_state(
                 loaded_count += 1;
             }
             Some(bevy::asset::LoadState::Failed(_)) => {
-                let path = SpriteAssets::terrain_tile_path(*terrain);
+                let path = SpriteAssets::terrain_tile_path(&game_data, *terrain);
                 if !sprite_assets.failed_assets.contains(&path) {
                     failed_count += 1;
                 }
@@ -285,7 +218,7 @@ fn check_asset_loading_state(
                 loaded_count += 1;
             }
             Some(bevy::asset::LoadState::Failed(_)) => {
-                let path = SpriteAssets::terrain_feature_path(*terrain);
+                let path = SpriteAssets::terrain_feature_path(&game_data, *terrain);
                 if !sprite_assets.failed_assets.contains(&path) {
                     failed_count += 1;
                 }
@@ -302,7 +235,7 @@ fn check_asset_loading_state(
         .iter()
         .filter_map(|((faction, unit_type), handle)| {
             if let Some(bevy::asset::LoadState::Failed(_)) = asset_server.get_load_state(handle) {
-                let path = SpriteAssets::unit_sprite_path(*faction, *unit_type);
+                let path = SpriteAssets::unit_sprite_path(&game_data, *faction, *unit_type);
                 if !sprite_assets.failed_assets.contains(&path) {
                     return Some(path);
                 }
@@ -316,7 +249,7 @@ fn check_asset_loading_state(
         .iter()
         .filter_map(|(terrain, handle)| {
             if let Some(bevy::asset::LoadState::Failed(_)) = asset_server.get_load_state(handle) {
-                let path = SpriteAssets::terrain_tile_path(*terrain);
+                let path = SpriteAssets::terrain_tile_path(&game_data, *terrain);
                 if !sprite_assets.failed_assets.contains(&path) {
                     return Some(path);
                 }
@@ -330,7 +263,7 @@ fn check_asset_loading_state(
         .iter()
         .filter_map(|(terrain, handle)| {
             if let Some(bevy::asset::LoadState::Failed(_)) = asset_server.get_load_state(handle) {
-                let path = SpriteAssets::terrain_feature_path(*terrain);
+                let path = SpriteAssets::terrain_feature_path(&game_data, *terrain);
                 if !sprite_assets.failed_assets.contains(&path) {
                     return Some(path);
                 }

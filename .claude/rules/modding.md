@@ -11,17 +11,17 @@ paths: src/**/*.rs, assets/data/**/*.ron
 
 ## GameData Resource
 - `src/game/modding.rs` defines the modding system
-- `GameData` resource provides lookup methods
-- Use `GameData::get_*()` methods for moddable values
+- `GameData` resource is the single source of truth; lookups are infallible
+  (`unit_stats`, `terrain`, `faction`, `commander`, `movement_cost`, ...)
+- Never add hardcoded stats or names to `UnitType`/`Terrain`/`Faction`/`CommanderId`;
+  pass `&GameData` into functions that need data
 
 ## Guidelines
 
 ### For User-Facing Strings (names, descriptions)
 ```rust
 // GOOD: Use GameData for moddable content
-if let Some(data) = game_data.get_unit(unit.unit_type) {
-    ui.label(&data.name);
-}
+ui.label(game_data.unit_name(unit.unit_type));
 
 // AVOID: Hardcoded strings
 ui.label(unit.unit_type.name());  // Not moddable!

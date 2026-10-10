@@ -13,13 +13,21 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{Faction, UnitType, UnitClass, Terrain, CommanderId, AiPersonality};
+use super::{Faction, UnitType, UnitClass, Terrain, CommanderId, AiPersonality, PowerEffect};
 
 pub struct ModdingPlugin;
 
 impl Plugin for ModdingPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameData>();
+        let mut data = GameData::load_defaults();
+        data.load_mods();
+        if let Err(problems) = data.validate() {
+            for problem in &problems {
+                error!("Game data: {}", problem);
+            }
+            panic!("Game data is incomplete ({} problem(s)), see log above", problems.len());
+        }
+        app.insert_resource(data);
     }
 }
 
@@ -80,9 +88,9 @@ pub struct UnitData {
 /// Unit statistics that can be modified
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnitStatsData {
-    pub max_hp: u32,
-    pub attack: u32,
-    pub defense: u32,
+    pub max_hp: i32,
+    pub attack: i32,
+    pub defense: i32,
     pub movement: u32,
     /// (min_range, max_range)
     pub attack_range: (u32, u32),
@@ -101,8 +109,6 @@ pub struct TerrainData {
     pub description: String,
     /// Defense bonus (0-4 typically)
     pub defense: u32,
-    /// Movement cost for ground units
-    pub movement_cost: u32,
     /// Can be captured by foot units
     pub capturable: bool,
     /// Capture points required (if capturable)
@@ -119,51 +125,12 @@ pub struct TerrainData {
     pub asset_name: String,
 }
 
-/// CO Power effect types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PowerEffectData {
-    /// Boost stats for this turn
-    StatBoost {
-        attack: f32,
-        defense: f32,
-        movement: i32,
-    },
-    /// Gain bonus funds
-    BonusFunds {
-        multiplier: f32,
-    },
-    /// Reveal map and boost attack
-    RevealAndBoost {
-        attack_boost: f32,
-    },
-    /// Boost defense and heal units
-    DefenseAndHeal {
-        defense: f32,
-        heal: u32,
-    },
-    /// Spawn free units at bases
-    FreeUnits {
-        unit_type: UnitType,
-        count: u32,
-    },
-    /// Grant extra movement
-    ExtraMove {
-        bonus: i32,
-    },
-    /// Steal funds from enemy
-    StealFunds {
-        percentage: f32,
-    },
-    /// Ignore terrain movement costs
-    IgnoreTerrain,
-}
-
 /// Moddable CO power data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoPowerData {
     pub name: String,
     pub description: String,
-    pub effect: PowerEffectData,
+    pub effect: PowerEffect,
 }
 
 /// Moddable commander data
@@ -182,11 +149,11 @@ pub struct CommanderData {
     /// Income multiplier (1.0 = normal)
     pub income_bonus: f32,
     /// Vision bonus (0 = normal)
-    pub vision_bonus: i32,
+    pub vision_bonus: u32,
     /// Unit cost multiplier (1.0 = normal)
     pub cost_modifier: f32,
     /// Terrain movement cost reduction
-    pub terrain_cost_reduction: i32,
+    pub terrain_cost_reduction: u32,
     /// CO Power definition
     pub power: CoPowerData,
     /// Power meter cost to activate
@@ -250,16 +217,6 @@ pub struct GameData {
     pub commanders: CommandersRegistry,
     pub damage_tables: DamageTablesRegistry,
     pub movement_costs: MovementCostsRegistry,
-    /// Whether mods have been loaded
-    pub mods_loaded: bool,
-    /// List of loaded mod names
-    pub loaded_mods: Vec<String>,
-}
-
-impl Default for GameData {
-    fn default() -> Self {
-        Self::load_defaults()
-    }
 }
 
 impl GameData {
@@ -285,12 +242,11 @@ impl GameData {
             commanders,
             damage_tables,
             movement_costs,
-            mods_loaded: false,
-            loaded_mods: Vec::new(),
         }
     }
 
-    /// Load mods from the mods directory (native builds only)
+    /// Load mods from the mods directory (native builds only).
+    /// Each mod is a subdirectory whose RON files override or add entries.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load_mods(&mut self) {
         use std::fs;
@@ -302,265 +258,188 @@ impl GameData {
             return;
         }
 
-        // Scan for mod directories
         let Ok(entries) = fs::read_dir(mods_dir) else {
             warn!("Failed to read mods directory");
             return;
         };
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
+        // Sort so override order is deterministic across platforms
+        let mut mod_dirs: Vec<_> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        mod_dirs.sort();
 
-            let mod_name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-
+        for path in &mod_dirs {
+            let mod_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
             info!("Loading mod: {}", mod_name);
 
-            // Load faction overrides
-            let factions_path = path.join("factions.ron");
-            if factions_path.exists() {
-                if let Ok(content) = fs::read_to_string(&factions_path) {
-                    match ron::from_str::<FactionsRegistry>(&content) {
-                        Ok(mod_factions) => {
-                            for (id, data) in mod_factions.factions {
-                                info!("  Overriding faction: {}", id);
-                                self.factions.factions.insert(id, data);
-                            }
-                        }
-                        Err(e) => warn!("Failed to parse {}: {}", factions_path.display(), e),
-                    }
+            merge_mod_file(&path.join("factions.ron"), |r: FactionsRegistry| {
+                self.factions.factions.extend(r.factions)
+            });
+            merge_mod_file(&path.join("units.ron"), |r: UnitsRegistry| {
+                self.units.units.extend(r.units)
+            });
+            merge_mod_file(&path.join("terrain.ron"), |r: TerrainRegistry| {
+                self.terrain.terrain.extend(r.terrain)
+            });
+            merge_mod_file(&path.join("commanders.ron"), |r: CommandersRegistry| {
+                self.commanders.commanders.extend(r.commanders)
+            });
+            // Tables merge per row so a mod can tweak a single matchup
+            merge_mod_file(&path.join("damage_tables.ron"), |r: DamageTablesRegistry| {
+                for (attacker, row) in r.tables {
+                    self.damage_tables.tables.entry(attacker).or_default().extend(row);
                 }
-            }
-
-            // Load unit overrides
-            let units_path = path.join("units.ron");
-            if units_path.exists() {
-                if let Ok(content) = fs::read_to_string(&units_path) {
-                    match ron::from_str::<UnitsRegistry>(&content) {
-                        Ok(mod_units) => {
-                            for (id, data) in mod_units.units {
-                                info!("  Overriding unit: {}", id);
-                                self.units.units.insert(id, data);
-                            }
-                        }
-                        Err(e) => warn!("Failed to parse {}: {}", units_path.display(), e),
-                    }
+            });
+            merge_mod_file(&path.join("movement_costs.ron"), |r: MovementCostsRegistry| {
+                for (terrain, row) in r.costs {
+                    self.movement_costs.costs.entry(terrain).or_default().extend(row);
                 }
-            }
-
-            // Load terrain overrides
-            let terrain_path = path.join("terrain.ron");
-            if terrain_path.exists() {
-                if let Ok(content) = fs::read_to_string(&terrain_path) {
-                    match ron::from_str::<TerrainRegistry>(&content) {
-                        Ok(mod_terrain) => {
-                            for (id, data) in mod_terrain.terrain {
-                                info!("  Overriding terrain: {}", id);
-                                self.terrain.terrain.insert(id, data);
-                            }
-                        }
-                        Err(e) => warn!("Failed to parse {}: {}", terrain_path.display(), e),
-                    }
-                }
-            }
-
-            // Load commander overrides
-            let commanders_path = path.join("commanders.ron");
-            if commanders_path.exists() {
-                if let Ok(content) = fs::read_to_string(&commanders_path) {
-                    match ron::from_str::<CommandersRegistry>(&content) {
-                        Ok(mod_commanders) => {
-                            for (id, data) in mod_commanders.commanders {
-                                info!("  Overriding commander: {}", id);
-                                self.commanders.commanders.insert(id, data);
-                            }
-                        }
-                        Err(e) => warn!("Failed to parse {}: {}", commanders_path.display(), e),
-                    }
-                }
-            }
-
-            self.loaded_mods.push(mod_name);
+            });
         }
 
-        self.mods_loaded = true;
-        info!("Loaded {} mod(s)", self.loaded_mods.len());
+        info!("Loaded {} mod(s)", mod_dirs.len());
     }
 
     /// No-op for WASM builds
     #[cfg(target_arch = "wasm32")]
-    pub fn load_mods(&mut self) {
-        // Mods not supported on WASM
-        self.mods_loaded = true;
+    pub fn load_mods(&mut self) {}
+
+    /// Check that every enum variant has data. Accessors rely on this,
+    /// so it must pass before the resource is used.
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut problems = Vec::new();
+        for &faction in Faction::all() {
+            if !self.factions.factions.contains_key(faction_to_key(faction)) {
+                problems.push(format!("missing faction '{}'", faction_to_key(faction)));
+            }
+        }
+        for &unit_type in UnitType::all() {
+            if !self.units.units.contains_key(unit_type_to_key(unit_type)) {
+                problems.push(format!("missing unit '{}'", unit_type_to_key(unit_type)));
+            }
+        }
+        for &terrain in Terrain::all() {
+            let key = terrain_to_key(terrain);
+            if !self.terrain.terrain.contains_key(key) {
+                problems.push(format!("missing terrain '{}'", key));
+            }
+            for &class in UnitClass::all() {
+                if self.get_movement_cost(terrain, class).is_none() {
+                    problems.push(format!("missing movement cost for '{}' on '{}'", unit_class_to_key(class), key));
+                }
+            }
+        }
+        for &id in CommanderId::all() {
+            match self.commanders.commanders.get(commander_to_key(id)) {
+                None => problems.push(format!("missing commander '{}'", commander_to_key(id))),
+                Some(co) if co.power_cost == 0 => {
+                    problems.push(format!("commander '{}' has power_cost 0", commander_to_key(id)))
+                }
+                Some(_) => {}
+            }
+        }
+        let unit_keys: Vec<&str> = UnitType::all().iter().map(|&u| unit_type_to_key(u)).collect();
+        for (attacker, row) in &self.damage_tables.tables {
+            if !unit_keys.contains(&attacker.as_str()) {
+                problems.push(format!("damage table has unknown attacker '{}'", attacker));
+            }
+            for defender in row.keys() {
+                if !unit_keys.contains(&defender.as_str()) {
+                    problems.push(format!("damage table '{}' has unknown defender '{}'", attacker, defender));
+                }
+            }
+        }
+        if problems.is_empty() { Ok(()) } else { Err(problems) }
     }
 
     // ========================================================================
     // LOOKUP METHODS
     // ========================================================================
+    // Every enum variant is guaranteed to have data once `validate()` has
+    // passed (enforced by ModdingPlugin), so these lookups never fail.
 
-    /// Get faction data by enum
-    pub fn get_faction(&self, faction: Faction) -> Option<&FactionData> {
-        let key = faction_to_key(faction);
-        self.factions.factions.get(key)
+    pub fn faction(&self, faction: Faction) -> &FactionData {
+        &self.factions.factions[faction_to_key(faction)]
     }
 
-    /// Get unit data by enum
-    pub fn get_unit(&self, unit_type: UnitType) -> Option<&UnitData> {
-        let key = unit_type_to_key(unit_type);
-        self.units.units.get(key)
+    pub fn unit(&self, unit_type: UnitType) -> &UnitData {
+        &self.units.units[unit_type_to_key(unit_type)]
     }
 
-    /// Get terrain data by enum
-    pub fn get_terrain(&self, terrain: Terrain) -> Option<&TerrainData> {
-        let key = terrain_to_key(terrain);
-        self.terrain.terrain.get(key)
+    pub fn unit_stats(&self, unit_type: UnitType) -> &UnitStatsData {
+        &self.unit(unit_type).stats
     }
 
-    /// Get commander data by enum
-    pub fn get_commander(&self, id: CommanderId) -> Option<&CommanderData> {
-        let key = commander_to_key(id);
-        self.commanders.commanders.get(key)
+    pub fn terrain(&self, terrain: Terrain) -> &TerrainData {
+        &self.terrain.terrain[terrain_to_key(terrain)]
+    }
+
+    pub fn commander(&self, id: CommanderId) -> &CommanderData {
+        &self.commanders.commanders[commander_to_key(id)]
     }
 
     // ========================================================================
     // CONVENIENCE LOOKUP METHODS
     // ========================================================================
-    // These methods provide direct access to commonly-used data fields,
-    // with sensible fallbacks if data is not found.
 
-    /// Get faction name (falls back to debug name if not in GameData)
     pub fn faction_name(&self, faction: Faction) -> &str {
-        self.get_faction(faction)
-            .map(|f| f.name.as_str())
-            .unwrap_or_else(|| match faction {
-                Faction::Eastern => "Eastern Empire",
-                Faction::Northern => "Northern Realm",
-                Faction::Western => "Western Frontier",
-                Faction::Southern => "Southern Pride",
-                Faction::Nether => "Nether Dominion",
-            })
+        &self.faction(faction).name
     }
 
-    /// Get faction description
-    pub fn faction_description(&self, faction: Faction) -> &str {
-        self.get_faction(faction)
-            .map(|f| f.description.as_str())
-            .unwrap_or("No description available.")
-    }
-
-    /// Get faction color as Bevy Color
     pub fn faction_color(&self, faction: Faction) -> Color {
-        self.get_faction(faction)
-            .map(|f| Color::srgb(f.color[0], f.color[1], f.color[2]))
-            .unwrap_or(Color::srgb(0.5, 0.5, 0.5))
+        let [r, g, b] = self.faction(faction).color;
+        Color::srgb(r, g, b)
     }
 
-    /// Get faction unit cost modifier
     pub fn faction_cost_modifier(&self, faction: Faction) -> f32 {
-        self.get_faction(faction)
-            .map(|f| f.unit_cost_modifier)
-            .unwrap_or(1.0)
+        self.faction(faction).unit_cost_modifier
     }
 
-    /// Get unit name
     pub fn unit_name(&self, unit_type: UnitType) -> &str {
-        self.get_unit(unit_type)
-            .map(|u| u.name.as_str())
-            .unwrap_or("Unknown Unit")
+        &self.unit(unit_type).name
     }
 
-    /// Get unit description
-    pub fn unit_description(&self, unit_type: UnitType) -> &str {
-        self.get_unit(unit_type)
-            .map(|u| u.description.as_str())
-            .unwrap_or("No description available.")
+    pub fn unit_class(&self, unit_type: UnitType) -> UnitClass {
+        self.unit_stats(unit_type).class
     }
 
-    /// Get unit stats
-    pub fn unit_stats(&self, unit_type: UnitType) -> Option<&UnitStatsData> {
-        self.get_unit(unit_type).map(|u| &u.stats)
+    /// What a faction pays to build a unit, after faction and CO cost modifiers
+    pub fn production_cost(&self, unit_type: UnitType, faction: Faction, co_cost_modifier: f32) -> u32 {
+        let base = self.unit_stats(unit_type).cost as f32;
+        (base * self.faction_cost_modifier(faction) * co_cost_modifier).round() as u32
     }
 
-    /// Get terrain name
     pub fn terrain_name(&self, terrain: Terrain) -> &str {
-        self.get_terrain(terrain)
-            .map(|t| t.name.as_str())
-            .unwrap_or("Unknown Terrain")
+        &self.terrain(terrain).name
     }
 
-    /// Get terrain defense bonus
     pub fn terrain_defense(&self, terrain: Terrain) -> u32 {
-        self.get_terrain(terrain)
-            .map(|t| t.defense)
-            .unwrap_or(0)
+        self.terrain(terrain).defense
     }
 
-    /// Get terrain movement cost
-    pub fn terrain_movement_cost(&self, terrain: Terrain) -> u32 {
-        self.get_terrain(terrain)
-            .map(|t| t.movement_cost)
-            .unwrap_or(1)
+    /// Whether this terrain has a vertical feature sprite (trees, rocks, buildings)
+    pub fn terrain_has_feature(&self, terrain: Terrain) -> bool {
+        self.terrain(terrain).feature_height > 0.0
     }
 
-    /// Get terrain color as Bevy Color
     pub fn terrain_color(&self, terrain: Terrain) -> Color {
-        self.get_terrain(terrain)
-            .map(|t| Color::srgb(t.color[0], t.color[1], t.color[2]))
-            .unwrap_or(Color::srgb(0.5, 0.5, 0.5))
+        let [r, g, b] = self.terrain(terrain).color;
+        Color::srgb(r, g, b)
     }
 
-    /// Check if terrain is capturable
     pub fn terrain_capturable(&self, terrain: Terrain) -> bool {
-        self.get_terrain(terrain)
-            .map(|t| t.capturable)
-            .unwrap_or(false)
+        self.terrain(terrain).capturable
     }
 
-    /// Get terrain capture points required
     pub fn terrain_capture_points(&self, terrain: Terrain) -> u32 {
-        self.get_terrain(terrain)
-            .map(|t| t.capture_points)
-            .unwrap_or(0)
+        self.terrain(terrain).capture_points
     }
 
-    /// Get terrain income value
     pub fn terrain_income(&self, terrain: Terrain) -> u32 {
-        self.get_terrain(terrain)
-            .map(|t| t.income)
-            .unwrap_or(0)
+        self.terrain(terrain).income
     }
 
-    /// Get commander name
     pub fn commander_name(&self, id: CommanderId) -> &str {
-        self.get_commander(id)
-            .map(|c| c.name.as_str())
-            .unwrap_or("Unknown Commander")
-    }
-
-    /// Get commander description
-    pub fn commander_description(&self, id: CommanderId) -> &str {
-        self.get_commander(id)
-            .map(|c| c.description.as_str())
-            .unwrap_or("No description available.")
-    }
-
-    /// Get commander power name
-    pub fn commander_power_name(&self, id: CommanderId) -> &str {
-        self.get_commander(id)
-            .map(|c| c.power.name.as_str())
-            .unwrap_or("Unknown Power")
-    }
-
-    /// Get commander power description
-    pub fn commander_power_description(&self, id: CommanderId) -> &str {
-        self.get_commander(id)
-            .map(|c| c.power.description.as_str())
-            .unwrap_or("No description available.")
+        &self.commander(id).name
     }
 
     // === DAMAGE TABLE LOOKUPS ===
@@ -584,34 +463,45 @@ impl GameData {
 
     // === MOVEMENT COST LOOKUPS ===
 
-    /// Get movement cost for a unit class on a terrain type
-    /// Returns None if no entry exists, caller should use terrain default or 99 (impassable)
-    pub fn get_movement_cost(&self, terrain: Terrain, unit_class: UnitClass) -> Option<u32> {
-        let terrain_key = terrain_to_key(terrain);
-        let class_key = unit_class_to_key(unit_class);
-
+    fn get_movement_cost(&self, terrain: Terrain, unit_class: UnitClass) -> Option<u32> {
         self.movement_costs.costs
-            .get(terrain_key)
-            .and_then(|classes| classes.get(class_key))
+            .get(terrain_to_key(terrain))
+            .and_then(|classes| classes.get(unit_class_to_key(unit_class)))
             .copied()
     }
 
-    /// Get movement cost with fallback to terrain default
-    pub fn movement_cost_or_default(&self, terrain: Terrain, unit_class: UnitClass) -> u32 {
-        self.get_movement_cost(terrain, unit_class)
-            .unwrap_or_else(|| {
-                // Fallback to terrain's base movement cost
-                self.get_terrain(terrain)
-                    .map(|t| t.movement_cost)
-                    .unwrap_or(1)
-            })
+    /// Movement points a unit class spends to enter a terrain (99+ = impassable)
+    pub fn movement_cost(&self, terrain: Terrain, unit_class: UnitClass) -> u32 {
+        self.get_movement_cost(terrain, unit_class).unwrap_or(IMPASSABLE)
     }
 
-    /// Check if terrain is passable for a unit class
     pub fn is_passable(&self, terrain: Terrain, unit_class: UnitClass) -> bool {
-        self.get_movement_cost(terrain, unit_class)
-            .map(|cost| cost < 99)
-            .unwrap_or(true) // Default to passable if no entry
+        self.movement_cost(terrain, unit_class) < IMPASSABLE
+    }
+}
+
+/// Movement cost value meaning a unit class cannot enter a terrain
+pub const IMPASSABLE: u32 = 99;
+
+/// Parse a mod's RON file (if present) and hand it to `merge`
+#[cfg(not(target_arch = "wasm32"))]
+fn merge_mod_file<T: serde::de::DeserializeOwned>(path: &std::path::Path, merge: impl FnOnce(T)) {
+    if !path.exists() {
+        return;
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) => {
+            warn!("Failed to read {}: {}", path.display(), e);
+            return;
+        }
+    };
+    match ron::from_str::<T>(&content) {
+        Ok(data) => {
+            info!("  Applied {}", path.display());
+            merge(data);
+        }
+        Err(e) => warn!("Failed to parse {}: {}", path.display(), e),
     }
 }
 
@@ -702,5 +592,80 @@ fn unit_class_to_key(class: UnitClass) -> &'static str {
         UnitClass::Transport => "transport",
         UnitClass::AirTransport => "air_transport",
         UnitClass::NavalTransport => "naval_transport",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_data_is_complete() {
+        let data = GameData::load_defaults();
+        if let Err(problems) = data.validate() {
+            panic!("embedded data incomplete:\n{}", problems.join("\n"));
+        }
+    }
+
+    #[test]
+    fn validate_reports_missing_entries() {
+        let mut data = GameData::load_defaults();
+        data.units.units.remove("scout");
+        data.damage_tables.tables.entry("scout".into()).or_default().insert("dragon".into(), 50);
+        let problems = data.validate().unwrap_err();
+        assert!(problems.iter().any(|p| p.contains("missing unit 'scout'")));
+        assert!(problems.iter().any(|p| p.contains("unknown defender 'dragon'")));
+    }
+
+    #[test]
+    fn every_faction_has_commanders() {
+        let data = GameData::load_defaults();
+        for &faction in Faction::all() {
+            assert!(!CommanderId::for_faction(faction, &data).is_empty(), "{faction:?} has no COs");
+        }
+    }
+
+    #[test]
+    fn units_that_attack_have_damage_entries() {
+        let data = GameData::load_defaults();
+        for &unit_type in UnitType::all() {
+            let has_targets = UnitType::all().iter().any(|&t| data.can_damage(unit_type, t));
+            let is_transport = matches!(
+                data.unit_class(unit_type),
+                UnitClass::Transport | UnitClass::AirTransport | UnitClass::NavalTransport
+            );
+            assert_eq!(has_targets, !is_transport, "{unit_type:?}");
+        }
+    }
+
+    #[test]
+    fn income_and_prices_share_a_scale() {
+        // One turn of a single base's income should buy at least one infantry
+        let data = GameData::load_defaults();
+        let scout = data.unit_stats(UnitType::Scout).cost;
+        assert!(data.terrain_income(Terrain::Base) >= scout);
+        assert!(data.terrain_income(Terrain::Base) < data.unit_stats(UnitType::Ironclad).cost);
+    }
+
+    #[test]
+    fn production_cost_applies_faction_and_co_modifiers() {
+        let data = GameData::load_defaults();
+        let base = data.unit_stats(UnitType::Ironclad).cost as f32;
+        let eastern = data.faction_cost_modifier(Faction::Eastern);
+        assert_eq!(data.production_cost(UnitType::Ironclad, Faction::Northern, 1.0), base as u32);
+        assert_eq!(
+            data.production_cost(UnitType::Ironclad, Faction::Eastern, 0.9),
+            (base * eastern * 0.9).round() as u32
+        );
+    }
+
+    #[test]
+    fn movement_costs_respect_unit_class() {
+        let data = GameData::load_defaults();
+        assert!(!data.is_passable(Terrain::Pond, UnitClass::Foot));
+        assert!(data.is_passable(Terrain::Pond, UnitClass::Naval));
+        assert!(data.is_passable(Terrain::Pond, UnitClass::Air));
+        assert!(!data.is_passable(Terrain::Grass, UnitClass::Naval));
+        assert_eq!(data.movement_cost(Terrain::Grass, UnitClass::Foot), 1);
     }
 }

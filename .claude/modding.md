@@ -6,30 +6,25 @@ Goal: All game content moddable without recompiling Rust code.
 
 ### Completed ✅
 
-**Data Files Created:**
-- `assets/data/factions.ron` - 5 factions (Eastern, Northern, Western, Southern, Nether)
-- `assets/data/units.ron` - 20 unit types with full stats
-- `assets/data/terrain.ron` - 13 terrain types with properties
-- `assets/data/commanders.ron` - 15 commanders with CO powers
+**Data files** (`assets/data/`) are the single source of truth. There are no
+hardcoded fallbacks in Rust; game logic, AI, rendering and UI all read `GameData`.
+- `factions.ron` - 5 factions (Eastern, Northern, Western, Southern, Nether)
+- `units.ron` - 20 unit types with full stats
+- `terrain.ron` - 13 terrain types with properties
+- `commanders.ron` - 15 commanders with CO powers
+- `damage_tables.ron` - base damage % per attacker/defender pair
+- `movement_costs.ron` - movement cost per terrain/unit class
 
-**Loading System (`src/game/modding.rs`):**
+**Loading system (`src/game/modding.rs`):**
 - RON parsing with `ron` crate
 - WASM embedding via `include_str!` - single artifact build
-- Native mod loading from `mods/` directory
-- `GameData` resource with lookup methods
+- Native mod loading from `mods/` at startup
+- `GameData::validate()` runs at startup and refuses to start if any enum
+  variant lacks data, so lookups (`unit_stats`, `terrain`, `commander`, ...) never fail
+- Tests in `modding.rs` check the embedded data stays complete and consistent
 
 ### Pending ⏳
-
-**Refactor game systems to use `GameData`:**
-- [ ] Replace `Faction::name()` calls with `GameData::get_faction()`
-- [ ] Replace `UnitType` stat methods with `GameData::get_unit()`
-- [ ] Replace `Terrain` property methods with `GameData::get_terrain()`
-- [ ] Replace `Commander` lookups with `GameData::get_commander()`
-
-**Additional data files:**
 - [ ] Maps as RON files
-- [ ] Damage tables (unit vs unit effectiveness)
-- [ ] Movement cost tables (unit class vs terrain)
 
 ---
 
@@ -42,6 +37,8 @@ assets/
 │   ├── commanders.ron     # ✅ CO stats and abilities
 │   ├── units.ron          # ✅ Unit types and stats
 │   ├── terrain.ron        # ✅ Terrain types and properties
+│   ├── damage_tables.ron  # ✅ Attacker vs defender base damage
+│   ├── movement_costs.ron # ✅ Terrain vs unit class movement cost
 │   └── maps/              # ⏳ Map files (planned)
 ├── sprites/
 │   ├── units/
@@ -141,19 +138,47 @@ RON (Rusty Object Notation) - Rust-native, readable, supports comments.
         "grass": (
             name: "Grass",
             description: "Open grass - easy movement, no cover",
-            defense: 1,
-            movement_cost: 1,
+            defense: 1,              // AW2 defense stars
             capturable: false,
             capture_points: 0,
-            income: 0,
-            color: [0.35, 0.55, 0.25],
-            feature_height: 0.0,
-            tile_height: 0.0,
+            income: 0,               // Funds per turn when owned (same scale as unit cost)
+            color: (0.55, 0.75, 0.35),
+            feature_height: 0.0,     // 0 = no vertical feature sprite
+            tile_height: 4.0,
             asset_name: "grass",
         ),
     }
 )
 ```
+
+Movement costs live in `movement_costs.ron`, not here.
+
+### damage_tables.ron
+```ron
+(
+    tables: {
+        "scout": {           // attacker
+            "scout": 55,     // defender: base damage %
+            "ironclad": 5,
+        },
+    }
+)
+```
+**A missing entry means the attacker cannot target that unit at all**: no attack
+option, no counter-attack. Damage uses the AW2 formula in `combat.rs`.
+
+### movement_costs.ron
+```ron
+(
+    costs: {
+        "pond": {            // terrain
+            "foot": 99,      // unit class: movement points (99 = impassable)
+            "naval": 1,
+        },
+    }
+)
+```
+Every terrain must list every unit class (enforced by validation).
 
 ## WASM vs Native
 
@@ -165,9 +190,14 @@ RON (Rusty Object Notation) - Rust-native, readable, supports comments.
 
 ### Native Builds
 - RON files embedded as defaults
-- `mods/` directory scanned at startup
-- Mod files override base game entries
-- Multiple mods can be loaded (later mods override earlier)
+- `mods/` directory scanned at startup, mods applied in alphabetical folder order
+  (later mods override earlier)
+- Factions, units, terrain and commanders override **whole entries** (a unit
+  entry must be complete, but can be brand new data for an existing key)
+- Damage tables and movement costs merge **per row cell**, so a mod can change a
+  single matchup
+- Invalid mod files are skipped with a warning; incomplete data after merging
+  stops the game at startup with a list of what's missing
 
 ## Rust Code Guidelines
 
@@ -177,10 +207,9 @@ fn display_unit(
     game_data: Res<GameData>,
     unit: &Unit,
 ) {
-    // Good: moddable
-    if let Some(data) = game_data.get_unit(unit.unit_type) {
-        println!("{}", data.name);
-    }
+    // Good: moddable. Lookups are infallible once validation has passed.
+    println!("{}", game_data.unit_name(unit.unit_type));
+    let stats = game_data.unit_stats(unit.unit_type);
 }
 ```
 
@@ -219,18 +248,21 @@ mods/
     └── units.ron
 ```
 
-The mod's `units.ron` only needs entries you want to override:
+The mod's `units.ron` only needs the units you want to change, but each listed
+unit must be a complete entry (copy it from `assets/data/units.ron` and edit):
 ```ron
 (
     units: {
         "scout": (
             name: "Scout",
-            // ... override with buffed stats
-            stats: (
-                attack: 70,  // was 55
-                // ... rest of stats
-            ),
+            // ... every field, with the changes you want
         ),
     }
 )
+```
+
+A balance tweak to one matchup only needs that cell:
+```ron
+// mods/my-balance-mod/damage_tables.ron
+(tables: { "scout": { "ironclad": 15 } })
 ```

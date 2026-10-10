@@ -5,16 +5,16 @@ use std::collections::HashMap;
 use super::{
     Faction, FactionMember, GameMap, GridPosition, Terrain, Tile, TurnState, Unit, UnitType,
     FactionFunds, Commanders, CommanderId, Weather, WeatherType, TurnPhase, VictoryType,
-    GameResult,
+    GameResult, GameData,
 };
 
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<SaveGameEvent>()
-            .add_event::<LoadGameEvent>()
-            .add_event::<GameLoadedEvent>()
+        app.add_message::<SaveGameEvent>()
+            .add_message::<LoadGameEvent>()
+            .add_message::<GameLoadedEvent>()
             .add_systems(Update, (handle_save_game, handle_load_game, save_load_keyboard));
     }
 }
@@ -148,6 +148,7 @@ pub struct SavedWeather {
 // ============================================================================
 
 /// Get the storage key for a save slot
+#[cfg(target_arch = "wasm32")]
 fn get_save_key(slot: u32) -> String {
     format!("paw_and_claw_save_{}", slot)
 }
@@ -224,7 +225,7 @@ fn storage_location(slot: u32) -> String {
 
 /// Handle save game event
 fn handle_save_game(
-    mut events: EventReader<SaveGameEvent>,
+    mut events: MessageReader<SaveGameEvent>,
     game_map: Res<GameMap>,
     tiles: Query<&Tile>,
     units: Query<(&Unit, &GridPosition, &FactionMember)>,
@@ -308,7 +309,7 @@ fn handle_save_game(
 /// Handle load game event
 fn handle_load_game(
     mut commands: Commands,
-    mut events: EventReader<LoadGameEvent>,
+    mut events: MessageReader<LoadGameEvent>,
     mut loaded_events: MessageWriter<GameLoadedEvent>,
     mut game_map: ResMut<GameMap>,
     mut turn_state: ResMut<TurnState>,
@@ -322,6 +323,7 @@ fn handle_load_game(
     mut materials: ResMut<Assets<StandardMaterial>>,
     sprite_assets: Res<super::SpriteAssets>,
     images: Res<Assets<Image>>,
+    game_data: Res<GameData>,
 ) {
     for event in events.read() {
         // Load from storage
@@ -396,9 +398,9 @@ fn handle_load_game(
             let world_z = saved_tile.y as f32 * super::TILE_SIZE + offset_z;
 
             let tile_color = if let Some(faction) = saved_tile.owner {
-                blend_color(saved_tile.terrain.color(), faction.color(), 0.3)
+                blend_color(game_data.terrain_color(saved_tile.terrain), game_data.faction_color(faction), 0.3)
             } else {
-                saved_tile.terrain.color()
+                game_data.terrain_color(saved_tile.terrain)
             };
 
             commands.spawn((
@@ -419,13 +421,14 @@ fn handle_load_game(
             ));
 
             // Spawn terrain features
-            if saved_tile.terrain.has_feature() {
+            if game_data.terrain_has_feature(saved_tile.terrain) {
                 super::spawn_terrain_feature(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
                     &sprite_assets,
                     &images,
+                    &game_data,
                     saved_tile.x as u32,
                     saved_tile.y as u32,
                     saved_tile.terrain,
@@ -438,7 +441,7 @@ fn handle_load_game(
 
         // Spawn units
         for saved_unit in &save_data.units {
-            let mut unit = Unit::new(saved_unit.unit_type);
+            let mut unit = Unit::new(saved_unit.unit_type, &game_data);
             unit.hp = saved_unit.hp;
             unit.stamina = saved_unit.stamina;
             unit.ammo = saved_unit.ammo;
@@ -458,6 +461,7 @@ fn handle_load_game(
                 &mut materials,
                 &sprite_assets,
                 &images,
+                &game_data,
                 saved_unit.faction,
                 unit,
                 saved_unit.x,
