@@ -220,6 +220,7 @@ impl Plugin for UiPlugin {
                 setup::draw_battle_setup.run_if(in_state(GameState::Battle)),
                 hud::draw_unit_tokens.run_if(in_state(GameState::Battle)),
                 hud::draw_hud.run_if(in_state(GameState::Battle)),
+                hud::draw_power_cut_in.run_if(in_state(GameState::Battle)),
                 hud::draw_inspect_card.run_if(in_state(GameState::Battle)),
                 production::draw_production_menu.run_if(in_state(GameState::Battle)),
                 overlays::draw_game_over.run_if(in_state(GameState::Battle)),

@@ -413,6 +413,10 @@ pub fn draw_unit_tokens(
                 let Ok(screen) = camera.world_to_viewport(camera_transform, transform.translation()) else { continue };
                 let center = egui::pos2(screen.x, screen.y);
                 screen_positions.0.insert(entity, center);
+                // A running power makes the army's units twinkle, as in Advance Wars
+                if commanders.active_power(faction.faction) != PowerLevel::None {
+                    power_sparkles(painter, center, now, entity.index() as f64);
+                }
                 // Units with art need only their HP; cards get a type token
                 if !has_sprite {
                     let color = theme::faction_color(game_data, faction.faction);
@@ -625,4 +629,115 @@ mod tests {
         assert_eq!(display_hp(1), 1);
         assert_eq!(display_hp(0), 0);
     }
+}
+
+/// Two small stars twinkling around a powered-up unit
+fn power_sparkles(painter: &egui::Painter, center: egui::Pos2, now: f64, seed: f64) {
+    for i in 0..2 {
+        let t = now * 1.7 + seed * 0.37 + i as f64 * 1.9;
+        let phase = t.fract();
+        let angle = (t.floor() * 2.4 + seed) % std::f64::consts::TAU;
+        let offset = egui::vec2(angle.cos() as f32 * 18.0, angle.sin() as f32 * 14.0 - 6.0);
+        let alpha = (phase * std::f64::consts::PI).sin() as f32;
+        let color = egui::Color32::from_rgba_unmultiplied(255, 236, 140, (alpha * 230.0) as u8);
+        // A four-pointed glint: a thin diamond on each axis
+        let (p, r, w) = (center + offset, 3.0 + alpha * 4.0, 1.2);
+        for (dx, dy) in [(1.0, 0.0), (0.0, 1.0)] {
+            let along = egui::vec2(dx, dy) * r;
+            let across = egui::vec2(-dy, dx) * w;
+            painter.add(egui::Shape::convex_polygon(vec![p - along, p + across, p + along, p - across], color, egui::Stroke::NONE));
+        }
+    }
+}
+
+/// How long the power cut-in plays, in seconds
+const CUT_IN_SECS: f64 = 2.2;
+
+/// Advance Wars style power cut-in: the screen darkens and a band in the army's
+/// colour sweeps across with the commander's portrait and the power's name
+pub fn draw_power_cut_in(
+    mut contexts: EguiContexts,
+    mut events: MessageReader<PowerActivatedEvent>,
+    commanders: Res<Commanders>,
+    game_data: Res<GameData>,
+    portraits: Res<PortraitTextures>,
+    time: Res<Time>,
+    mut playing: Local<Option<(crate::game::Faction, PowerLevel, f64)>>,
+) {
+    let now = time.elapsed_secs_f64();
+    for event in events.read() {
+        *playing = Some((event.faction, event.level, now));
+    }
+    let Some((faction, level, started)) = *playing else { return };
+    let t = now - started;
+    if t > CUT_IN_SECS {
+        *playing = None;
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    let co_id = commanders.get_active(faction);
+    let co = game_data.commander(co_id);
+    let power = match level {
+        PowerLevel::Super => Some(&co.super_power),
+        _ => co.power.as_ref(),
+    };
+    let Some(power) = power else { return };
+    let color = theme::faction_color(&game_data, faction);
+    let screen = ctx.content_rect();
+
+    // Ease in for 0.35s, hold, ease out over the last 0.35s
+    let ease = |x: f64| { let x = x.clamp(0.0, 1.0); 1.0 - (1.0 - x).powi(3) };
+    let enter = ease(t / 0.35) as f32;
+    let leave = ease((t - (CUT_IN_SECS - 0.35)) / 0.35) as f32;
+    let slide = (1.0 - enter) * -screen.width() + leave * screen.width();
+    let fade = (enter * (1.0 - leave)).clamp(0.0, 1.0);
+
+    egui::Area::new(egui::Id::new("power_cut_in"))
+        .fixed_pos(screen.min)
+        .order(egui::Order::Foreground)
+        .interactable(false)
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            painter.rect_filled(screen, 0, egui::Color32::from_black_alpha((fade * 120.0) as u8));
+            let band_h = 170.0;
+            let band = egui::Rect::from_center_size(screen.center() + egui::vec2(slide, 0.0), egui::vec2(screen.width() * 1.2, band_h));
+            // A slanted band with a pale leading stripe
+            let slant = 40.0;
+            let points = vec![
+                egui::pos2(band.left() + slant, band.top()), egui::pos2(band.right(), band.top()),
+                egui::pos2(band.right() - slant, band.bottom()), egui::pos2(band.left(), band.bottom()),
+            ];
+            painter.add(egui::Shape::convex_polygon(points, theme::shade(color, 0.85), theme::stroke(4.0, theme::shade(color, 0.45))));
+            let stripe = egui::Rect::from_min_max(egui::pos2(band.left(), band.top() + 10.0), egui::pos2(band.right(), band.top() + 16.0));
+            painter.rect_filled(stripe, 0, egui::Color32::from_white_alpha(70));
+
+            // Portrait in a framed square on the left of the band
+            let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x - 260.0 + slide, band.center().y), egui::vec2(136.0, 136.0));
+            painter.rect_filled(portrait.expand(5.0), 6, theme::shade(color, 0.4));
+            match portraits.get(co_id) {
+                Some(texture) => {
+                    painter.image(texture, portrait, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                }
+                None => {
+                    painter.rect_filled(portrait, 4, theme::PARCHMENT_DEEP);
+                    painter.text(portrait.center(), egui::Align2::CENTER_CENTER, co.name.chars().next().unwrap_or('?').to_string(),
+                        egui::FontId::new(64.0, theme::title_family()), theme::WOOD_DARK);
+                }
+            }
+
+            // "SUPER CO POWER!" and the power's name
+            let text_x = portrait.right() + 34.0;
+            let kind = if level == PowerLevel::Super { "SUPER CO POWER!" } else { "CO POWER!" };
+            painter.text(egui::pos2(text_x + 2.0, band.center().y - 26.0), egui::Align2::LEFT_CENTER, kind,
+                egui::FontId::new(26.0, theme::title_family()), egui::Color32::from_black_alpha(120));
+            painter.text(egui::pos2(text_x, band.center().y - 28.0), egui::Align2::LEFT_CENTER, kind,
+                egui::FontId::new(26.0, theme::title_family()), theme::GOLD_LIGHT);
+            painter.text(egui::pos2(text_x + 3.0, band.center().y + 23.0), egui::Align2::LEFT_CENTER, &power.name,
+                egui::FontId::new(52.0, theme::title_family()), egui::Color32::from_black_alpha(140));
+            painter.text(egui::pos2(text_x, band.center().y + 20.0), egui::Align2::LEFT_CENTER, &power.name,
+                egui::FontId::new(52.0, theme::title_family()), theme::PARCHMENT);
+            painter.text(egui::pos2(text_x, band.center().y + 60.0), egui::Align2::LEFT_CENTER, &co.name,
+                egui::FontId::new(18.0, theme::bold_family()), theme::shade(theme::PARCHMENT, 0.85));
+        });
+    ctx.request_repaint();
 }

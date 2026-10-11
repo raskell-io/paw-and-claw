@@ -18,6 +18,7 @@
 //! - `move X Y`   - move the cursor without clicking (hover)
 //! - `shot NAME`  - save `NAME.png` into `PAW_SHOT_DIR` (default `screenshots/`)
 //! - `unit X Y FIELD VALUE` - set the unit on tile (X, Y)'s `hp` (0-100), `ammo` or `stamina`
+//! - `charge`     - fill the player's CO power meter
 //! - `gameover win|lose` - end the current battle immediately
 //! - `quit`       - exit the app
 //!
@@ -55,6 +56,7 @@ enum Step {
     Move(f32, f32),
     Shot(String),
     SetUnit(i32, i32, String, i32),
+    Charge,
     GameOver(bool),
     Quit,
 }
@@ -94,6 +96,7 @@ fn parse(script: &str) -> VecDeque<Step> {
                 "move" => Step::Move(num(1), num(2)),
                 "shot" => Step::Shot(parts[1].to_string()),
                 "unit" => Step::SetUnit(num(1) as i32, num(2) as i32, parts[3].to_string(), num(4) as i32),
+                "charge" => Step::Charge,
                 "gameover" => Step::GameOver(parts.get(1) == Some(&"win")),
                 "quit" => Step::Quit,
                 other => panic!("unknown dev script step '{other}'"),
@@ -145,6 +148,7 @@ fn run_script(
     setup: Res<crate::ui::BattleSetupState>,
     map: Res<crate::game::GameMap>,
     sprites: Res<crate::game::SpriteAssets>,
+    mut commanders: ResMut<crate::game::Commanders>,
 ) {
     let Ok((window, mut window_state)) = window.single_mut() else { return };
 
@@ -216,6 +220,9 @@ fn run_script(
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
             // Give the capture time to be written before the next step
             script.wait = 5;
+        }
+        Step::Charge => {
+            commanders.power_meter.insert(battle_config.player_faction, 1_000_000);
         }
         Step::SetUnit(x, y, field, value) => {
             for (pos, mut unit) in units.iter_mut().filter(|(p, _)| p.x == x && p.y == y) {

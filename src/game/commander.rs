@@ -723,6 +723,112 @@ mod tests {
         }
     }
 
+    /// A small battle: Western (the CO under test) against Northern, with a few
+    /// wounded units of each and an empty storehouse, run through the power system
+    fn power_world(co: CommanderId) -> App {
+        let data = GameData::load_defaults();
+        let mut app = App::new();
+        let mut commanders = Commanders::default();
+        commanders.set_commander(Faction::Western, co);
+        commanders.set_commander(Faction::Northern, CommanderId::Frost);
+        app.add_message::<PowerActivatedEvent>()
+            .insert_resource(commanders)
+            .insert_resource(super::super::BattleConfig::new(Faction::Western, Faction::Northern))
+            .insert_resource(FactionFunds::default())
+            .insert_resource(Weather::new(WeatherType::Clear))
+            .insert_resource(GameMap { width: 8, height: 8, tiles: vec![vec![Terrain::Grass; 8]; 8] })
+            .insert_resource(SpriteAssets::default())
+            .insert_resource(Assets::<Image>::default())
+            .insert_resource(Assets::<Mesh>::default())
+            .insert_resource(Assets::<StandardMaterial>::default())
+            .add_systems(Update, apply_power_effects);
+        let mut spawn = |unit_type, faction, x, y, hp| {
+            let mut unit = Unit::new(unit_type, &data);
+            unit.hp = hp;
+            app.world_mut().spawn((unit, FactionMember { faction }, GridPosition::new(x, y)));
+        };
+        spawn(UnitType::Scout, Faction::Western, 0, 0, 50);
+        spawn(UnitType::Ironclad, Faction::Western, 1, 0, 50);
+        spawn(UnitType::Scout, Faction::Northern, 5, 5, 100);
+        spawn(UnitType::Ironclad, Faction::Northern, 5, 6, 100);
+        app.world_mut().spawn(super::super::Tile {
+            terrain: Terrain::Storehouse, position: IVec2::new(3, 3), owner: Some(Faction::Western),
+            capture_progress: 0, capturing_faction: None,
+        });
+        app.world_mut().resource_mut::<FactionFunds>().add(Faction::Western, 10_000);
+        app.insert_resource(data);
+        app
+    }
+
+    /// Activate a power with a full meter and run its effects
+    fn fire(app: &mut App, level: PowerLevel) -> bool {
+        let effects = app.world_mut().resource_scope(|world, mut commanders: Mut<Commanders>| {
+            commanders.power_meter.insert(Faction::Western, 100_000);
+            commanders.activate_power(Faction::Western, level, world.resource::<GameData>())
+        });
+        let Some(effects) = effects else { return false };
+        app.world_mut().write_message(PowerActivatedEvent { faction: Faction::Western, level, effects });
+        app.update();
+        true
+    }
+
+    fn hp_of(app: &mut App, faction: Faction) -> Vec<i32> {
+        let mut query = app.world_mut().query::<(&Unit, &FactionMember)>();
+        query.iter(app.world()).filter(|(_, f)| f.faction == faction).map(|(u, _)| u.hp).collect()
+    }
+
+    #[test]
+    fn every_power_of_every_commander_runs() {
+        for &id in CommanderId::all() {
+            for level in [PowerLevel::Power, PowerLevel::Super] {
+                let mut app = power_world(id);
+                let has_power = level == PowerLevel::Super || app.world().resource::<GameData>().commander(id).power.is_some();
+                assert_eq!(fire(&mut app, level), has_power, "{id:?} {level:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn power_effects_change_the_battle() {
+        // Andy-like heal: +2 HP to own units
+        let mut app = power_world(CommanderId::Dusty);
+        fire(&mut app, PowerLevel::Power);
+        assert!(hp_of(&mut app, Faction::Western).iter().all(|&hp| hp == 70));
+
+        // Hawke-like drain: enemies -2, own +2
+        let mut app = power_world(CommanderId::Carapace);
+        fire(&mut app, PowerLevel::Super);
+        assert!(hp_of(&mut app, Faction::Northern).iter().all(|&hp| hp == 80));
+        assert!(hp_of(&mut app, Faction::Western).iter().all(|&hp| hp == 70));
+
+        // Sturm-like meteor: 8 HP around the enemy group, never below 0.1 HP
+        let mut app = power_world(CommanderId::Hivemind);
+        fire(&mut app, PowerLevel::Super);
+        assert!(hp_of(&mut app, Faction::Northern).iter().all(|&hp| hp == 20));
+
+        // Olaf-like snow
+        let mut app = power_world(CommanderId::Frost);
+        fire(&mut app, PowerLevel::Power);
+        assert_eq!(app.world().resource::<Weather>().current, WeatherType::Snow);
+
+        // Colin-like funds x1.5
+        let mut app = power_world(CommanderId::Bjorn);
+        fire(&mut app, PowerLevel::Power);
+        assert_eq!(app.world().resource::<FactionFunds>().get(Faction::Western), 15_000);
+
+        // Sensei-like reinforcements on the empty storehouse
+        let mut app = power_world(CommanderId::Sensei);
+        fire(&mut app, PowerLevel::Power);
+        app.update();
+        assert_eq!(hp_of(&mut app, Faction::Western).len(), 3);
+
+        // Von Bolt-like paralysis
+        let mut app = power_world(CommanderId::Vesper);
+        fire(&mut app, PowerLevel::Super);
+        let mut query = app.world_mut().query::<(&Unit, &FactionMember)>();
+        assert!(query.iter(app.world()).filter(|(_, f)| f.faction == Faction::Northern).all(|(u, _)| u.paralyzed));
+    }
+
     #[test]
     fn max_hits_harder_up_close_and_weaker_from_range() {
         let data = GameData::load_defaults();
