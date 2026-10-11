@@ -121,13 +121,19 @@ property changes hands, so colored buildings need no pennant.
 
 **Commander portraits** are 64×64 busts in the spirit of Dual Strike's CO
 portraits, generated with **Pro Flash** with **Remove background off**: plain
-dark brown background, the army's colour on the clothing. Each army starts
-with one anchor portrait made without a style image (the Western anchor is
-Dusty, `anchors/western-portrait.png`). Its other commanders use the anchor as
-the style image, with "Match the style image exactly: same framing and size,
-same outline, shading, palette and plain dark brown background" in the prompt.
-Changing the output size re-renders the form and clears the description, so
-pick the size first.
+dark brown background, the army's colour on the clothing. Every army uses the
+Western anchor, Dusty (`anchors/western-portrait.png`), as the style image, so
+all 28 read as one set. Under "Copy from style image", untick **Color
+palette** (keep outline, detail and shading) so each army's colours come
+through, and end the prompt with "Match the style image's framing and size,
+outline, shading and plain dark brown background". Start the description with
+"{Name} portrait." so downloads can be told apart. Changing the output size
+re-renders the form and clears the description, so pick the size first.
+
+Keep every design grounded, like Root or Redwall: practical medieval clothing,
+leather, iron and cloth, no magic, glowing effects or bone armour. The Nether
+Dominion are burrowing and nocturnal mammals (moles, anteaters, skunks, shrews,
+pangolins, aardvarks, naked mole rats, bats), not insects.
 
 **Unit map sprites** use **Create image → Pro → Pro Flash** at 32×32 with the
 faction's anchor (`anchors/{faction}-map.png`) as the **style image**, one unit

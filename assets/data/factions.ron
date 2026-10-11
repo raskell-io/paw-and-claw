@@ -39,9 +39,9 @@
         ),
         "nether": (
             name: "Nether Dominion",
-            description: "Relentless swarm from below. They emerge without warning.",
+            description: "Relentless burrowers from below. They emerge without warning.",
             color: (0.3, 0.22, 0.36),
-            animals: ["Mole", "Naked Mole Rat", "Beetle", "Worm", "Ant"],
+            animals: ["Mole", "Anteater", "Skunk", "Shrew", "Pangolin"],
             asset_folder: "nether",
         ),
     }

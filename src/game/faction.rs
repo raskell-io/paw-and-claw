@@ -18,7 +18,7 @@ pub enum Faction {
     /// Southern Pride - African animals (lion, elephant, rhino, hyena)
     /// Playstyle: Raw power, territorial control, endurance
     Southern,
-    /// Nether Dominion - Subterranean creatures (moles, naked mole rats, beetles)
+    /// Nether Dominion - Burrowing mammals (moles, anteaters, skunks, shrews, pangolins)
     /// Playstyle: Ambush tactics, terrain manipulation, relentless expansion
     /// Antagonist faction (like Black Hole in Advance Wars)
     Nether,

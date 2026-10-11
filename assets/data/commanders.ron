@@ -442,7 +442,7 @@
             name: "Dredge",
             faction: Nether,
             personality: Reckless,
-            description: "A hulking beetle who fights wild. Damage swings with luck, good and bad.",
+            description: "A hulking skunk who fights wild. Damage swings with luck, good and bad.",
             based_on: "Flak",
             abilities: (luck: 6, bad_luck: 10),
             power: Some((
@@ -482,7 +482,7 @@
             name: "Wriggle",
             faction: Nether,
             personality: Aggressive,
-            description: "A worm who slips through any gap. A stronger power meter makes up for no other gifts.",
+            description: "A shrew who slips through any gap. A stronger power meter makes up for no other gifts.",
             based_on: "Adder",
             power: Some((
                 name: "Slither",
@@ -501,7 +501,7 @@
             name: "Carapace",
             faction: Nether,
             personality: Methodical,
-            description: "A beetle general who drains the life from his foes. Units have 10% more firepower.",
+            description: "A pangolin general who wears his foes down. Units have 10% more firepower.",
             based_on: "Hawke",
             abilities: (attack: [(All, 10)]),
             power: Some((
@@ -521,7 +521,7 @@
             name: "Hivemind",
             faction: Nether,
             personality: Methodical,
-            description: "The ant queen who rules the deep. Strong in attack and defense, and her swarm crosses any ground at cost 1.",
+            description: "The anteater matriarch who rules the deep. Strong in attack and defense, and her army crosses any ground at cost 1.",
             based_on: "Sturm",
             abilities: (attack: [(All, 20)], defense: [(All, 20)], flat_terrain_cost: true),
             power: Some((
@@ -541,7 +541,7 @@
             name: "Clank",
             faction: Nether,
             personality: Reckless,
-            description: "A beetle in clockwork armour. Erratic: damage swings with luck.",
+            description: "An aardvark sapper in riveted iron armour. Erratic: damage swings with luck.",
             based_on: "Jugger",
             abilities: (luck: 20, bad_luck: 15),
             power: Some((
@@ -603,7 +603,7 @@
             name: "Vesper",
             faction: Nether,
             personality: Cautious,
-            description: "The ancient one who sleeps beneath the roots. Units are stronger in attack and defense. No CO Power.",
+            description: "An ancient bat who sleeps beneath the roots. Units are stronger in attack and defense. No CO Power.",
             based_on: "Von Bolt",
             abilities: (attack: [(All, 10)], defense: [(All, 10)]),
             super_power: (
