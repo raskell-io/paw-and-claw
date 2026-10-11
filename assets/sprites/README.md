@@ -119,6 +119,16 @@ the style image and every bit of canvas and flag in bright pure green, kept in
 version plus one per army. The game swaps in the owner's version when a
 property changes hands, so colored buildings need no pennant.
 
+**Commander portraits** are 64×64 busts in the spirit of Dual Strike's CO
+portraits, generated with **Pro Flash** with **Remove background off**: plain
+dark brown background, the army's colour on the clothing. Each army starts
+with one anchor portrait made without a style image (the Western anchor is
+Dusty, `anchors/western-portrait.png`). Its other commanders use the anchor as
+the style image, with "Match the style image exactly: same framing and size,
+same outline, shading, palette and plain dark brown background" in the prompt.
+Changing the output size re-renders the form and clears the description, so
+pick the size first.
+
 **Unit map sprites** use **Create image → Pro → Pro Flash** at 32×32 with the
 faction's anchor (`anchors/{faction}-map.png`) as the **style image**, one unit
 per call (5 generations, about 40 seconds). Start each description with the
