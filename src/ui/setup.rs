@@ -165,49 +165,71 @@ pub fn draw_battle_setup(
         let screen = ui.max_rect();
         theme::forest_backdrop(ui.painter(), screen, time.elapsed_secs());
 
-        let content = screen.shrink2(egui::vec2((screen.width() - 1180.0).max(48.0) / 2.0, 28.0));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
+        // Header, three columns and the footer always fit the window: the
+        // columns take whatever height is left and scroll inside
+        let content = screen.shrink2(egui::vec2((screen.width() - 1180.0).max(48.0) / 2.0, 20.0));
+        let compact = content.height() < 640.0;
+        let header_h = if compact { 64.0 } else { 92.0 };
+        let footer_h = 104.0;
+        let header = egui::Rect::from_min_size(content.min, egui::vec2(content.width(), header_h));
+        let footer = egui::Rect::from_min_max(egui::pos2(content.left(), content.bottom() - footer_h), content.max);
+        let columns = egui::Rect::from_min_max(egui::pos2(content.left(), header.bottom()), egui::pos2(content.right(), footer.top() - 12.0));
+
+        ui.scope_builder(egui::UiBuilder::new().max_rect(header), |ui| {
             ui.vertical_centered(|ui| {
-                ui.label(theme::display("Skirmish", 44.0).color(theme::PARCHMENT));
+                ui.label(theme::display("Skirmish", if compact { 34.0 } else { 44.0 }).color(theme::PARCHMENT));
                 ui.label(theme::body("Choose your army, your commander and the field of battle", 18.0).color(theme::GOLD_LIGHT));
             });
-            ui.add_space(18.0);
+        });
 
-            let gap = 16.0;
-            let col_w = (content.width() - gap * 2.0) / 3.0;
-            let col_h = (content.height() - 300.0).max(300.0);
+        let gap = 16.0;
+        let col_w = (columns.width() - gap * 2.0) / 3.0;
+        let col_h = columns.height();
+        ui.scope_builder(egui::UiBuilder::new().max_rect(columns), |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = gap;
                 column_card(ui, col_w, col_h, "Faction", *column == Column::Faction, |ui| {
-                    for faction in PLAYABLE {
-                        if faction_row(ui, &game_data, faction, setup.player_faction == faction).clicked() {
-                            setup.player_faction = faction;
-                            setup.player_co = None;
-                            *column = Column::Faction;
+                    egui::ScrollArea::vertical().id_salt("setup_factions").auto_shrink([false, false]).show(ui, |ui| {
+                        for faction in PLAYABLE {
+                            let response = faction_row(ui, &game_data, faction, setup.player_faction == faction);
+                            if setup.player_faction == faction && *column == Column::Faction {
+                                response.scroll_to_me(None);
+                            }
+                            if response.clicked() {
+                                setup.player_faction = faction;
+                                setup.player_co = None;
+                                *column = Column::Faction;
+                            }
                         }
-                    }
+                    });
                 });
                 column_card(ui, col_w, col_h, "Commander", *column == Column::Commander, |ui| {
-                    for &co_id in &commanders {
-                        let co = game_data.commander(co_id);
-                        if commander_row(ui, &game_data, co, theme::faction_color(&game_data, setup.player_faction),
-                            setup.player_co == Some(co_id), portraits.get(co_id)).clicked()
-                        {
-                            setup.player_co = Some(co_id);
-                            *column = Column::Commander;
+                    egui::ScrollArea::vertical().id_salt("setup_commanders").auto_shrink([false, false]).show(ui, |ui| {
+                        for &co_id in &commanders {
+                            let co = game_data.commander(co_id);
+                            let selected = setup.player_co == Some(co_id);
+                            let response = commander_row(ui, &game_data, co, theme::faction_color(&game_data, setup.player_faction),
+                                selected, portraits.get(co_id));
+                            if selected && *column == Column::Commander {
+                                response.scroll_to_me(None);
+                            }
+                            if response.clicked() {
+                                setup.player_co = Some(co_id);
+                                *column = Column::Commander;
+                            }
                         }
-                    }
+                    });
                 });
                 column_card(ui, col_w, col_h, "Battlefield", *column == Column::Map, |ui| {
                     let selected = maps.iter().find(|(id, _)| *id == setup.selected_map).map(|(_, m)| m.clone());
                     if let Some(map) = &selected {
                         let preview = map.with_factions(setup.player_faction, opponent);
-                        minimap(ui, &game_data, &preview, egui::vec2(ui.available_width(), 120.0));
+                        minimap(ui, &game_data, &preview, egui::vec2(ui.available_width(), if compact { 80.0 } else { 120.0 }));
                         ui.add_space(2.0);
                         ui.label(theme::body(&map.description, 14.0).color(theme::INK_SOFT).italics());
                         ui.add_space(6.0);
                     }
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    egui::ScrollArea::vertical().id_salt("setup_maps").auto_shrink([false, false]).show(ui, |ui| {
                         for (id, map) in maps.iter() {
                             let detail = format!("{} × {}", map.width, map.height);
                             let response = theme::menu_item(ui, id.name(), Some(&detail), setup.selected_map == *id, true, Tone::Normal);
@@ -222,11 +244,12 @@ pub fn draw_battle_setup(
                     });
                 });
             });
+        });
 
-            ui.add_space(14.0);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(footer), |ui| {
             // Matchup banner and start button
             theme::card().show(ui, |ui| {
-                ui.set_width(content.width() - 28.0);
+                ui.set_width(footer.width() - 28.0);
                 ui.horizontal(|ui| {
                     matchup_side(ui, &game_data, setup.player_faction,
                         setup.player_co.map(|co| game_data.commander_name(co).to_string()).unwrap_or_else(|| "—".into()));
@@ -242,8 +265,7 @@ pub fn draw_battle_setup(
                     });
                 });
             });
-
-            ui.add_space(8.0);
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
                 theme::key_hint(ui, "←→", "Column", true);
                 theme::key_hint(ui, "↑↓", "Choose", true);
@@ -266,8 +288,10 @@ pub fn draw_battle_setup(
 fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused: bool, add: impl FnOnce(&mut egui::Ui)) {
     let frame = theme::card().stroke(theme::stroke(if focused { 3.0 } else { 2.0 }, if focused { theme::GOLD } else { theme::WOOD }));
     frame.show(ui, |ui| {
-        ui.set_width(width - 28.0);
-        ui.set_height(height);
+        // Fixed size whatever the content: long text wraps and lists scroll
+        ui.set_width(width - 32.0);
+        ui.set_height(height - 32.0);
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.vertical(|ui| {
             theme::heading(ui, title);
             add(ui);
@@ -293,8 +317,11 @@ fn faction_row(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, select
     let x = banner.right() + 12.0;
     painter.text(egui::pos2(x, rect.top() + 18.0), egui::Align2::LEFT_CENTER, &data.name,
         egui::FontId::new(19.0, theme::display_family()), theme::INK);
-    painter.text(egui::pos2(x, rect.top() + 38.0), egui::Align2::LEFT_CENTER, &data.description,
-        egui::FontId::proportional(14.0), theme::INK_SOFT);
+    // One line, cut with an ellipsis when the column is narrow
+    let mut job = egui::text::LayoutJob::simple_singleline(data.description.clone(), egui::FontId::proportional(14.0), theme::INK_SOFT);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.right() - x - 8.0);
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    painter.galley(egui::pos2(x, rect.top() + 38.0 - galley.size().y / 2.0), galley, theme::INK_SOFT);
     painter.text(egui::pos2(x, rect.top() + 57.0), egui::Align2::LEFT_CENTER, data.animals.join(" · "),
         egui::FontId::new(13.0, theme::bold_family()), theme::shade(color, 0.7));
     response.on_hover_cursor(egui::CursorIcon::PointingHand)

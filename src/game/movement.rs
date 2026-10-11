@@ -1031,7 +1031,8 @@ fn handle_keyboard_input(
         highlights.tile_costs.clear();
         highlights.attack_targets.clear();
         input.movement_path.clear();
-        input.cursor.visible = false;
+        // The cursor stays up, as in Advance Wars: hiding it here used to hand
+        // the arrow keys to camera panning with no cursor on the board
         return;
     }
 

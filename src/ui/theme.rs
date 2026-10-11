@@ -390,12 +390,14 @@ pub fn portrait(ui: &mut egui::Ui, size: f32, color: Color32, name: &str, image:
 
 /// Small pill showing a stat change, e.g. "+10% ATK"
 pub fn chip(ui: &mut egui::Ui, text: &str, color: Color32) {
-    egui::Frame::new()
-        .fill(color.gamma_multiply(0.15))
-        .stroke(stroke(1.0, color.gamma_multiply(0.6)))
-        .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::symmetric(8, 1))
-        .show(ui, |ui| ui.add(egui::Label::new(bold(text, 13.0).color(shade(color, 0.8))).extend()));
+    // Measured before it's placed, so a wrapping row can move it to the next line
+    let galley = ui.painter().layout_no_wrap(text.to_string(), FontId::new(13.0, bold_family()), shade(color, 0.8));
+    let padding = egui::vec2(8.0, 2.0);
+    let (rect, _) = ui.allocate_exact_size(galley.size() + padding * 2.0, egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect(rect, CornerRadius::same(10), color.gamma_multiply(0.15),
+        stroke(1.0, color.gamma_multiply(0.6)), egui::StrokeKind::Inside);
+    painter.galley(rect.min + padding, galley, shade(color, 0.8));
 }
 
 /// Dim the whole screen behind a modal
