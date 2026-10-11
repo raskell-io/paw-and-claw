@@ -19,12 +19,20 @@ fn main() {
         // Deep forest floor around the board
         .insert_resource(ClearColor(Color::srgb_u8(0x1F, 0x2B, 0x21)))
         // Pixel-art sprites must stay crisp when scaled up
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
+        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(AssetPlugin {
+            // Assets have no .meta files; on the web, asking for them would cost a
+            // failed request per file
+            meta_check: bevy::asset::AssetMetaCheck::Never,
+            ..default()
+        }).set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Paw & Claw".into(),
                 resolution: (1280, 720).into(),
                 canvas: Some("#game-canvas".into()),
-                prevent_default_event_handling: false,
+                // On the web, fill the page and keep the browser from scrolling,
+                // zooming or acting on the game's keys and touches
+                fit_canvas_to_parent: true,
+                prevent_default_event_handling: true,
                 ..default()
             }),
             ..default()

@@ -6,3 +6,4 @@ web/*.wasm
 screenshots/
 __pycache__/
 saves/
+dist/

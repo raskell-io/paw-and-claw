@@ -38,9 +38,6 @@ pub const SKY: Color32 = Color32::from_rgb(0x3F, 0x72, 0x9B);
 /// Full-screen menu backdrop (deep forest)
 pub const FOREST_NIGHT: Color32 = Color32::from_rgb(0x1B, 0x26, 0x1D);
 
-pub const HEALTH_HIGH: Color32 = Color32::from_rgb(0x50, 0xA8, 0x5E);
-pub const HEALTH_MID: Color32 = Color32::from_rgb(0xD9, 0xB0, 0x3C);
-pub const HEALTH_LOW: Color32 = Color32::from_rgb(0xC8, 0x48, 0x3A);
 
 /// Stroke with a concrete f32 width (egui's `Stroke::new` is generic over the width)
 pub fn stroke(width: f32, color: Color32) -> Stroke {
@@ -61,16 +58,6 @@ pub fn faction_color(game_data: &GameData, faction: Faction) -> Color32 {
 pub fn shade(color: Color32, factor: f32) -> Color32 {
     let f = |c: u8| (c as f32 * factor).clamp(0.0, 255.0) as u8;
     Color32::from_rgb(f(color.r()), f(color.g()), f(color.b()))
-}
-
-pub fn health_color(fraction: f32) -> Color32 {
-    if fraction > 0.6 {
-        HEALTH_HIGH
-    } else if fraction > 0.3 {
-        HEALTH_MID
-    } else {
-        HEALTH_LOW
-    }
 }
 
 // ============================================================================
@@ -393,6 +380,7 @@ pub fn key_hint(ui: &mut egui::Ui, key: &str, action: &str, on_dark: bool) {
 }
 
 /// Horizontal meter (HP, power, capture progress). `segments` > 1 draws notches.
+#[allow(dead_code)] // shared widget, currently unused
 pub fn meter(ui: &mut egui::Ui, width: f32, height: f32, fraction: f32, fill: Color32, segments: u32) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let painter = ui.painter();

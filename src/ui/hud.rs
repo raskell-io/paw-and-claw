@@ -213,112 +213,128 @@ pub fn draw_inspect_card(
 
     let Ok(ctx) = contexts.ctx_mut() else { return };
     egui::Area::new(egui::Id::new("hud_inspect"))
-        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(16.0, -52.0))
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(16.0, -16.0))
         .order(egui::Order::Middle)
         .interactable(false)
         .show(ctx, |ui| {
             theme::glass_card().show(ui, |ui| {
-                ui.set_width(270.0);
-                if let Some((unit, faction)) = unit {
-                    let stats = game_data.unit_stats(unit.unit_type);
-                    let bonuses = commanders.get_bonuses(faction, game_data);
-                    let color = theme::faction_color(game_data, faction);
-                    ui.horizontal(|ui| {
-                        // The unit's own sprite marching in place, on a disc of its army's colour
-                        let (slot, _) = ui.allocate_exact_size(egui::vec2(52.0, 52.0), egui::Sense::hover());
-                        match unit_textures.get(faction, unit.unit_type) {
-                            Some((texture, frames)) => {
-                                ui.painter().circle_filled(slot.center() + egui::vec2(0.0, 9.0), 19.0, color.gamma_multiply(0.3));
-                                let frame = (hud.time.elapsed_secs() * 6.0) as u32 % frames.max(1);
-                                let w = 1.0 / frames.max(1) as f32;
-                                let uv = egui::Rect::from_min_max(egui::pos2(frame as f32 * w, 0.0), egui::pos2((frame + 1) as f32 * w, 1.0));
-                                let tint = if unit.exhausted { egui::Color32::from_gray(170) } else { egui::Color32::WHITE };
-                                ui.painter().image(texture, slot.expand(4.0), uv, tint);
-                            }
-                            None => unit_medallion(ui.painter(), slot.center(), 22.0, color, game_data.unit(unit.unit_type).symbol, unit.exhausted),
-                        }
-                        ui.vertical(|ui| {
-                            ui.label(theme::display(game_data.unit_name(unit.unit_type), 21.0).color(theme::WOOD_DARK));
-                            ui.label(theme::body(game_data.faction_name(faction), 14.0).color(theme::shade(color, 0.7)));
-                        });
-                    });
-                    ui.add_space(2.0);
-                    let hp_frac = unit.hp as f32 / stats.max_hp as f32;
-                    // AW Sonja: the enemy can't read her units' HP
-                    let hidden = faction != hud.battle_config.player_faction && bonuses.mods.hidden_hp;
-                    if hidden {
-                        labelled_meter(ui, Icon::Heart, "HP", "?/10", 1.0, theme::INK_SOFT);
-                    } else {
-                        labelled_meter(ui, Icon::Heart, "HP", &format!("{}/10", display_hp(unit.hp)), hp_frac, theme::health_color(hp_frac));
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 1.0);
+                ui.horizontal_top(|ui| {
+                    if let Some((unit, faction)) = unit {
+                        unit_panel(ui, &hud, &commanders, &unit_textures, unit, faction);
+                        ui.add_space(6.0);
+                        let (rule, _) = ui.allocate_exact_size(egui::vec2(1.0, 56.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rule, 0.0, theme::WOOD.gamma_multiply(0.35));
+                        ui.add_space(6.0);
                     }
-                    if stats.max_stamina > 0 {
-                        let f = unit.stamina as f32 / stats.max_stamina as f32;
-                        labelled_meter(ui, Icon::Flask, "Stamina", &format!("{}/{}", unit.stamina, stats.max_stamina), f, theme::SKY);
-                    }
-                    if stats.max_ammo > 0 {
-                        let f = unit.ammo as f32 / stats.max_ammo as f32;
-                        labelled_meter(ui, Icon::Arrow, "Ammo", &format!("{}/{}", unit.ammo, stats.max_ammo), f, theme::GOLD);
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        let movement = bonuses.total_movement(unit.unit_type, &hud.weather, game_data);
-                        let (min_r, mut max_r) = stats.attack_range;
-                        if min_r > 1 {
-                            max_r = (max_r as i32 + bonuses.range(unit.unit_type, game_data)).max(min_r as i32) as u32;
-                        }
-                        let range = if min_r == max_r { format!("{min_r}") } else { format!("{min_r}–{max_r}") };
-                        icon_stat(ui, Icon::Boot, "Move", &movement.to_string());
-                        icon_stat(ui, Icon::Target, "Range", &range);
-                        icon_stat(ui, Icon::Eye, "Vision", &bonuses.total_vision(unit.unit_type, &hud.weather, game_data).to_string());
-                    });
-                    ui.horizontal_wrapped(|ui| {
-                        if unit.exhausted {
-                            theme::chip(ui, "Done", theme::INK_SOFT);
-                        }
-                        if stats.max_ammo > 0 && unit.ammo == 0 {
-                            theme::chip(ui, "No ammo", theme::BERRY);
-                        }
-                        if stats.max_stamina > 0 && unit.stamina == 0 {
-                            theme::chip(ui, "Exhausted", theme::BERRY);
-                        } else if stats.max_stamina > 0 && unit.stamina <= stats.max_stamina / 3 {
-                            theme::chip(ui, "Low stamina", theme::GOLD);
-                        }
-                        for cargo in &unit.cargo {
-                            theme::chip(ui, &format!("Carrying {}", game_data.unit_name(cargo.unit_type)), theme::SKY);
-                        }
-                    });
-                    ui.separator();
-                }
-                terrain_section(ui, game_data, terrain, owner, unit.map(|(u, _)| game_data.unit_class(u.unit_type)));
+                    terrain_panel(ui, game_data, terrain, owner, unit.map(|(u, _)| game_data.unit_class(u.unit_type)));
+                });
             });
         });
 }
 
-fn terrain_section(ui: &mut egui::Ui, game_data: &GameData, terrain: Terrain, owner: Option<crate::game::Faction>, class: Option<UnitClass>) {
-    ui.horizontal(|ui| {
-        let (swatch, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-        ui.painter().rect(swatch, 3, theme::to_egui(game_data.terrain_color(terrain)),
-            theme::stroke(1.0, theme::WOOD_DARK), egui::StrokeKind::Inside);
-        ui.label(theme::bold(game_data.terrain_name(terrain), 17.0));
-        let stars = game_data.terrain_defense(terrain);
-        icons::icon(ui, Icon::Shield, 18.0).on_hover_text(format!("Defense +{stars}"));
-        ui.label(theme::body("★".repeat(stars as usize) + &"☆".repeat(4usize.saturating_sub(stars as usize)), 15.0)
-            .color(theme::GOLD)).on_hover_text(format!("Defense +{stars}"));
-    });
-    ui.horizontal_wrapped(|ui| {
-        let cost = game_data.movement_cost(terrain, class.unwrap_or(UnitClass::Foot));
-        let label = if class.is_some() { "Move cost" } else { "Foot move" };
-        icon_stat(ui, Icon::Boot, label, &if cost >= IMPASSABLE { "—".to_string() } else { cost.to_string() });
-        if game_data.terrain_capturable(terrain) {
-            icon_stat(ui, Icon::Coin, "Income per day", &format_funds(game_data.terrain_income(terrain)));
-            match owner {
-                Some(f) => theme::chip(ui, game_data.faction_name(f), theme::faction_color(game_data, f)),
-                None => theme::chip(ui, "Neutral", theme::INK_SOFT),
-            }
-            if game_data.terrain_produces(terrain) {
-                theme::chip(ui, "Builds units", theme::LEAF);
-            }
+/// The unit half of the info box: sprite and name, then HP, stamina and ammo,
+/// then move, range and vision as icons with numbers (named on hover);
+/// low values turn amber or red, and status shows as small icons
+fn unit_panel(ui: &mut egui::Ui, hud: &HudContext, commanders: &Commanders, unit_textures: &super::UnitTextures,
+              unit: &Unit, faction: crate::game::Faction) {
+    let game_data = &hud.game_data;
+    let stats = game_data.unit_stats(unit.unit_type);
+    let bonuses = commanders.get_bonuses(faction, game_data);
+    let color = theme::faction_color(game_data, faction);
+
+    // The unit's own sprite marching in place, on a disc of its army's colour
+    let (slot, _) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::hover());
+    match unit_textures.get(faction, unit.unit_type) {
+        Some((texture, frames)) => {
+            ui.painter().circle_filled(slot.center() + egui::vec2(0.0, 8.0), 16.0, color.gamma_multiply(0.3));
+            let frame = (hud.time.elapsed_secs() * 6.0) as u32 % frames.max(1);
+            let w = 1.0 / frames.max(1) as f32;
+            let uv = egui::Rect::from_min_max(egui::pos2(frame as f32 * w, 0.0), egui::pos2((frame + 1) as f32 * w, 1.0));
+            let tint = if unit.exhausted { egui::Color32::from_gray(170) } else { egui::Color32::WHITE };
+            ui.painter().image(texture, slot.expand(3.0), uv, tint);
         }
+        None => unit_medallion(ui.painter(), slot.center(), 20.0, color, game_data.unit(unit.unit_type).symbol, unit.exhausted),
+    }
+
+    ui.vertical(|ui| {
+        ui.label(theme::bold(game_data.unit_name(unit.unit_type), 16.0).color(theme::shade(color, 0.65)))
+            .on_hover_text(game_data.faction_name(faction));
+        ui.horizontal(|ui| {
+            let hp = display_hp(unit.hp);
+            // AW Sonja: the enemy can't read her units' HP
+            let hidden = faction != hud.battle_config.player_faction && bonuses.mods.hidden_hp;
+            let hp_color = if hidden { theme::INK_SOFT } else { level_color(hp as u32, 10) };
+            figure(ui, Icon::Heart, if hidden { "?".into() } else { hp.to_string() }, hp_color, "HP");
+            if stats.max_stamina > 0 {
+                figure(ui, Icon::Flask, unit.stamina.to_string(), level_color(unit.stamina, stats.max_stamina), "Stamina");
+            }
+            if stats.max_ammo > 0 {
+                figure(ui, Icon::Arrow, unit.ammo.to_string(), level_color(unit.ammo, stats.max_ammo), "Ammo");
+            }
+        });
+        ui.horizontal(|ui| {
+            let movement = bonuses.total_movement(unit.unit_type, &hud.weather, game_data);
+            let (min_r, mut max_r) = stats.attack_range;
+            if min_r > 1 {
+                max_r = (max_r as i32 + bonuses.range(unit.unit_type, game_data)).max(min_r as i32) as u32;
+            }
+            let range = if min_r == max_r { format!("{min_r}") } else { format!("{min_r}-{max_r}") };
+            figure(ui, Icon::Boot, movement.to_string(), theme::INK, "Move");
+            figure(ui, Icon::Target, range, theme::INK, "Range");
+            figure(ui, Icon::Eye, bonuses.total_vision(unit.unit_type, &hud.weather, game_data).to_string(), theme::INK, "Vision");
+            if unit.exhausted {
+                icons::icon(ui, Icon::Hourglass, 15.0).on_hover_text("Done for this turn");
+            }
+            for cargo in &unit.cargo {
+                icons::icon(ui, Icon::LoadIn, 15.0).on_hover_text(format!("Carrying {}", game_data.unit_name(cargo.unit_type)));
+            }
+        });
     });
+}
+
+/// The terrain half: name, defense stars, move cost, and for properties the
+/// income and an owner's flag
+fn terrain_panel(ui: &mut egui::Ui, game_data: &GameData, terrain: Terrain, owner: Option<crate::game::Faction>, class: Option<UnitClass>) {
+    ui.vertical(|ui| {
+        ui.label(theme::bold(game_data.terrain_name(terrain), 16.0).color(theme::WOOD_DARK));
+        let stars = game_data.terrain_defense(terrain);
+        ui.horizontal(|ui| {
+            icons::icon(ui, Icon::Shield, 15.0).on_hover_text(format!("Defense +{stars}"));
+            ui.label(theme::body("★".repeat(stars as usize) + &"☆".repeat(4usize.saturating_sub(stars as usize)), 14.0)
+                .color(theme::GOLD)).on_hover_text(format!("Defense +{stars}"));
+        });
+        ui.horizontal(|ui| {
+            let cost = game_data.movement_cost(terrain, class.unwrap_or(UnitClass::Foot));
+            let label = if class.is_some() { "Move cost for this unit" } else { "Move cost on foot" };
+            figure(ui, Icon::Boot, if cost >= IMPASSABLE { "-".to_string() } else { cost.to_string() }, theme::INK, label);
+            if game_data.terrain_capturable(terrain) {
+                figure(ui, Icon::Coin, format_funds(game_data.terrain_income(terrain)), theme::INK, "Income per day");
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
+                let flag = owner.map_or(egui::Color32::from_gray(150), |f| theme::faction_color(game_data, f));
+                icons::paint(ui.painter(), rect, Icon::Flag, flag);
+                response.on_hover_text(owner.map_or("Neutral".to_string(), |f| game_data.faction_name(f).to_string()));
+            }
+        });
+    });
+}
+
+/// An icon and a number, named on hover
+fn figure(ui: &mut egui::Ui, icon: Icon, value: String, color: egui::Color32, label: &str) {
+    icons::icon(ui, icon, 15.0).on_hover_text(label);
+    ui.label(theme::bold(value, 14.0).color(color)).on_hover_text(label);
+    ui.add_space(3.0);
+}
+
+/// Ink for a healthy value, amber when low, red when (nearly) out
+fn level_color(value: u32, max: u32) -> egui::Color32 {
+    if value * 5 <= max {
+        theme::BERRY
+    } else if value * 2 <= max {
+        egui::Color32::from_rgb(0xB0, 0x70, 0x10)
+    } else {
+        theme::INK
+    }
 }
 
 /// Faction tokens over every visible unit: type letter, HP pip, dimmed when done
@@ -510,21 +526,6 @@ fn unit_medallion(painter: &egui::Painter, center: egui::Pos2, radius: f32, colo
 /// AW-style displayed HP (1-10)
 fn display_hp(hp: i32) -> i32 {
     ((hp as f32) / 10.0).ceil().clamp(0.0, 10.0) as i32
-}
-
-fn labelled_meter(ui: &mut egui::Ui, icon: Icon, label: &str, value: &str, fraction: f32, color: egui::Color32) {
-    ui.horizontal(|ui| {
-        icons::icon(ui, icon, 20.0).on_hover_text(label);
-        theme::meter(ui, 168.0, 10.0, fraction, color, 0);
-        ui.label(theme::bold(value, 14.0));
-    });
-}
-
-/// A stat as icon and value, named on hover
-fn icon_stat(ui: &mut egui::Ui, icon: Icon, label: &str, value: &str) {
-    icons::icon(ui, icon, 20.0).on_hover_text(label);
-    ui.label(theme::bold(value, 15.0)).on_hover_text(label);
-    ui.add_space(10.0);
 }
 
 /// 12500 -> "12,500"

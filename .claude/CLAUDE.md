@@ -46,6 +46,14 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 - **WASM**: All RON embedded via `include_str!` - single artifact
 - **Native**: Embedded defaults + mod override support
 
+### Web build
+- `tools/web/build.sh [OUT_DIR]` builds the browser version (WebGL2, profile `web-release`) into
+  a static folder: wasm + JS from `wasm-bindgen`, `web/index.html`, runtime assets
+- The wasm-bindgen CLI must match the `wasm-bindgen` version in Cargo.lock
+  (`cargo install wasm-bindgen-cli --version <it> --locked`); `wasm-opt` shrinks it if installed
+- `.github/workflows/pages.yml` builds and publishes it to GitHub Pages on pushes to `main`
+- Test locally: `python3 -m http.server -d dist`, then open http://localhost:8000
+
 See `modding.md` for detailed documentation.
 
 ### Audio

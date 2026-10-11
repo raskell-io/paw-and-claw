@@ -17,6 +17,9 @@ rand = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Document", "Storage"] }
+# Randomness comes from the browser (rand 0.8 uses getrandom 0.2; newer crates 0.3)
+getrandom = { version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 
@@ -30,3 +33,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# The web build: release, with symbols stripped (tools/web/build.sh)
+[profile.web-release]
+inherits = "release"
+strip = true
+panic = "abort"
