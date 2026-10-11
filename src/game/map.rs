@@ -159,9 +159,10 @@ pub fn spawn_map_from_data(
             // Trees, rocks and buildings stand on their tile when there's a sprite for them.
             // A log that's part of a trail is just the trail; only a lone one lies there.
             let lone = terrain != Terrain::Log || (trail == 0 && bridge.is_none());
-            if let Some(feature) = sprite_assets.feature_sprite(images, terrain).filter(|_| lone) {
+            if let Some(feature) = sprite_assets.owned_feature_sprite(images, terrain, owner).filter(|_| lone) {
+                let pennant = !sprite_assets.has_owned_features(terrain);
                 super::spawn_terrain_feature(commands, meshes, materials, game_data, feature,
-                    x, y, tile_height, terrain, owner, offset_x, offset_z);
+                    x, y, tile_height, terrain, owner, pennant, offset_x, offset_z);
             }
         }
     }
@@ -407,6 +408,10 @@ pub enum Terrain {
     Base,
     /// Workshop - builds units and earns income, but losing it doesn't lose the battle (AW factory)
     Workshop,
+    /// Dock - builds and resupplies boats (AW port)
+    Dock,
+    /// Roost - builds and resupplies fliers (AW airport)
+    Roost,
     /// Small fortified outpost - can be captured for income
     Outpost,
     /// Supply cache - can be captured for resources
@@ -431,6 +436,8 @@ impl Terrain {
             Terrain::Shore,
             Terrain::Base,
             Terrain::Workshop,
+            Terrain::Dock,
+            Terrain::Roost,
             Terrain::Outpost,
             Terrain::Storehouse,
         ]

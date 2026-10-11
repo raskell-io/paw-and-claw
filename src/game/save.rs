@@ -418,7 +418,7 @@ fn handle_load_game(
 
             // Spawn terrain features
             // Loaded boards use flat tiles, so features stand at ground level
-            if let Some(feature) = sprite_assets.feature_sprite(&images, saved_tile.terrain) {
+            if let Some(feature) = sprite_assets.owned_feature_sprite(&images, saved_tile.terrain, saved_tile.owner) {
                 super::spawn_terrain_feature(
                     &mut commands,
                     &mut meshes,
@@ -430,6 +430,7 @@ fn handle_load_game(
                     0.0,
                     saved_tile.terrain,
                     saved_tile.owner,
+                    !sprite_assets.has_owned_features(saved_tile.terrain),
                     offset_x,
                     offset_z,
                 );

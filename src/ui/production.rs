@@ -22,15 +22,6 @@ pub struct ProductionContext<'w> {
     battle_config: Res<'w, BattleConfig>,
 }
 
-/// Units a base can build
-const BASE_ROSTER: [UnitType; 5] = [
-    UnitType::Scout,
-    UnitType::Shocktrooper,
-    UnitType::Recon,
-    UnitType::Siege,
-    UnitType::Ironclad,
-];
-
 #[derive(SystemParam)]
 pub struct UnitSpawner<'w, 's> {
     commands: Commands<'w, 's>,
@@ -73,14 +64,26 @@ pub fn draw_production_menu(
     let faction = turn_state.current_faction;
     let co_cost = commanders.get_bonuses(faction, game_data).cost;
     let available = funds.get(faction);
-    let roster: Vec<(UnitType, u32)> = BASE_ROSTER.iter()
-        .map(|&unit_type| (unit_type, game_data.production_cost(unit_type, co_cost)))
+    // Everything this building makes (`builds` in terrain.ron), cheapest first
+    let (bx, by) = production.base_position;
+    let Some(building) = spawner.map.get(bx, by) else {
+        production.active = false;
+        return;
+    };
+    let roster: Vec<(UnitType, u32)> = game_data.buildable_units(building).into_iter()
+        .map(|unit_type| (unit_type, game_data.production_cost(unit_type, co_cost)))
         .collect();
+    if roster.is_empty() {
+        production.active = false;
+        return;
+    }
+    *selected = (*selected).min(roster.len() - 1);
+    let mut moved_selection = false;
 
     let mut build: Option<usize> = None;
     let mut close = false;
     if accept_input {
-        input.step_vertical(&mut selected, roster.len());
+        moved_selection = input.step_vertical(&mut selected, roster.len());
         if input.confirm() {
             build = Some(*selected);
         }
@@ -113,18 +116,24 @@ pub fn draw_production_menu(
                 let color = theme::faction_color(game_data, faction);
                 // The highlighted unit marches in place, at the board's selected-unit pace
                 let tick = (time.elapsed_secs() * 8.0) as u32;
-                for (i, (unit_type, cost)) in roster.iter().enumerate() {
-                    let affordable = available >= *cost;
-                    let sprite = unit_textures.get(faction, *unit_type)
-                        .map(|(texture, frames)| (texture, if i == *selected { tick % frames } else { 0 }, frames));
-                    let response = roster_row(ui, game_data, *unit_type, *cost, color, sprite, affordable, i == *selected);
-                    if theme::pointer_selects(ui, &response) {
-                        *selected = i;
+                // Long rosters scroll, keeping the highlighted row in view
+                egui::ScrollArea::vertical().max_height(5.5 * 58.0).auto_shrink([false, true]).show(ui, |ui| {
+                    for (i, (unit_type, cost)) in roster.iter().enumerate() {
+                        let affordable = available >= *cost;
+                        let sprite = unit_textures.get(faction, *unit_type)
+                            .map(|(texture, frames)| (texture, if i == *selected { tick % frames } else { 0 }, frames));
+                        let response = roster_row(ui, game_data, *unit_type, *cost, color, sprite, affordable, i == *selected);
+                        if i == *selected && moved_selection {
+                            response.scroll_to_me(Some(egui::Align::Center));
+                        }
+                        if theme::pointer_selects(ui, &response) {
+                            *selected = i;
+                        }
+                        if response.clicked() {
+                            build = Some(i);
+                        }
                     }
-                    if response.clicked() {
-                        build = Some(i);
-                    }
-                }
+                });
 
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {

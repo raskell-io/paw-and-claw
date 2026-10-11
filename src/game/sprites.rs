@@ -62,6 +62,7 @@ pub fn spawn_terrain_feature(
     ground_height: f32,
     terrain: Terrain,
     owner: Option<Faction>,
+    pennant: bool,
     offset_x: f32,
     offset_z: f32,
 ) {
@@ -89,8 +90,9 @@ pub fn spawn_terrain_feature(
         Billboard,
     ));
 
-    // Properties fly a pennant showing their owner (kept in sync by `sync_property_flags`)
-    if game_data.terrain_capturable(terrain) {
+    // Properties without art in army colors fly a pennant showing their owner
+    // (kept in sync by `sync_property_flags`)
+    if pennant && game_data.terrain_capturable(terrain) {
         feature.with_children(|parent| {
             parent.spawn((
                 Mesh3d(meshes.add(Rectangle::new(1.5, size * 0.35))),
@@ -123,17 +125,27 @@ fn flag_color(game_data: &GameData, owner: Option<Faction>) -> Color {
     owner.map_or(Color::srgb(0.88, 0.84, 0.74), |f| game_data.faction_color(f))
 }
 
-/// Recolor property pennants when a tile changes hands
+/// When a property changes hands, repaint it in the new owner's colors (or
+/// recolor its pennant when it has no colored art)
 fn sync_property_flags(
     tiles: Query<&super::Tile, Changed<super::Tile>>,
-    features: Query<(&TerrainFeature, &Children)>,
-    flags: Query<&MeshMaterial3d<StandardMaterial>, With<FactionFlag>>,
+    features: Query<(&TerrainFeature, &MeshMaterial3d<StandardMaterial>, Option<&Children>)>,
+    flags: Query<&MeshMaterial3d<StandardMaterial>, (With<FactionFlag>, Without<TerrainFeature>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     game_data: Res<GameData>,
+    sprites: Res<super::SpriteAssets>,
+    images: Res<Assets<Image>>,
 ) {
     for tile in tiles.iter() {
-        let Some((_, children)) = features.iter().find(|(f, _)| f.grid_position == tile.position) else { continue };
-        for child in children.iter() {
+        let Some((_, feature_material, children)) = features.iter().find(|(f, _, _)| f.grid_position == tile.position) else { continue };
+        if let Some(texture) = sprites.owned_feature_sprite(&images, tile.terrain, tile.owner) {
+            if let Some(material) = materials.get_mut(&feature_material.0) {
+                if material.base_color_texture.as_ref() != Some(&texture) {
+                    material.base_color_texture = Some(texture);
+                }
+            }
+        }
+        for child in children.into_iter().flat_map(|c| c.iter()) {
             if let Some(material) = flags.get(child).ok().and_then(|m| materials.get_mut(&m.0)) {
                 material.base_color = flag_color(&game_data, tile.owner);
             }

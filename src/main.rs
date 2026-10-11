@@ -64,7 +64,7 @@ fn setup_lighting(mut commands: Commands) {
     // Directional light (sun-like)
     commands.spawn((
         DirectionalLight {
-            illuminance: 8000.0,
+            illuminance: 12000.0, // only lit pieces (the route arrow) use it; terrain and sprites are unlit
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(

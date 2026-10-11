@@ -356,6 +356,7 @@ pub fn draw_unit_tokens(
     hud: HudContext,
     units: Query<(Entity, &Unit, &GlobalTransform, &FactionMember, &GridPosition, Has<crate::game::UnitSprite>)>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    tiles: Query<&crate::game::Tile>,
     mut screen_positions: ResMut<UnitScreenPositions>,
 ) {
     screen_positions.0.clear();
@@ -373,6 +374,13 @@ pub fn draw_unit_tokens(
         .interactable(false)
         .show(ctx, |ui| {
             let painter = ui.painter();
+            let now = ui.input(|i| i.time);
+            let capturing: std::collections::HashMap<(i32, i32), crate::game::Faction> = tiles.iter()
+                .filter(|t| t.capture_progress > 0)
+                .filter_map(|t| t.capturing_faction.map(|f| ((t.position.x, t.position.y), f)))
+                .collect();
+            let right = camera_transform.right().as_vec3();
+            let up = camera_transform.up().as_vec3();
             for (entity, unit, transform, faction, pos, has_sprite) in units.iter() {
                 if faction.faction != player && !hud.visible_to_player(pos.x, pos.y) {
                     continue;
@@ -386,15 +394,96 @@ pub fn draw_unit_tokens(
                     unit_medallion(painter, center, 15.0, color, game_data.unit(unit.unit_type).symbol, unit.exhausted);
                 }
 
+                // Badges hang off the sprite's bottom corners, sized to its pixels
+                let half = crate::game::SPRITE_WORLD_SIZE / 2.0;
+                let corner = |side: f32| camera.world_to_viewport(camera_transform,
+                    transform.translation() + right * half * side - up * half).ok();
+                let (Some(bottom_left), Some(bottom_right)) = (corner(-1.0), corner(1.0)) else { continue };
+                let sprite_px = ((bottom_right.x - bottom_left.x) / 32.0).max(0.5);
+                let cell = (sprite_px * 1.5).round().max(2.0);
+
+                // HP 1-9 bottom right, like Advance Wars; full health shows nothing
                 let hp = display_hp(unit.hp);
-                if hp < 10 {
-                    let pip = center + if has_sprite { egui::vec2(16.0, 14.0) } else { egui::vec2(13.0, 11.0) };
-                    painter.circle(pip, 8.0, theme::PARCHMENT, theme::stroke(1.5, theme::WOOD_DARK));
-                    painter.text(pip, egui::Align2::CENTER_CENTER, hp.to_string(),
-                        egui::FontId::new(12.0, theme::bold_family()), theme::health_color(hp as f32 / 10.0).gamma_multiply(1.0));
+                if (1..10).contains(&hp) {
+                    let glyph = &DIGITS[hp as usize];
+                    pixel_badge(painter, egui::pos2(bottom_right.x, bottom_right.y), cell, glyph, egui::Color32::WHITE, true);
+                }
+                // Status bottom left, cycling when there's more than one
+                let statuses = unit_statuses(unit, &hud.game_data, capturing.get(&(pos.x, pos.y)) == Some(&faction.faction));
+                if !statuses.is_empty() {
+                    let (glyph, color) = statuses[(now / STATUS_CYCLE_SECS) as usize % statuses.len()];
+                    pixel_badge(painter, egui::pos2(bottom_left.x, bottom_left.y), cell, glyph, color, false);
                 }
             }
         });
+}
+
+/// Seconds each status icon shows before the next one when a unit has several
+const STATUS_CYCLE_SECS: f64 = 0.9;
+
+/// A 5x5 pixel glyph, one string per row ('#' lit)
+type Glyph = [&'static str; 5];
+
+/// Pixel digits 0-9, 3 wide
+const DIGITS: [Glyph; 10] = [
+    ["###", "#.#", "#.#", "#.#", "###"],
+    [".#.", "##.", ".#.", ".#.", "###"],
+    ["###", "..#", "###", "#..", "###"],
+    ["###", "..#", ".##", "..#", "###"],
+    ["#.#", "#.#", "###", "..#", "..#"],
+    ["###", "#..", "###", "..#", "###"],
+    ["###", "#..", "###", "#.#", "###"],
+    ["###", "..#", ".#.", ".#.", ".#."],
+    ["###", "#.#", "###", "#.#", "###"],
+    ["###", "#.#", "###", "..#", "###"],
+];
+
+/// Running low on arrows, stones and bolts
+const ICON_AMMO: Glyph = ["..#..", ".###.", "..#..", "..#..", ".#.#."];
+/// Running low on stamina (Advance Wars fuel): an acorn
+const ICON_STAMINA: Glyph = [".###.", "#####", ".###.", ".###.", "..#.."];
+/// Carrying another unit
+const ICON_CARGO: Glyph = ["#####", "#.#.#", "#####", "#.#.#", "#####"];
+/// Capturing the property it stands on
+const ICON_CAPTURE: Glyph = ["##...", "####.", "##...", "#....", "#...."];
+
+/// The status icons a unit shows, in order. Submerged, hidden and similar
+/// states slot in here as the mechanics arrive.
+fn unit_statuses(unit: &Unit, game_data: &GameData, capturing: bool) -> Vec<(&'static Glyph, egui::Color32)> {
+    let stats = game_data.unit_stats(unit.unit_type);
+    let mut statuses = Vec::new();
+    if capturing {
+        statuses.push((&ICON_CAPTURE, egui::Color32::from_rgb(255, 214, 90)));
+    }
+    if unit.cargo.is_some() {
+        statuses.push((&ICON_CARGO, egui::Color32::from_rgb(232, 208, 160)));
+    }
+    if stats.max_ammo > 0 && unit.ammo * 3 <= stats.max_ammo {
+        statuses.push((&ICON_AMMO, egui::Color32::from_rgb(255, 140, 90)));
+    }
+    if stats.max_stamina > 0 && unit.stamina * 4 <= stats.max_stamina {
+        statuses.push((&ICON_STAMINA, egui::Color32::from_rgb(240, 196, 80)));
+    }
+    statuses
+}
+
+/// Advance Wars style badge: a black box with a chunky pixel glyph, anchored at
+/// a sprite corner (`right` hangs it off the bottom-right, else bottom-left)
+fn pixel_badge(painter: &egui::Painter, corner: egui::Pos2, cell: f32, glyph: &Glyph, color: egui::Color32, right: bool) {
+    let cols = glyph[0].len() as f32;
+    let size = egui::vec2((cols + 2.0) * cell, 7.0 * cell);
+    let min = egui::pos2(if right { corner.x - size.x } else { corner.x }, corner.y - size.y).round();
+    let rect = egui::Rect::from_min_size(min, size);
+    painter.rect_filled(rect.expand(1.0), 1, egui::Color32::from_rgb(232, 224, 206));
+    painter.rect_filled(rect, 0, egui::Color32::from_rgb(16, 14, 12));
+    for (row, line) in glyph.iter().enumerate() {
+        for (col, ch) in line.chars().enumerate() {
+            if ch == '#' {
+                let p = min + egui::vec2((col as f32 + 1.0) * cell, (row as f32 + 1.0) * cell);
+                painter.rect_filled(egui::Rect::from_min_size(p, egui::vec2(cell, cell)), 0, color);
+            }
+        }
+    }
 }
 
 /// Round token with the unit's type letter

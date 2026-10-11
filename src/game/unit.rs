@@ -58,22 +58,28 @@ const UNIT_DRAW_NUDGE: f32 = TILE_SIZE;
 #[derive(Component)]
 pub struct UnitBody;
 
-/// Moving the body toward the camera makes it look bigger; shrink it back by the
-/// same ratio so units keep their size on screen at any zoom
+/// Place each unit's body on the straight line from its tile to the camera, so
+/// it draws in front of terrain without shifting on screen, and shrink it by
+/// the same ratio it moved closer, so it keeps its size. (Nudging along the
+/// camera's forward axis instead slides off-center units sideways, more the
+/// farther they are from the middle of the view.)
 fn keep_unit_bodies_true_to_size(
     camera: Query<&GlobalTransform, With<Camera3d>>,
-    units: Query<(&GlobalTransform, &Children), With<Unit>>,
-    mut bodies: Query<&mut Transform, With<UnitBody>>,
+    units: Query<(&Transform, &Children), With<Unit>>,
+    mut bodies: Query<&mut Transform, (With<UnitBody>, Without<Unit>)>,
 ) {
     let Ok(camera) = camera.single() else { return };
     for (unit, children) in units.iter() {
-        let distance = camera.translation().distance(unit.translation()).max(UNIT_DRAW_NUDGE * 2.0);
+        let to_camera = camera.translation() - unit.translation;
+        let distance = to_camera.length().max(UNIT_DRAW_NUDGE * 2.0);
         let ratio = (distance - UNIT_DRAW_NUDGE) / distance;
+        // The offset in the unit's own frame (billboard rotation, mirrored facing)
+        let mut local = unit.rotation.inverse() * (to_camera / distance * UNIT_DRAW_NUDGE);
+        local /= unit.scale;
         for child in children.iter() {
             if let Ok(mut body) = bodies.get_mut(child) {
-                if (body.scale.y - ratio).abs() > 0.001 {
-                    body.scale = Vec3::new(ratio, ratio, 1.0);
-                }
+                body.translation = local;
+                body.scale = Vec3::new(ratio, ratio, 1.0);
             }
         }
     }
@@ -97,12 +103,9 @@ fn animate_unit_sprites(
     const ACTIVE_FPS: f32 = 8.0;
     let t = time.elapsed_secs();
     for (entity, unit, visuals, mut frames, moving) in units.iter_mut() {
-        let active = moving || highlights.selected_unit == Some(entity);
-        let frame = if unit.exhausted {
-            0
-        } else {
-            (t * if active { ACTIVE_FPS } else { IDLE_FPS }) as u32 % frames.count
-        };
+        // Units that have acted are dimmed but keep marching in place
+        let active = !unit.exhausted && (moving || highlights.selected_unit == Some(entity));
+        let frame = (t * if active { ACTIVE_FPS } else { IDLE_FPS }) as u32 % frames.count;
         if frame == frames.shown {
             continue;
         }

@@ -1365,9 +1365,9 @@ fn score_move_action(
     let low_ammo = stats.max_ammo > 0 && unit.unit.ammo <= stats.max_ammo / 3;
 
     if low_stamina || low_ammo {
-        // Find distance to nearest friendly resupply building (Base or Storehouse)
+        // Find distance to the nearest friendly building that resupplies this unit
         let dist_to_supply = analysis.our_properties.iter()
-            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Workshop | Terrain::Storehouse))
+            .filter(|t| game_data.terrain_resupplies(t.terrain, unit.unit.unit_type))
             .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
             .min_by(|a, b| a.partial_cmp(b).unwrap());
 
@@ -1560,7 +1560,7 @@ fn smart_production(
                 && t.owner == Some(faction)
                 && !unit_positions.contains(&(t.position.x, t.position.y))
         })
-        .map(|(_, t)| (t.position.x, t.position.y))
+        .map(|(_, t)| (t.position.x, t.position.y, t.terrain))
         .collect();
 
     if empty_bases.is_empty() {
@@ -1683,8 +1683,19 @@ fn smart_production(
 
     build_list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    for (x, y) in empty_bases {
-        for (unit_type, _) in &build_list {
+    for (x, y, terrain) in empty_bases {
+        // The strategy's picks this building can make; docks and roosts (whose
+        // units the strategies don't name) build the strongest unit they can afford
+        let mut picks: Vec<UnitType> = build_list.iter().map(|(u, _)| *u)
+            .filter(|&u| game_data.terrain_builds(terrain, u))
+            .collect();
+        if picks.is_empty() {
+            picks = game_data.buildable_units(terrain).into_iter()
+                .filter(|&u| game_data.unit_stats(u).attack > 0)
+                .rev()
+                .collect();
+        }
+        for unit_type in &picks {
             let cost = game_data.production_cost(*unit_type, co_cost_modifier);
             if funds.spend(faction, cost) {
                 spawn_unit(commands, map, &mut sprite_param.meshes, &mut sprite_param.materials, &sprite_param.assets, &sprite_param.images, game_data, faction, *unit_type, x, y);

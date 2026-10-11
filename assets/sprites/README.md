@@ -111,6 +111,14 @@ green in a design would be recolored too, so avoid it. When an army
 gets its own generated roster (its own animals), drop it from `--factions` so
 its sprites aren't overwritten.
 
+**Buildings** are a woodland army's field camp: command tent (HQ), forge tent
+(workshop), lookout on stilts (outpost), supply depot (storehouse), jetty and
+boat shed (dock) and perch tower (roost). They're generated with the bush as
+the style image and every bit of canvas and flag in bright pure green, kept in
+`originals/features/`, and `team_colors.py` builds the neutral grey-and-white
+version plus one per army. The game swaps in the owner's version when a
+property changes hands, so colored buildings need no pennant.
+
 **Unit map sprites** use **Create image → Pro → Pro Flash** at 32×32 with the
 faction's anchor (`anchors/{faction}-map.png`) as the **style image**, one unit
 per call (5 generations, about 40 seconds). Start each description with the
@@ -136,7 +144,7 @@ Lessons from the first tests:
 ### Terrain the Dual Strike way
 
 - **Ground tiles are drawn by code**, not generated:
-  `python3 tools/sprites/ground_tiles.py` writes all 15 tiles in a fixed,
+  `python3 tools/sprites/ground_tiles.py` writes all 17 tiles in a fixed,
   bright palette (meadow, sand, creek, pond, flagstones).
   Generated ground came out far too busy to repeat across a map.
 - **Tiles can be strips of variants** (32px columns), and the game picks one per tile:

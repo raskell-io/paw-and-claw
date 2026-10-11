@@ -258,13 +258,28 @@ def bridge(rng, north_south):
     return img
 
 
+def boardwalk(rng):
+    """Sand with a plank boardwalk across it, where the dock's jetty starts."""
+    img = blank(SAND[0]); speckle(img, rng, SAND[1], 20); speckle(img, rng, SAND[2], 10)
+    for y in range(SIZE):
+        for x in range(SIZE):
+            if 6 <= y <= 25:
+                if y in (6, 25):
+                    img[y][x] = RAIL
+                elif x % 6 == 5:
+                    img[y][x] = PLANK[0]  # gaps between boards
+                else:
+                    img[y][x] = PLANK[2] if y == 7 else PLANK[1]
+    return img
+
+
 def tile(name, variant=0):
     rng = random.Random(f"{name}{variant}")  # stable per terrain and variant
     if name == "grass":
         img = meadow(rng, variant)
     elif name == "log":
         img = trail(rng, variant) if variant < 16 else bridge(rng, north_south=variant == 17)
-    elif name in ("tall_grass", "thicket", "brambles", "boulder", "hollow", "workshop", "outpost", "storehouse"):
+    elif name in ("tall_grass", "thicket", "brambles", "boulder", "hollow", "workshop", "roost", "outpost", "storehouse"):
         # Features stand on plain ground, as in AW: the sprite says what's there
         img = meadow(rng, variant, tuft_count=3)
     elif name == "base":
@@ -277,6 +292,8 @@ def tile(name, variant=0):
         img = blank(SEA[0]); speckle(img, rng, SEA[1], 24); ripples(img, rng, SEA, 6)
     elif name == "lily_pads":
         img = lily_pads(rng)
+    elif name == "dock":
+        img = boardwalk(rng)
     else:
         raise SystemExit(f"unknown terrain {name}")
     return img
@@ -288,13 +305,13 @@ def columns(name):
         return 18
     if name == "shore":
         return 16
-    if name in ("grass", "tall_grass", "thicket", "brambles", "boulder", "hollow", "workshop", "outpost", "storehouse"):
+    if name in ("grass", "tall_grass", "thicket", "brambles", "boulder", "hollow", "workshop", "roost", "outpost", "storehouse"):
         return VARIANTS
     return 1
 
 
 TERRAIN = ["grass", "tall_grass", "thicket", "brambles", "log", "boulder", "hollow",
-           "creek", "pond", "lily_pads", "shore", "base", "workshop", "outpost", "storehouse"]
+           "creek", "pond", "lily_pads", "shore", "base", "workshop", "dock", "roost", "outpost", "storehouse"]
 
 
 def main():

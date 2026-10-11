@@ -960,6 +960,16 @@
         "prompt": "Pixel art seamless top-down ground tile texture. Short green meadow grass with tiny clover. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
       },
       {
+        "id": "dock",
+        "subject": "sand with a plank boardwalk",
+        "prompt": "Pixel art seamless top-down ground tile texture. Sand with a plank boardwalk. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
+        "id": "roost",
+        "subject": "short green meadow grass with tiny clover",
+        "prompt": "Pixel art seamless top-down ground tile texture. Short green meadow grass with tiny clover. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
+      },
+      {
         "id": "outpost",
         "subject": "packed dirt with scattered stones",
         "prompt": "Pixel art seamless top-down ground tile texture. Packed dirt with scattered stones. Storybook medieval woodland palette, soft 3-tone shading, light from the upper left, tiles seamlessly on all four edges, flat ground only with no tall objects, fills the whole square, no outline, no text."
@@ -1009,27 +1019,39 @@
       },
       {
         "id": "base",
-        "subject": "a cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole",
-        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A cozy burrow home dug under a big tree root, with a round wooden door, a little lantern and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
+        "subject": "an army command tent with a peaked roof and a tall banner behind a short palisade of sharpened logs",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). An army command tent with a peaked roof and a tall banner behind a short palisade of sharpened logs. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png; colors by tools/sprites/team_colors.py"
       },
       {
         "id": "workshop",
-        "subject": "a little woodland carpenter's workshop: a hollow-log hut with a crooked stone chimney puffing smoke, a saw and a stack of twigs by the open door",
-        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png",
-        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A little woodland carpenter's workshop: a hollow-log hut with a crooked stone chimney puffing smoke, a saw and a stack of twigs by the open door. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
+        "subject": "an open-sided army forge tent over an anvil and a glowing hearth, a small smoking chimney, a spear rack and lumber",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png; colors by tools/sprites/team_colors.py",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). An open-sided army forge tent over an anvil and a glowing hearth, a small smoking chimney, a spear rack and lumber. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
       },
       {
         "id": "outpost",
-        "subject": "a small lookout tower built from twigs and bark with a leaf roof and an empty twig flagpole",
-        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A small lookout tower built from twigs and bark with a leaf roof and an empty twig flagpole. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
+        "subject": "an army lookout platform on four tall log stilts with a ladder, a small canvas roof and a pennant",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). An army lookout platform on four tall log stilts with a ladder, a small canvas roof and a pennant. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png; colors by tools/sprites/team_colors.py"
       },
       {
         "id": "storehouse",
-        "subject": "a little granary made from a hollow stump with an acorn-cap roof and seeds and nuts stacked by the door",
-        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A little granary made from a hollow stump with an acorn-cap roof and seeds and nuts stacked by the door. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
-        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png"
+        "subject": "an army supply depot of crates, barrels and grain sacks under a stretched canvas awning",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). An army supply depot of crates, barrels and grain sacks under a stretched canvas awning. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette.",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png; colors by tools/sprites/team_colors.py"
+      },
+      {
+        "id": "dock",
+        "subject": "a short wooden jetty on log stilts with a small boat shed under a canvas roof and a mooring post with a pennant",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png; colors by tools/sprites/team_colors.py",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A short wooden jetty on log stilts with a small boat shed under a canvas roof and a mooring post with a pennant. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
+      },
+      {
+        "id": "roost",
+        "subject": "a tall perch tower of lashed logs with a woven nest platform, a canvas windbreak and a streamer banner",
+        "source": "pixellab: Pro Flash, style image terrain/features/thicket.png; colors by tools/sprites/team_colors.py",
+        "prompt": "Whimsical storybook terrain sprite for a tactics map in the style of Advance Wars Dual Strike, drawn at the scale of small woodland animals (a forest floor seen by a mouse, not a landscape). A tall perch tower of lashed logs with a woven nest platform, a canvas windbreak and a streamer banner. Seen from the front, isolated, nothing underneath it: no grass, no ground, no platform. Soft colored outlines, bright cheerful palette."
       }
     ]
   },

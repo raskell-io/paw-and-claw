@@ -31,6 +31,9 @@ pub struct SpriteAssets {
     pub unit_sprites: HashMap<(Faction, UnitType), Handle<Image>>,
     pub terrain_tiles: HashMap<Terrain, Handle<Image>>,
     pub terrain_features: HashMap<Terrain, Handle<Image>>,
+    /// Buildings in an army's colors (`terrain/features/{faction}/{id}.png`);
+    /// the plain feature sprite is the neutral one
+    pub owned_features: HashMap<(Terrain, Faction), Handle<Image>>,
     pub portraits: HashMap<CommanderId, Handle<Image>>,
     /// Every requested sprite has finished loading (or failed)
     pub loading_complete: bool,
@@ -51,6 +54,10 @@ impl SpriteAssets {
 
     pub fn terrain_feature_path(game_data: &GameData, terrain: Terrain) -> String {
         format!("sprites/terrain/features/{}.png", game_data.terrain(terrain).asset_name)
+    }
+
+    pub fn owned_feature_path(game_data: &GameData, terrain: Terrain, faction: Faction) -> String {
+        format!("sprites/terrain/features/{}/{}.png", game_data.faction(faction).asset_folder, game_data.terrain(terrain).asset_name)
     }
 
     pub fn portrait_path(id: CommanderId) -> String {
@@ -74,6 +81,18 @@ impl SpriteAssets {
         Self::ready(images, self.terrain_features.get(&terrain))
     }
 
+    /// A building in its owner's colors, or the neutral sprite when unowned
+    /// (or when there's no colored version)
+    pub fn owned_feature_sprite(&self, images: &Assets<Image>, terrain: Terrain, owner: Option<Faction>) -> Option<Handle<Image>> {
+        owner.and_then(|faction| Self::ready(images, self.owned_features.get(&(terrain, faction))))
+            .or_else(|| self.feature_sprite(images, terrain))
+    }
+
+    /// Whether this building has versions in army colors (then it needs no pennant)
+    pub fn has_owned_features(&self, terrain: Terrain) -> bool {
+        self.owned_features.keys().any(|(t, _)| *t == terrain)
+    }
+
     pub fn portrait(&self, images: &Assets<Image>, id: CommanderId) -> Option<Handle<Image>> {
         Self::ready(images, self.portraits.get(&id))
     }
@@ -82,6 +101,7 @@ impl SpriteAssets {
         self.unit_sprites.values()
             .chain(self.terrain_tiles.values())
             .chain(self.terrain_features.values())
+            .chain(self.owned_features.values())
             .chain(self.portraits.values())
     }
 }
@@ -119,6 +139,13 @@ fn start_asset_loading(asset_server: Res<AssetServer>, mut sprites: ResMut<Sprit
         if game_data.terrain_has_feature(terrain) {
             if let Some(handle) = load(SpriteAssets::terrain_feature_path(&game_data, terrain)) {
                 sprites.terrain_features.insert(terrain, handle);
+            }
+            if game_data.terrain_capturable(terrain) {
+                for &faction in Faction::all() {
+                    if let Some(handle) = load(SpriteAssets::owned_feature_path(&game_data, terrain, faction)) {
+                        sprites.owned_features.insert((terrain, faction), handle);
+                    }
+                }
             }
         }
     }

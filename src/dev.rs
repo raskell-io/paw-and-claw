@@ -9,11 +9,15 @@
 //!
 //! Steps:
 //! - `wait N`     - let N frames pass
+//! - `until menu|setup|board` - wait for the title screen, the skirmish setup or
+//!   a loaded battle board (then a few frames more, past first-frame input guards).
+//!   Prefer this over long `wait`s at startup: frame timing varies with load time
 //! - `key NAME`   - press and release a key (`Space`, `Enter`, `Escape`, `Tab`, arrows, `KeyA`..`KeyZ`)
 //! - `hold NAME N` - hold a key down for N frames (zoom, key repeat)
 //! - `click X Y`  - left-click at logical window coordinates (reaches egui and cursor-based picking)
 //! - `move X Y`   - move the cursor without clicking (hover)
 //! - `shot NAME`  - save `NAME.png` into `PAW_SHOT_DIR` (default `screenshots/`)
+//! - `unit X Y FIELD VALUE` - set the unit on tile (X, Y)'s `hp` (0-100), `ammo` or `stamina`
 //! - `gameover win|lose` - end the current battle immediately
 //! - `quit`       - exit the app
 //!
@@ -44,11 +48,13 @@ impl Plugin for DevScriptPlugin {
 #[derive(Debug)]
 enum Step {
     Wait(u32),
+    Until(String),
     Key(KeyCode),
     Hold(KeyCode, u32),
     Click(f32, f32),
     Move(f32, f32),
     Shot(String),
+    SetUnit(i32, i32, String, i32),
     GameOver(bool),
     Quit,
 }
@@ -81,11 +87,13 @@ fn parse(script: &str) -> VecDeque<Step> {
             };
             match parts[0] {
                 "wait" => Step::Wait(num(1) as u32),
+                "until" => Step::Until(parts[1].to_string()),
                 "key" => Step::Key(key_code(parts[1])),
                 "hold" => Step::Hold(key_code(parts[1]), num(2) as u32),
                 "click" => Step::Click(num(1), num(2)),
                 "move" => Step::Move(num(1), num(2)),
                 "shot" => Step::Shot(parts[1].to_string()),
+                "unit" => Step::SetUnit(num(1) as i32, num(2) as i32, parts[3].to_string(), num(4) as i32),
                 "gameover" => Step::GameOver(parts.get(1) == Some(&"win")),
                 "quit" => Step::Quit,
                 other => panic!("unknown dev script step '{other}'"),
@@ -132,6 +140,11 @@ fn run_script(
     mut exit: MessageWriter<AppExit>,
     mut game_result: ResMut<crate::game::GameResult>,
     battle_config: Res<crate::game::BattleConfig>,
+    mut units: Query<(&crate::game::GridPosition, &mut crate::game::Unit)>,
+    state: Res<State<crate::states::GameState>>,
+    setup: Res<crate::ui::BattleSetupState>,
+    map: Res<crate::game::GameMap>,
+    sprites: Res<crate::game::SpriteAssets>,
 ) {
     let Ok(window) = window.single() else { return };
 
@@ -157,9 +170,26 @@ fn run_script(
         return;
     }
 
+    // `until` holds the script until the screen it names is up
+    if let Some(Step::Until(screen)) = script.steps.front() {
+        use crate::states::GameState;
+        let ready = match screen.as_str() {
+            "menu" => *state.get() == GameState::Menu && sprites.loading_complete,
+            "setup" => *state.get() == GameState::Battle && setup.needs_setup,
+            "board" => *state.get() == GameState::Battle && !setup.needs_setup && map.width > 0,
+            other => panic!("unknown screen '{other}' for `until` (menu, setup, board)"),
+        };
+        if ready {
+            script.steps.pop_front();
+            script.wait = 10;
+        }
+        return;
+    }
+
     let Some(step) = script.steps.pop_front() else { return };
     match step {
         Step::Wait(frames) => script.wait = frames,
+        Step::Until(_) => unreachable!("handled above"),
         Step::Key(key_code) => {
             keys.write(key_message(key_code, ButtonState::Pressed, window));
             script.release = Some(Release::Key(key_code));
@@ -183,6 +213,17 @@ fn run_script(
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
             // Give the capture time to be written before the next step
             script.wait = 5;
+        }
+        Step::SetUnit(x, y, field, value) => {
+            for (pos, mut unit) in units.iter_mut().filter(|(p, _)| p.x == x && p.y == y) {
+                match field.as_str() {
+                    "hp" => unit.hp = value,
+                    "ammo" => unit.ammo = value.max(0) as u32,
+                    "stamina" => unit.stamina = value.max(0) as u32,
+                    other => panic!("unknown unit field '{other}' in dev script"),
+                }
+                info!("Dev script: unit at ({}, {}) {} = {}", pos.x, pos.y, field, value);
+            }
         }
         Step::GameOver(win) => {
             let player = battle_config.player_faction;

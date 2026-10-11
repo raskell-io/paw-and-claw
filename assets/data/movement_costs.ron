@@ -176,6 +176,30 @@
             "naval_transport": 99,
         },
 
+        "dock": {
+            // Dock - ground units walk on, boats moor alongside
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 1,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 1,
+        },
+
+        "roost": {
+            // Roost - fliers land here
+            "foot": 1,
+            "wheels": 1,
+            "treads": 1,
+            "air": 1,
+            "naval": 99,
+            "transport": 1,
+            "air_transport": 1,
+            "naval_transport": 99,
+        },
+
         "outpost": {
             // Small outpost - can be captured
             "foot": 1,

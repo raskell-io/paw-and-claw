@@ -207,6 +207,7 @@ fn process_attacks(
     mut commanders: ResMut<Commanders>,
     weather: Res<Weather>,
     game_data: Res<GameData>,
+    mut defeated: MessageWriter<super::UnitDefeated>,
 ) {
     for event in events.read() {
         let Ok([(mut attacker_unit, attacker_pos, attacker_faction),
@@ -267,6 +268,7 @@ fn process_attacks(
         // Check if defender is destroyed
         if defender_unit.hp <= 0 {
             info!("{} destroyed!", game_data.unit_name(defender_unit.unit_type));
+            defeated.write(super::UnitDefeated { position: *defender_pos });
             commands.entity(event.defender).despawn();
         } else {
             // Counter-attack (if defender can reach attacker)
@@ -307,6 +309,7 @@ fn process_attacks(
 
                 if attacker_unit.hp <= 0 {
                     info!("{} destroyed by counter-attack!", game_data.unit_name(attacker_unit.unit_type));
+                    defeated.write(super::UnitDefeated { position: *attacker_pos });
                     commands.entity(event.attacker).despawn();
                 }
             }

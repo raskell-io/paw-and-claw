@@ -262,6 +262,7 @@ impl Plugin for MovementPlugin {
             .add_systems(Update, (
                 spawn_movement_highlight_meshes,
                 spawn_path_indicator_meshes,
+                animate_highlight_gloss,
             ).run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 draw_grid_cursor,
@@ -1897,6 +1898,8 @@ fn spawn_movement_highlight_meshes(
     existing_attack_highlights: Query<Entity, With<AttackHighlightMesh>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    mut gloss: Local<Option<HighlightGloss>>,
 ) {
     // Only update when highlights change
     if !highlights.is_changed() {
@@ -1911,69 +1914,103 @@ fn spawn_movement_highlight_meshes(
         commands.entity(entity).despawn();
     }
 
-    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-
-    // Create movement highlight material (semi-transparent blue)
-    let move_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.2, 0.5, 1.0, 0.4),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
-
-    // Create attack highlight material (semi-transparent red)
-    let attack_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 0.2, 0.2, 0.5),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
-
-    // Spawn movement range highlight meshes
-    for &(x, y) in &highlights.tiles {
-        let world_x = x as f32 * TILE_SIZE + offset_x;
-        let world_z = y as f32 * TILE_SIZE + offset_z;
-
-        // Get tile height to place highlight on top of tile
-        let tile_height = map.get(x, y)
-            .map(|t| game_data.terrain(t).tile_height)
-            .unwrap_or(4.0);
-
-        // Create a flat plane mesh for this tile
-        let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
-
-        commands.spawn((
-            Mesh3d(plane_mesh),
-            MeshMaterial3d(move_material.clone()),
-            Transform::from_xyz(world_x, tile_height + 0.1, world_z),
-            MovementHighlightMesh,
+    let gloss = gloss.get_or_insert_with(|| HighlightGloss::new(&mut images, &mut materials)).clone();
+    let slab = meshes.add(Cuboid::new(TILE_SIZE * 0.9, HIGHLIGHT_SLAB_HEIGHT, TILE_SIZE * 0.9));
+    let mut spawn_slab = |x: i32, y: i32, material: &Handle<StandardMaterial>, marker: bool| {
+        let world = GridPosition::new(x, y).to_world(&map);
+        let top = map.get(x, y).map_or(4.0, |t| game_data.terrain(t).tile_height);
+        let mut entity = commands.spawn((
+            Mesh3d(slab.clone()),
+            MeshMaterial3d(material.clone()),
+            Transform::from_xyz(world.x, top + HIGHLIGHT_SLAB_HEIGHT / 2.0 + 0.05, world.z),
         ));
-    }
+        if marker { entity.insert(MovementHighlightMesh); } else { entity.insert(AttackHighlightMesh); }
+    };
 
-    // Spawn attack target highlight meshes
+    // Movement range: translucent blue slabs with a shine sweeping across
+    for &(x, y) in &highlights.tiles {
+        spawn_slab(x, y, &gloss.movement, true);
+    }
+    // Attack targets: the same in red
     for target_entity in &highlights.attack_targets {
         if let Ok((pos, _)) = units.get(*target_entity) {
-            let world_x = pos.x as f32 * TILE_SIZE + offset_x;
-            let world_z = pos.y as f32 * TILE_SIZE + offset_z;
+            spawn_slab(pos.x, pos.y, &gloss.attack, false);
+        }
+    }
+}
 
-            // Get tile height
-            let tile_height = map.get(pos.x, pos.y)
-                .map(|t| game_data.terrain(t).tile_height)
-                .unwrap_or(4.0);
+/// Height of the translucent range slabs on top of each tile
+const HIGHLIGHT_SLAB_HEIGHT: f32 = 1.6;
 
-            let plane_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.95 / 2.0)));
+/// The glossy range materials (Advance Wars style): a translucent tint with a
+/// bright diagonal band that sweeps across every highlighted tile in step
+#[derive(Clone)]
+struct HighlightGloss {
+    movement: Handle<StandardMaterial>,
+    attack: Handle<StandardMaterial>,
+}
 
-            commands.spawn((
-                Mesh3d(plane_mesh),
-                MeshMaterial3d(attack_material.clone()),
-                Transform::from_xyz(world_x, tile_height + 0.15, world_z),
-                AttackHighlightMesh,
-            ));
+impl HighlightGloss {
+    /// 32px repeating texture: mostly a soft translucent white, with a bright
+    /// diagonal band; tinted per use by the material color
+    fn new(images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Self {
+        const SIZE: u32 = 32;
+        let mut data = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+        for y in 0..SIZE {
+            for x in 0..SIZE {
+                let d = ((x + y) % SIZE) as f32;
+                // A broad, soft band (about half the tile), brightest in the middle
+                let band = (1.0 - ((d - 8.0).abs() / 8.0)).max(0.0).powf(1.5);
+                let alpha = 0.36 + band * 0.45;
+                let white = 200.0 + band * 55.0;
+                data.extend([white as u8, white as u8, white as u8, (alpha * 255.0) as u8]);
+            }
+        }
+        let mut image = Image::new(
+            bevy::render::render_resource::Extent3d { width: SIZE, height: SIZE, depth_or_array_layers: 1 },
+            bevy::render::render_resource::TextureDimension::D2,
+            data,
+            bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+            bevy::asset::RenderAssetUsages::default(),
+        );
+        image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+            address_mode_u: bevy::image::ImageAddressMode::Repeat,
+            address_mode_v: bevy::image::ImageAddressMode::Repeat,
+            ..bevy::image::ImageSamplerDescriptor::nearest()
+        });
+        let texture = images.add(image);
+        let material = |tint: Color| StandardMaterial {
+            base_color: tint,
+            base_color_texture: Some(texture.clone()),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        };
+        Self {
+            movement: materials.add(material(Color::srgb(0.35, 0.65, 1.0))),
+            attack: materials.add(material(Color::srgb(1.0, 0.35, 0.3))),
+        }
+    }
+}
+
+/// Slide the shine diagonally across the range slabs
+fn animate_highlight_gloss(
+    time: Res<Time>,
+    highlights: Query<&MeshMaterial3d<StandardMaterial>, Or<(With<MovementHighlightMesh>, With<AttackHighlightMesh>)>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // One sweep every 1.6 seconds; materials are shared, so update each once
+    let offset = (time.elapsed_secs() / 1.6).fract();
+    let mut seen = Vec::new();
+    for material in highlights.iter() {
+        if seen.contains(&material.0.id()) {
+            continue;
+        }
+        seen.push(material.0.id());
+        if let Some(material) = materials.get_mut(&material.0) {
+            material.uv_transform = bevy::math::Affine2::from_translation(Vec2::new(-offset, 0.0));
         }
     }
 }
@@ -2171,24 +2208,99 @@ fn handle_keyboard_path_drawing(
     }
 }
 
-/// Create an arrow mesh pointing in the +X direction (triangle)
-fn create_arrow_mesh() -> Mesh {
-    // Arrow triangle vertices (pointing in +X direction, lying on XZ plane)
-    // Made larger for visibility - about 1/3 of tile size
-    let arrow_size = TILE_SIZE * 0.35;
-    let arrow_width = TILE_SIZE * 0.25;
-
-    // Create a Triangle3d primitive and convert to mesh
-    let triangle = Triangle3d::new(
-        Vec3::new(arrow_size, 0.0, 0.0),              // Tip (front)
-        Vec3::new(-arrow_size * 0.4, 0.0, arrow_width),  // Back left
-        Vec3::new(-arrow_size * 0.4, 0.0, -arrow_width), // Back right
-    );
-
-    Mesh::from(triangle)
+/// The route arrow's outline as convex pieces on the ground plane (x, z): a band
+/// from tile center to tile center, overlapping at the bends, then an
+/// arrowhead on the destination pointing the way the route arrives.
+/// `widen` grows every edge outward.
+fn route_arrow_shapes(points: &[Vec2], widen: f32) -> Vec<Vec<Vec2>> {
+    // Keep only the corners, so each straight run is one piece with no seams
+    let mut corners = vec![points[0]];
+    for i in 1..points.len() - 1 {
+        let (before, after) = ((points[i] - points[i - 1]).normalize(), (points[i + 1] - points[i]).normalize());
+        if before.dot(after) < 0.99 {
+            corners.push(points[i]);
+        }
+    }
+    corners.push(points[points.len() - 1]);
+    let points = &corners[..];
+    let half = TILE_SIZE * 0.14 + widen;
+    let head_back = TILE_SIZE * 0.12 + widen;
+    let head_tip = TILE_SIZE * 0.38 + widen;
+    let head_half = TILE_SIZE * 0.34 + widen;
+    let mut shapes = Vec::new();
+    let last = points.len() - 1;
+    for i in 0..last {
+        let (from, mut to) = (points[i], points[i + 1]);
+        let along = (to - from).normalize();
+        if i + 1 == last {
+            to -= along * head_back; // the shaft stops under the arrowhead
+        } else {
+            to += along * half; // reach past the center so bends have no notch
+        }
+        let side = Vec2::new(-along.y, along.x) * half;
+        let start = if i == 0 { from } else { from - along * half };
+        shapes.push(vec![start - side, to - side, to + side, start + side]);
+    }
+    let dir = (points[last] - points[last - 1]).normalize();
+    let side = Vec2::new(-dir.y, dir.x);
+    let base = points[last] - dir * head_back;
+    shapes.push(vec![base - side * head_half, points[last] + dir * head_tip, base + side * head_half]);
+    shapes
 }
 
-/// Spawn mesh entities for path indicators
+/// Extrude convex shapes into a solid with a rounded, bevelled top, so light
+/// rolls across it like a moulded plastic piece: normals on the top bend
+/// outward toward the rim and continue down the bevel into the walls.
+fn extruded_mesh(shapes: &[Vec<Vec2>], bottom: f32, height: f32, bevel: f32) -> Mesh {
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    let mut vertex = |p: Vec3, n: Vec3| {
+        positions.push(p.to_array());
+        normals.push(n.normalize_or_zero().to_array());
+        positions.len() as u32 - 1
+    };
+    let top = bottom + height;
+    for shape in shapes {
+        // Wind counter-clockwise seen from above (+Y), so faces point outward
+        let area: f32 = shape.iter().zip(shape.iter().cycle().skip(1)).map(|(a, b)| a.x * b.y - b.x * a.y).sum();
+        let ring: Vec<Vec2> = if area > 0.0 { shape.iter().rev().copied().collect() } else { shape.clone() };
+        let center = ring.iter().copied().sum::<Vec2>() / ring.len() as f32;
+        let inset: Vec<Vec2> = ring.iter().map(|&p| {
+            let to_center = center - p;
+            p + to_center.normalize_or_zero() * bevel.min(to_center.length() * 0.5)
+        }).collect();
+        let at = |p: Vec2, y: f32| Vec3::new(p.x, y, p.y);
+        let out = |p: Vec2| { let d = (p - center).normalize_or_zero(); Vec3::new(d.x, 0.0, d.y) };
+
+        // Top: a fan from the center (facing straight up) to the inset rim (leaning out)
+        let hub = vertex(at(center, top), Vec3::Y);
+        let rim: Vec<u32> = inset.iter().map(|&p| vertex(at(p, top), Vec3::Y + out(p) * 0.45)).collect();
+        for i in 0..ring.len() {
+            indices.extend([hub, rim[i], rim[(i + 1) % ring.len()]]);
+        }
+        for i in 0..ring.len() {
+            let j = (i + 1) % ring.len();
+            // Bevel: from the leaning rim down to the outer edge (mostly sideways)
+            let (a, b) = (vertex(at(inset[i], top), Vec3::Y + out(inset[i]) * 0.45), vertex(at(inset[j], top), Vec3::Y + out(inset[j]) * 0.45));
+            let (c, d) = (vertex(at(ring[j], top - bevel), Vec3::Y * 0.5 + out(ring[j])), vertex(at(ring[i], top - bevel), Vec3::Y * 0.5 + out(ring[i])));
+            indices.extend([a, d, c, a, c, b]);
+            // Wall: straight down, facing out from this edge
+            let edge = ring[j] - ring[i];
+            let wall_normal = Vec3::new(edge.y, 0.0, -edge.x);
+            let (e, f) = (vertex(at(ring[i], top - bevel), wall_normal), vertex(at(ring[j], top - bevel), wall_normal));
+            let (g, h) = (vertex(at(ring[j], bottom), wall_normal), vertex(at(ring[i], bottom), wall_normal));
+            indices.extend([e, h, g, e, g, f]);
+        }
+    }
+    Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_indices(bevy::mesh::Indices::U32(indices))
+}
+
+/// Draw the planned route as a solid, glossy plastic arrow floating over the
+/// range slabs, with a soft shadow on the ground beneath it
 fn spawn_path_indicator_meshes(
     game_data: Res<GameData>,
     mut commands: Commands,
@@ -2197,139 +2309,58 @@ fn spawn_path_indicator_meshes(
     existing_path_meshes: Query<Entity, With<PathIndicatorMesh>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut arrow_materials: Local<Option<(Handle<StandardMaterial>, Handle<StandardMaterial>)>>,
 ) {
-    // Only update when path changes
     if !movement_path.is_changed() {
         return;
     }
-
-    // Despawn old path meshes
     for entity in existing_path_meshes.iter() {
         commands.entity(entity).despawn();
     }
-
     if movement_path.path.len() < 2 {
         return;
     }
 
-    let offset_x = -(map.width as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
-    let offset_z = -(map.height as f32 * TILE_SIZE) / 2.0 + TILE_SIZE / 2.0;
+    let points: Vec<Vec2> = movement_path.path.iter().map(|p| {
+        let world = GridPosition::new(p.x, p.y).to_world(&map);
+        Vec2::new(world.x, world.z)
+    }).collect();
+    let ground = movement_path.path.iter()
+        .filter_map(|p| map.get(p.x, p.y))
+        .map(|t| game_data.terrain(t).tile_height)
+        .fold(0.0, f32::max);
 
-    // Path line material (bright cyan/teal)
-    let path_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.0, 0.9, 0.8, 0.85),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
+    let (plastic, shadow) = arrow_materials.get_or_insert_with(|| (
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.95, 0.34, 0.1),
+            perceptual_roughness: 0.22,
+            reflectance: 0.6,
+            clearcoat: 1.0,
+            clearcoat_perceptual_roughness: 0.08,
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgba(0.05, 0.08, 0.2, 0.35),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            ..default()
+        }),
+    )).clone();
 
-    // Destination marker material (brighter, slightly different color)
-    let dest_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.2, 1.0, 0.6, 0.9),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
-
-    // Create arrow mesh once
-    let arrow_mesh = meshes.add(create_arrow_mesh());
-
-    // Draw path with arrows between tiles
-    for i in 0..movement_path.path.len() {
-        let pos = movement_path.path[i];
-        let world_x = pos.x as f32 * TILE_SIZE + offset_x;
-        let world_z = pos.y as f32 * TILE_SIZE + offset_z;
-
-        let tile_height = map.get(pos.x, pos.y)
-            .map(|t| game_data.terrain(t).tile_height)
-            .unwrap_or(4.0);
-
-        let is_destination = i == movement_path.path.len() - 1;
-        let is_start = i == 0;
-
-        // Draw connecting arrow to next tile (skip for destination)
-        if !is_destination {
-            let next_pos = movement_path.path[i + 1];
-            let next_world_x = next_pos.x as f32 * TILE_SIZE + offset_x;
-            let next_world_z = next_pos.y as f32 * TILE_SIZE + offset_z;
-            let next_tile_height = map.get(next_pos.x, next_pos.y)
-                .map(|t| game_data.terrain(t).tile_height)
-                .unwrap_or(4.0);
-
-            // Calculate midpoint for arrow placement
-            let mid_x = (world_x + next_world_x) / 2.0;
-            let mid_z = (world_z + next_world_z) / 2.0;
-            // Place arrows well above the movement highlight tiles (which are at +0.1)
-            let mid_y = (tile_height + next_tile_height) / 2.0 + 1.0;
-
-            // Calculate direction and rotation
-            let dx = next_world_x - world_x;
-            let dz = next_world_z - world_z;
-            let angle = dz.atan2(dx);
-
-            // Spawn arrow pointing toward next tile
-            commands.spawn((
-                Mesh3d(arrow_mesh.clone()),
-                MeshMaterial3d(path_material.clone()),
-                Transform::from_xyz(mid_x, mid_y, mid_z)
-                    .with_rotation(Quat::from_rotation_y(-angle + std::f32::consts::FRAC_PI_2)),
-                PathIndicatorMesh,
-            ));
-
-            // Also draw a thin connecting line beneath the arrow
-            let length = (dx * dx + dz * dz).sqrt() * 0.4;
-            let line_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(length / 2.0, 3.0)));
-
-            commands.spawn((
-                Mesh3d(line_mesh),
-                MeshMaterial3d(path_material.clone()),
-                Transform::from_xyz(mid_x, mid_y - 0.1, mid_z)
-                    .with_rotation(Quat::from_rotation_y(-angle)),
-                PathIndicatorMesh,
-            ));
-        }
-
-        // Draw destination marker (larger, different color)
-        if is_destination {
-            // Destination: larger marker well above the tile
-            let dest_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.35)));
-            commands.spawn((
-                Mesh3d(dest_mesh),
-                MeshMaterial3d(dest_material.clone()),
-                Transform::from_xyz(world_x, tile_height + 1.2, world_z),
-                PathIndicatorMesh,
-            ));
-
-            // Add a diamond/cross shape for visibility
-            let cross_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(TILE_SIZE * 0.45, 5.0)));
-            commands.spawn((
-                Mesh3d(cross_mesh.clone()),
-                MeshMaterial3d(dest_material.clone()),
-                Transform::from_xyz(world_x, tile_height + 1.25, world_z),
-                PathIndicatorMesh,
-            ));
-            commands.spawn((
-                Mesh3d(cross_mesh),
-                MeshMaterial3d(dest_material.clone()),
-                Transform::from_xyz(world_x, tile_height + 1.25, world_z)
-                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
-                PathIndicatorMesh,
-            ));
-        } else if !is_start {
-            // Small dot for intermediate path tiles - raised above movement highlights
-            let dot_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(TILE_SIZE * 0.12)));
-            commands.spawn((
-                Mesh3d(dot_mesh),
-                MeshMaterial3d(path_material.clone()),
-                Transform::from_xyz(world_x, tile_height + 0.8, world_z),
-                PathIndicatorMesh,
-            ));
-        }
-    }
+    // The arrow floats just above the range slabs
+    let lift = ground + HIGHLIGHT_SLAB_HEIGHT + 1.5;
+    commands.spawn((
+        Mesh3d(meshes.add(extruded_mesh(&route_arrow_shapes(&points, 0.0), lift, 5.0, 2.0))),
+        MeshMaterial3d(plastic),
+        PathIndicatorMesh,
+    ));
+    // Shadow on top of the slabs, nudged toward the camera like a light from above
+    let shadow_points: Vec<Vec2> = points.iter().map(|p| *p + Vec2::new(1.5, 2.5)).collect();
+    commands.spawn((
+        Mesh3d(meshes.add(extruded_mesh(&route_arrow_shapes(&shadow_points, 0.5), ground + HIGHLIGHT_SLAB_HEIGHT + 0.15, 0.05, 0.0))),
+        MeshMaterial3d(shadow),
+        PathIndicatorMesh,
+    ));
 }
 
 /// Draw the grid cursor (Advance Wars style corner brackets)

@@ -121,9 +121,13 @@ pub struct TerrainData {
     pub tile_height: f32,
     /// Asset filename (without extension)
     pub asset_name: String,
-    /// Owned and empty, it can build units
+    /// Unit classes an owned, empty tile of this terrain can build (Advance
+    /// Wars: factories build ground units, ports boats, airports aircraft)
     #[serde(default)]
-    pub produces: bool,
+    pub builds: Vec<UnitClass>,
+    /// Unit classes an owned tile of this terrain heals and resupplies
+    #[serde(default)]
+    pub resupplies: Vec<UnitClass>,
 }
 
 /// Moddable CO power data
@@ -431,7 +435,26 @@ impl GameData {
 
     /// Whether an owned, empty tile of this terrain can build units
     pub fn terrain_produces(&self, terrain: Terrain) -> bool {
-        self.terrain(terrain).produces
+        !self.terrain(terrain).builds.is_empty()
+    }
+
+    /// Whether this terrain can build a given unit type
+    pub fn terrain_builds(&self, terrain: Terrain, unit_type: UnitType) -> bool {
+        self.terrain(terrain).builds.contains(&self.unit_class(unit_type))
+    }
+
+    /// Every unit type this terrain can build, cheapest first
+    pub fn buildable_units(&self, terrain: Terrain) -> Vec<UnitType> {
+        let mut units: Vec<UnitType> = UnitType::all().iter().copied()
+            .filter(|&unit_type| self.terrain_builds(terrain, unit_type))
+            .collect();
+        units.sort_by_key(|&unit_type| self.unit_stats(unit_type).cost);
+        units
+    }
+
+    /// Whether an owned tile of this terrain heals and resupplies a unit type
+    pub fn terrain_resupplies(&self, terrain: Terrain, unit_type: UnitType) -> bool {
+        self.terrain(terrain).resupplies.contains(&self.unit_class(unit_type))
     }
 
     pub fn terrain_capture_points(&self, terrain: Terrain) -> u32 {
@@ -563,6 +586,8 @@ fn terrain_to_key(terrain: Terrain) -> &'static str {
         Terrain::Shore => "shore",
         Terrain::Base => "base",
         Terrain::Workshop => "workshop",
+        Terrain::Dock => "dock",
+        Terrain::Roost => "roost",
         Terrain::Outpost => "outpost",
         Terrain::Storehouse => "storehouse",
     }
@@ -652,6 +677,14 @@ mod tests {
         let scout = data.unit_stats(UnitType::Scout).cost;
         assert!(data.terrain_produces(Terrain::Base) && data.terrain_produces(Terrain::Workshop));
         assert!(!data.terrain_produces(Terrain::Outpost) && !data.terrain_produces(Terrain::Storehouse));
+        assert!(data.terrain_builds(Terrain::Workshop, UnitType::Ironclad));
+        assert!(!data.terrain_builds(Terrain::Workshop, UnitType::Frigate));
+        assert!(data.terrain_builds(Terrain::Dock, UnitType::Frigate));
+        assert!(data.terrain_builds(Terrain::Roost, UnitType::Skywing));
+        assert!(!data.terrain_builds(Terrain::Roost, UnitType::Scout));
+        assert!(data.terrain_resupplies(Terrain::Storehouse, UnitType::Scout));
+        assert!(!data.terrain_resupplies(Terrain::Storehouse, UnitType::Frigate));
+        assert!(data.terrain_resupplies(Terrain::Dock, UnitType::Frigate));
         assert!(data.terrain_income(Terrain::Base) >= scout);
         assert!(data.terrain_income(Terrain::Base) < data.unit_stats(UnitType::Ironclad).cost);
     }

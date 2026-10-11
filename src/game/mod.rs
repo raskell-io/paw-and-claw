@@ -15,6 +15,7 @@ mod sprites;
 mod assets;
 mod save;
 mod modding;
+mod effects;
 
 pub use map::*;
 pub use maps::*;
@@ -31,6 +32,7 @@ pub use sprites::*;
 pub use assets::*;
 pub use save::*;
 pub use modding::*;
+pub use effects::*;
 
 // Future: use crate::states::GameState;
 
@@ -45,6 +47,7 @@ impl Plugin for GamePlugin {
             .add_plugins(TurnPlugin)
             .add_plugins(MovementPlugin)
             .add_plugins(CombatPlugin)
+            .add_plugins(EffectsPlugin)
             .add_plugins(AiPlugin)
             .add_plugins(FogPlugin)
             .add_plugins(CommanderPlugin)

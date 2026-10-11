@@ -452,7 +452,7 @@ fn create_fortress_map() -> MapData {
 /// Island Chain - Naval-focused map with multiple islands separated by water
 fn create_island_chain_map() -> MapData {
     let mut map = MapData::new("Island Chain", 16, 12);
-    map.description = "Multiple islands connected by shallow water. Perfect for naval units!".to_string();
+    map.description = "Islands linked by shallow water, each army with a dock and a roost. Build boats and fliers!".to_string();
 
     // Fill with water first
     for y in 0..12 {
@@ -542,6 +542,16 @@ fn create_island_chain_map() -> MapData {
     map.set_terrain(13, 9, Terrain::Base);
     map.add_property(13, 9, Faction::Northern);
 
+    // Each army has a dock on its island's coast and a roost inland
+    map.set_terrain(5, 3, Terrain::Dock);
+    map.add_property(5, 3, Faction::Eastern);
+    map.set_terrain(3, 5, Terrain::Roost);
+    map.add_property(3, 5, Faction::Eastern);
+    map.set_terrain(10, 8, Terrain::Dock);
+    map.add_property(10, 8, Faction::Northern);
+    map.set_terrain(13, 6, Terrain::Roost);
+    map.add_property(13, 6, Faction::Northern);
+
     // Central island outpost (contested)
     map.set_terrain(8, 5, Terrain::Outpost);
     map.set_terrain(7, 7, Terrain::Storehouse);
@@ -550,12 +560,12 @@ fn create_island_chain_map() -> MapData {
     map.add_unit(UnitType::Scout, Faction::Eastern, 2, 2);
     map.add_unit(UnitType::Scout, Faction::Eastern, 3, 3);
     map.add_unit(UnitType::Shocktrooper, Faction::Eastern, 2, 4);
-    map.add_unit(UnitType::Barge, Faction::Eastern, 5, 3);
+    map.add_unit(UnitType::Barge, Faction::Eastern, 6, 2);
 
     map.add_unit(UnitType::Scout, Faction::Northern, 13, 9);
     map.add_unit(UnitType::Scout, Faction::Northern, 12, 8);
     map.add_unit(UnitType::Shocktrooper, Faction::Northern, 13, 7);
-    map.add_unit(UnitType::Barge, Faction::Northern, 10, 8);
+    map.add_unit(UnitType::Barge, Faction::Northern, 9, 9);
 
     map
 }
@@ -889,7 +899,8 @@ fn create_ancient_ruins_map() -> MapData {
 ///
 /// `.` grass, `"` tall grass, `T` thicket, `#` brambles, `=` log, `o` boulder,
 /// `h` hollow, `~` creek, `w` pond, `r` lily pads (AW reef), `s` shore,
-/// `B` base (HQ), `F` workshop (AW factory), `O` outpost, `S` storehouse
+/// `B` base (HQ), `F` workshop (AW factory), `P` dock (AW port), `A` roost
+/// (AW airport), `O` outpost, `S` storehouse
 fn map_from_rows(name: &str, rows: &[&str]) -> MapData {
     let height = rows.len() as u32;
     let width = rows.first().map_or(0, |row| row.chars().count()) as u32;
@@ -911,6 +922,8 @@ fn map_from_rows(name: &str, rows: &[&str]) -> MapData {
                 's' => Terrain::Shore,
                 'B' => Terrain::Base,
                 'F' => Terrain::Workshop,
+                'P' => Terrain::Dock,
+                'A' => Terrain::Roost,
                 'O' => Terrain::Outpost,
                 'S' => Terrain::Storehouse,
                 other => panic!("{name}: unknown map symbol {other:?}"),
@@ -967,7 +980,8 @@ mod tests {
             for property in &map.properties {
                 let terrain = map.get_terrain(property.x, property.y);
                 assert!(
-                    matches!(terrain, Some(Terrain::Base | Terrain::Workshop | Terrain::Outpost | Terrain::Storehouse)),
+                    terrain.is_some_and(|t| matches!(t, Terrain::Base | Terrain::Workshop | Terrain::Dock
+                        | Terrain::Roost | Terrain::Outpost | Terrain::Storehouse)),
                     "{}: property at ({}, {}) is {:?}", map.name, property.x, property.y, terrain
                 );
             }

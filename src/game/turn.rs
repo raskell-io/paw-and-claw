@@ -255,7 +255,9 @@ fn generate_income(
     }
 }
 
-/// Resupply and heal units on friendly bases and storehouses at turn start
+/// Resupply and heal units on friendly buildings that serve them at turn start
+/// (ground units at bases, workshops and storehouses, boats at docks, fliers at
+/// roosts: `resupplies` in terrain.ron)
 fn resupply_units(
     mut events: MessageReader<TurnStartEvent>,
     mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
@@ -267,7 +269,7 @@ fn resupply_units(
         // Build a map of supply buildings owned by this faction
         let supply_buildings: HashMap<(i32, i32), Terrain> = tiles.iter()
             .filter(|t| t.owner == Some(event.faction))
-            .filter(|t| matches!(t.terrain, Terrain::Base | Terrain::Workshop | Terrain::Storehouse))
+            .filter(|t| !game_data.terrain(t.terrain).resupplies.is_empty())
             .map(|t| ((t.position.x, t.position.y), t.terrain))
             .collect();
 
@@ -279,7 +281,9 @@ fn resupply_units(
             }
 
             // Check if unit is on a supply building
-            if let Some(terrain) = supply_buildings.get(&(pos.x, pos.y)) {
+            if let Some(terrain) = supply_buildings.get(&(pos.x, pos.y))
+                .filter(|&&terrain| game_data.terrain_resupplies(terrain, unit.unit_type))
+            {
                 let stats = game_data.unit_stats(unit.unit_type);
                 let old_hp = unit.hp;
                 let old_stamina = unit.stamina;

@@ -184,7 +184,8 @@
             feature_height: 48.0,
             tile_height: 4.0,
             asset_name: "base",
-            produces: true,
+            builds: [Foot, Wheels, Treads, Transport],
+            resupplies: [Foot, Wheels, Treads, Transport],
         ),
         // Factory: 3 stars defense
         "workshop": (
@@ -198,9 +199,40 @@
             feature_height: 40.0,
             tile_height: 4.0,
             asset_name: "workshop",
-            produces: true,
+            builds: [Foot, Wheels, Treads, Transport],
+            resupplies: [Foot, Wheels, Treads, Transport],
         ),
         // City: 3 stars defense
+        // Port: 3 stars defense
+        "dock": (
+            name: "Dock",
+            description: "Builds and resupplies boats, earns income",
+            defense: 3,
+            capturable: true,
+            capture_points: 20,
+            income: 1000,
+            color: (0.5, 0.4, 0.3),
+            feature_height: 40.0,
+            tile_height: 4.0,
+            asset_name: "dock",
+            builds: [Naval, NavalTransport],
+            resupplies: [Naval, NavalTransport],
+        ),
+        // Airport: 3 stars defense
+        "roost": (
+            name: "Roost",
+            description: "Builds and resupplies fliers, earns income",
+            defense: 3,
+            capturable: true,
+            capture_points: 20,
+            income: 1000,
+            color: (0.55, 0.45, 0.35),
+            feature_height: 48.0,
+            tile_height: 4.0,
+            asset_name: "roost",
+            builds: [Air, AirTransport],
+            resupplies: [Air, AirTransport],
+        ),
         "outpost": (
             name: "Outpost",
             description: "Small outpost - generates income",
@@ -225,6 +257,7 @@
             feature_height: 32.0,
             tile_height: 4.0,
             asset_name: "storehouse",
+            resupplies: [Foot, Wheels, Treads, Transport],
         ),
     }
 )
