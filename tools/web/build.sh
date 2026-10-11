@@ -26,7 +26,8 @@ else
     echo "wasm-opt not found; skipping size optimization"
 fi
 
-cp web/index.html "$OUT/"
+# The page, its manifest and icons (tools/web/icons.sh draws the icons)
+cp -R web/. "$OUT/"
 # Runtime assets only: sprite originals and style anchors are source material,
 # and the game data is embedded in the binary
 rsync -a --exclude 'sprites/originals' --exclude 'sprites/anchors' --exclude 'sprites/manifest.json' \
