@@ -49,5 +49,9 @@
         "co_bandit": (file: "audio/music/co_bandit.ogg", volume: 0.8),
         "co_prowler": (file: "audio/music/co_prowler.ogg", volume: 0.8),
         "co_hivemind": (file: "audio/music/co_hivemind.ogg", volume: 0.8),
+        "co_kira": (file: "audio/music/co_kira.ogg", volume: 0.8),
+        "co_tanuki": (file: "audio/music/co_tanuki.ogg", volume: 0.8),
+        "co_lionheart": (file: "audio/music/co_lionheart.ogg", volume: 0.8),
+        "co_grimjaw": (file: "audio/music/co_grimjaw.ogg", volume: 0.8),
     },
 )

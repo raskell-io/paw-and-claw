@@ -208,6 +208,34 @@ def sax(freq, length, volume, seed=0):
     return [t + a * 0.05 * volume * sustain_env(i, n, 0.02, 0.1, 0.6, 0.05) for i, (t, a) in enumerate(zip(tone, air))]
 
 
+def harmonica(freq, length, volume, seed=0):
+    """Reedy harmonica: a hollow FM reed that bends up into the note, with a
+    wide, wavering vibrato."""
+    n = samples(length)
+    out, pc, pm = [], 0.0, 0.0
+    for i in range(n):
+        t = i / RATE
+        bend = 1 - 0.04 * math.exp(-t / 0.05)
+        vib = 1 + 0.012 * min(1.0, max(0.0, t - 0.1) * 3) * math.sin(TAU * 6.2 * t)
+        f = freq * bend * vib
+        e = sustain_env(i, n, 0.03, 0.15, 0.8, 0.05)
+        pm += TAU * f * 2 / RATE
+        pc += TAU * f / RATE
+        out.append(math.sin(pc + 1.3 * (0.5 + 0.5 * e) * math.sin(pm)) * e * volume)
+    return out
+
+
+def strum(freqs, length, volume, brightness=0.7, seed=0, spread=0.012):
+    """A guitar strum: the chord's strings plucked one after another."""
+    out = [0.0] * (samples(length) + samples(spread * len(freqs)))
+    for k, f in enumerate(freqs):
+        s = pluck(f, length, volume, brightness=brightness, seed=seed * 7 + k)
+        o = samples(spread * k)
+        for i, x in enumerate(s):
+            out[o + i] += x
+    return out
+
+
 def bright_brass(freq, length, volume):
     """Brighter, punchier synth-brass lead for upbeat themes."""
     return fm_voice(freq, length, volume, 1.0, 2.2, attack=0.006, decay=0.08, sustain=0.7, vibrato=0.005)
@@ -220,7 +248,7 @@ def horn_brass(freq, length, volume):
     return [x + y for x, y in zip(a, b)]
 
 
-LEADS = {"sax": sax, "bright_brass": bright_brass, "horn_brass": horn_brass, "brass": brass, "horn": horn, "low_brass": low_brass, "marimba": marimba, "flute": flute}
+LEADS = {"harmonica": harmonica, "sax": sax, "bright_brass": bright_brass, "horn_brass": horn_brass, "brass": brass, "horn": horn, "low_brass": low_brass, "marimba": marimba, "flute": flute}
 
 
 # --- Scales, chords and arrangement ----------------------------------------------
@@ -232,6 +260,7 @@ SCALES = {
     "mixolydian": [0, 2, 4, 5, 7, 9, 10],
     "harmonic_minor": [0, 2, 3, 5, 7, 8, 11],
     "pentatonic": [0, 2, 4, 7, 9],
+    "minor_pentatonic": [0, 3, 5, 7, 10],
 }
 
 
@@ -314,7 +343,7 @@ def render(spec):
         if d is not None:
             m = key + degree_semis(style["scale"], d) + 12 * style["lead_octave"]
             f = midi_freq(m)
-            if lead_fn in (flute, sax):
+            if lead_fn in (flute, sax, harmonica):
                 add(lead_fn(f, length * beat * 0.95, lead_volume, seed=k), pos)
             else:
                 add(lead_fn(f, length * beat * 0.95, lead_volume), pos)
@@ -367,6 +396,14 @@ def render(spec):
             for k in range(16):
                 f = up[(0, 1, 2, 1)[k % 4]] * (2 if k % 8 >= 4 else 1)
                 add(pluck(f, beat * 0.3, 0.07, brightness=0.8, seed=b * 16 + k), b * 4 + k * 0.25)
+        elif counter == "strum":
+            # Boom-chick: the bass takes the beats, the guitar strums the off-beats
+            for k in range(4):
+                add(strum(up, beat * 0.4, 0.06, seed=b * 4 + k), b * 4 + k + 0.5)
+        elif counter == "rasgueado":
+            # Flamenco strums, accented on the 3-3-2 of the bar
+            for k, v in ((0, 0.09), (1.5, 0.07), (3, 0.08), (3.5, 0.05)):
+                add(strum(up, beat * 0.6, v, brightness=0.85, seed=b * 4 + int(k * 2), spread=0.008), b * 4 + k)
         elif counter == "bells":
             add(fm_voice(up[2] * 2, beat * 1.5, 0.06, 3.5, 1.4, attack=0.002, decay=0.4, sustain=0.0, release=0.05), b * 4 + 2)
         drum_bar(add, spec.get("drums", style["drums"]), b, bars)
@@ -426,6 +463,28 @@ def drum_bar(add, kind, b, bars):
             add([x * 0.7 for x in svf(noise(0.18, 0.35, attack=0.01, curve=1.5, seed=b + k), 3000, 0.1, "band")], o + k)
         if phrase_end:
             add(snare(0.3), o + 3.5)
+    elif kind == "train":
+        # Country train beat: brushed snare on every eighth, accents on 2 and 4
+        add(kick(0.18, 100, 50, 0.45, curve=3), o)
+        add(kick(0.18, 100, 50, 0.4, curve=3), o + 2)
+        for k in range(8):
+            accent = k in (2, 6)
+            brush = svf(noise(0.1, 0.5 if accent else 0.22, attack=0.005, curve=2, seed=b * 8 + k), 3500, 0.1, "band")
+            add(brush, o + k * 0.5)
+        if phrase_end:
+            add(snare(0.3), o + 3.5)
+    elif kind == "flamenco":
+        # Castanet clicks and hand claps over a light kick
+        add(kick(0.2, 110, 50, 0.45, curve=3), o)
+        add(kick(0.2, 110, 50, 0.35, curve=3), o + 2)
+        for k in (0, 0.25, 1.5, 2, 2.25, 3.5):
+            add(woodblock(0.1), o + k)
+        for k in (1, 3):
+            for r in range(3):
+                add(svf(noise(0.05, 0.35, curve=2, seed=b * 9 + k * 3 + r), 1500, 0.2, "band"), o + k + r * 0.03)
+        if phrase_end:
+            for k in range(8):
+                add(woodblock(0.07 + 0.01 * k), o + 2 + k * 0.25)
     elif kind == "toms":
         add(kick(0.2, 120, 50, 0.6, curve=3), o)
         add(kick(0.2, 120, 50, 0.45, curve=3), o + 1.5)
@@ -513,6 +572,38 @@ COMMANDERS = {
         [(5, 1.5), (4, .5), (3, 1), (2, 1), (1, 1.5), (2, .5), (-1, 2)],
         [(7, 1.5), (6, .5), (5, 1), (4, 1), (5, 1.5), (3, .5), (4, 2)],
         [(3, 1), (2, 1), (1, 1), (0, 1), (-1, 3), (None, 1)])),
+    # Kira plays like Kanbei: a grand imperial march, pentatonic melody on a
+    # horn section over koto and taiko
+    "kira": dict(army="eastern", personality="Aggressive", key="D5", bpm=138, lead="horn_brass", motif=(
+        [(0, .5), (0, .5), (2, 1), (1, .5), (2, .5), (4, 1), (5, 1.5), (4, .5), (2, 2)],
+        [(3, .5), (3, .5), (4, 1), (3, .5), (2, .5), (1, 1), (2, 1.5), (1, .5), (0, 2)],
+        [(5, 1), (6, 1), (7, 1.5), (6, .5), (5, 1), (4, 1), (5, 2)],
+        [(4, 1), (3, .5), (2, .5), (1, 1), (2, 1), (1, 3), (None, 1)])),
+    # Tanuki plays like Sonja: mysterious and clever, staccato minor-pentatonic
+    # flute, light and sly
+    "tanuki": dict(army="eastern", personality="Methodical", key="A4", bpm=126, scale="minor_pentatonic", motif=(
+        [(0, .5), (None, .5), (2, .5), (None, .5), (3, .5), (2, .5), (0, .5), (None, .5), (4, 1), (3, .5), (2, .5), (0, 2)],
+        [(1, .5), (None, .5), (3, .5), (None, .5), (4, .5), (3, .5), (1, .5), (None, .5), (2, 1), (1, .5), (0, .5), (-1, 2)],
+        [(5, 1), (4, .5), (3, .5), (4, 1), (2, 1), (3, .5), (4, .5), (5, 1), (3, 2)],
+        [(2, .5), (3, .5), (2, .5), (1, .5), (0, 1), (-1, 1), (0, 2), (None, 2)])),
+    # Lionheart plays like Javier: Spanish and chivalric, a trumpet over
+    # flamenco strums, castanets and the Andalusian descent (i VII VI V)
+    "lionheart": dict(army="southern", personality="Cautious", key="A4", bpm=136, scale="harmonic_minor", harmony="minor",
+                      lead="bright_brass", counter="rasgueado", drums="flamenco", bass=[0, None, 0, 7, None, 0, 7, None],
+                      prog=[0, 6, 5, 4, 0, 6, 5, 4, 3, 0, 4, 0, 3, 0, 5, 4], motif=(
+        [(4, .5), (5, .5), (4, .5), (3, .5), (2, 1), (1, .5), (2, .5), (3, 1), (2, 1), (1, 2)],
+        [(1, .5), (2, .5), (1, .5), (0, .5), (-1, 1), (0, .5), (1, .5), (2, 1), (1, 1), (-1, 2)],
+        [(7, 1.5), (6, .5), (5, 1), (4, 1), (5, .5), (4, .5), (3, .5), (2, .5), (1, 2)],
+        [(3, .5), (2, .5), (1, 1), (0, 1), (1, .5), (0, .5), (-1, 1), (-3, 2), (None, 1)])),
+    # Grimjaw plays like Grit: laid-back country western, a harmonica drawl
+    # over a swung train beat, boom-chick bass and guitar
+    "grimjaw": dict(army="northern", personality="Cautious", key="E5", bpm=116, swing=0.22, scale="major",
+                    lead="harmonica", counter="strum", drums="train", bass=[0, None, 7, None, 0, None, 7, None],
+                    prog=[0, 0, 3, 0, 4, 4, 0, 4, 3, 3, 0, 0, 1, 4, 0, 4], motif=(
+        [(4, 1), (2, .5), (4, .5), (5, 1), (4, .5), (2, .5), (0, 2), (None, 2)],
+        [(4, 1), (2, .5), (4, .5), (5, 1), (7, .5), (5, .5), (4, 2), (None, 2)],
+        [(7, 1), (8, .5), (7, .5), (5, 1), (4, 1), (5, .5), (4, .5), (2, 1), (1, 2)],
+        [(2, .5), (4, .5), (2, .5), (0, .5), (-1, 1), (0, 1), (1, 2), (None, 2)])),
 }
 
 # Each army's power theme: its first commander's motif, faster, a step
@@ -527,8 +618,9 @@ def commander_spec(name, co, power=False):
                 melody=develop(co["motif"]), progression=style["prog_a"] + style["prog_b"])
     if "scale" in co:
         spec["style"] = co["army"] + "_" + co["scale"]
-        STYLES.setdefault(spec["style"], dict(style, scale=co["scale"], harmony=co["scale"],
-                                              major_five=co["scale"] in ("minor", "harmonic_minor")))
+        harmony = co.get("harmony", {"minor_pentatonic": "minor", "pentatonic": "major"}.get(co["scale"], co["scale"]))
+        STYLES.setdefault(spec["style"], dict(style, scale=co["scale"], harmony=harmony,
+                                              major_five=harmony in ("minor", "harmonic_minor")))
     if "prog" in co:
         spec["progression"] = co["prog"]
     for field in ("drums", "lead", "bpm", "bass", "counter", "sevenths"):
