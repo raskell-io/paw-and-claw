@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType, CargoUnit, spawn_unit_with_state, SpriteAssets, GameData};
+use super::{GridPosition, Unit, FactionMember, Terrain, Tile, GameMap, Commanders, CoBonuses, Weather, UnitType, CargoUnit, spawn_unit_with_state, SpriteAssets, GameData, UnitClass};
 
 pub struct CombatPlugin;
 
@@ -13,7 +13,8 @@ impl Plugin for CombatPlugin {
             .add_message::<ResupplyEvent>()
             .add_message::<LoadEvent>()
             .add_message::<UnloadEvent>()
-            .add_systems(Update, (process_attacks, process_captures, process_joins, process_resupply, process_load, process_unload));
+            .add_systems(Update, (process_attacks, process_captures, process_joins, process_resupply, process_load, process_unload))
+            .add_systems(Update, abandon_interrupted_captures);
     }
 }
 
@@ -47,7 +48,7 @@ pub struct ResupplyEvent {
 /// Event fired when a unit is loaded into a transport
 #[derive(Message)]
 pub struct LoadEvent {
-    pub transport_pos: (i32, i32),  // Position of the transport
+    pub transport_pos: (i32, i32),  // Position of the transport (the passenger moved onto it)
     pub passenger: Entity,           // The unit being loaded
 }
 
@@ -55,6 +56,7 @@ pub struct LoadEvent {
 #[derive(Message)]
 pub struct UnloadEvent {
     pub transport: Entity,  // The transport unit
+    pub cargo_index: usize, // Which passenger to drop
     pub position: (i32, i32),  // Where to unload the passenger
 }
 
@@ -78,60 +80,54 @@ pub struct UnloadEvent {
 /// Returns None when the damage table has no entry (attacker cannot hit defender).
 fn damage_before_luck(
     attacker: &Unit,
+    attacker_terrain: Terrain,
     defender: &Unit,
     defender_terrain: Terrain,
     attacker_co: &CoBonuses,
     defender_co: &CoBonuses,
-    weather: &Weather,
+    _weather: &Weather,
     game_data: &GameData,
 ) -> Option<(f32, f32)> {
-    // Base damage from damage tables (B in AW2 formula)
-    let base_damage_percent = game_data.get_base_damage(attacker.unit_type, defender.unit_type)? as f32;
+    // The weapon it would fire: primary if it can hit and has ammo, else machine gun
+    let (base, _) = game_data.weapon(attacker.unit_type, attacker.ammo, defender.unit_type)?;
+    let base_damage_percent = base as f32;
 
-    let weather_effects = weather.effects();
-
-    // Convert CO attack bonus to AW2 scale (1.0 = 100, 1.1 = 110)
-    let aco = attacker_co.attack * 100.0 * weather_effects.attack_multiplier;
+    // CO firepower in AW2 points (100 = normal). As in Advance Wars, weather
+    // never changes damage; only COs do.
+    let aco = attacker_co.attack(attacker.unit_type, attacker_terrain, game_data) * 100.0;
 
     // Attacker HP on 1-10 scale (AW2 uses display HP)
     let ahp = (attacker.hp as f32 / 10.0).ceil().max(1.0);
-
-    // Damaged units hit proportionally weaker: 10 HP = full, 1 HP = 10%
     let hp_scale = ahp / 10.0;
 
-    // Terrain defense stars (0-4 in AW2)
-    // Weather can negate vegetation cover
-    let terrain_stars = if (defender_terrain == Terrain::Thicket || defender_terrain == Terrain::Brambles)
-        && !weather.forests_provide_cover()
-    {
-        0.0 // Rain negates vegetation cover
-    } else {
-        game_data.terrain_defense(defender_terrain) as f32
-    };
+    // Terrain defense stars (0-4 in AW2, more with some COs); fliers get none
+    let flying = matches!(game_data.unit_class(defender.unit_type), UnitClass::Air | UnitClass::AirTransport);
+    let terrain_stars = if flying { 0.0 } else { defender_co.terrain_stars(game_data.terrain_defense(defender_terrain)) };
 
-    // Convert CO defense bonus to AW2 scale
-    let dco = defender_co.defense * 100.0 * weather_effects.defense_multiplier;
+    // CO defense in AW2 points
+    let vs_indirect = game_data.unit_stats(attacker.unit_type).attack_range.0 > 1;
+    let dco = defender_co.defense(defender.unit_type, vs_indirect, game_data) * 100.0;
 
     // Defender HP on 1-10 scale
     let dhp = (defender.hp as f32 / 10.0).ceil().max(1.0);
 
-    // Calculate defense component: (200 - (DCO + DTR * DHP)) / 100
-    // At 100% defense and 0 terrain, this equals 1.0
-    // At 100% defense and 4 stars with 10 HP, this equals 0.6 (40% reduction)
-    let defense_component = (200.0 - (dco + terrain_stars * dhp)) / 100.0;
-    let defense_component = defense_component.max(0.1); // Minimum 10% damage gets through
+    // (200 - (DCO + DTR * DHP)) / 100
+    let defense_component = ((200.0 - (dco + terrain_stars * dhp)) / 100.0).max(0.0);
 
     let base_final = base_damage_percent * (aco / 100.0) * hp_scale * defense_component;
 
-    // AW2 Luck: 0-9 added before the HP and defense scaling
-    let max_luck = 9.0 * hp_scale * defense_component;
+    // Each point of luck adds this much damage (luck is added before the HP and
+    // defense scaling)
+    let luck_scale = hp_scale * defense_component;
 
-    Some((base_final, max_luck))
+    Some((base_final, luck_scale))
 }
 
-/// Calculate damage dealt by an attack, including a random luck roll
+/// Calculate damage dealt by an attack, including the luck roll: up to the
+/// attacker CO's good luck added, up to its bad luck taken away
 pub fn calculate_damage(
     attacker: &Unit,
+    attacker_terrain: Terrain,
     defender: &Unit,
     defender_terrain: Terrain,
     attacker_co: &CoBonuses,
@@ -139,22 +135,23 @@ pub fn calculate_damage(
     weather: &Weather,
     game_data: &GameData,
 ) -> i32 {
-    let Some((base_final, max_luck)) =
-        damage_before_luck(attacker, defender, defender_terrain, attacker_co, defender_co, weather, game_data)
+    let Some((base_final, luck_scale)) = damage_before_luck(attacker, attacker_terrain, defender, defender_terrain,
+        attacker_co, defender_co, weather, game_data)
     else {
         return 0;
     };
+    let mut rng = rand::thread_rng();
+    let good = rng.gen_range(0..=attacker_co.luck()) as f32;
+    let bad = rng.gen_range(0..=attacker_co.bad_luck()) as f32;
 
-    let luck_roll = rand::thread_rng().gen_range(0..=9) as f32;
-    let luck_damage = luck_roll * (max_luck / 9.0);
-
-    (base_final + luck_damage).max(0.0).round() as i32
+    // Advance Wars rounds damage down
+    (base_final + (good - bad) * luck_scale).max(0.0).floor() as i32
 }
 
 /// Calculate damage estimate for UI display (returns min, max)
-/// Uses the same formula as calculate_damage but without randomness
 pub fn estimate_damage(
     attacker: &Unit,
+    attacker_terrain: Terrain,
     defender: &Unit,
     defender_terrain: Terrain,
     attacker_co: &CoBonuses,
@@ -162,20 +159,18 @@ pub fn estimate_damage(
     weather: &Weather,
     game_data: &GameData,
 ) -> (i32, i32) {
-    let Some((base_final, max_luck)) =
-        damage_before_luck(attacker, defender, defender_terrain, attacker_co, defender_co, weather, game_data)
+    let Some((base_final, luck_scale)) = damage_before_luck(attacker, attacker_terrain, defender, defender_terrain,
+        attacker_co, defender_co, weather, game_data)
     else {
         return (0, 0);
     };
-
-    let min_damage = base_final.max(0.0).round() as i32;
-    let max_damage = (base_final + max_luck).max(0.0).round() as i32;
-
+    let min_damage = (base_final - attacker_co.bad_luck() as f32 * luck_scale).max(0.0).floor() as i32;
+    let max_damage = (base_final + attacker_co.luck() as f32 * luck_scale).max(0.0).floor() as i32;
     (min_damage, max_damage)
 }
 
-/// Check if attacker can attack defender: different factions, defender in
-/// range, and the damage table says the attacker can hit that unit type
+/// Check if attacker can attack defender: different factions, a weapon that
+/// can hit it, and in range (with the attacker CO's range change, AW Grit, Max)
 pub fn can_attack(
     attacker: &Unit,
     attacker_pos: &GridPosition,
@@ -183,6 +178,7 @@ pub fn can_attack(
     defender: &Unit,
     defender_pos: &GridPosition,
     defender_faction: &FactionMember,
+    range_bonus: i32,
     game_data: &GameData,
 ) -> bool {
     // Can't attack own units
@@ -190,13 +186,22 @@ pub fn can_attack(
         return false;
     }
 
-    if !game_data.can_damage(attacker.unit_type, defender.unit_type) {
+    // A weapon that can hit this target and has ammo, or a machine gun
+    if game_data.weapon(attacker.unit_type, attacker.ammo, defender.unit_type).is_none() {
         return false;
     }
 
     let distance = attacker_pos.distance_to(defender_pos);
     let (min_range, max_range) = game_data.unit_stats(attacker.unit_type).attack_range;
+    let max_range = if min_range > 1 { (max_range as i32 + range_bonus).max(min_range as i32) as u32 } else { max_range };
     distance >= min_range && distance <= max_range
+}
+
+/// CO power charge for losing `hp_lost` displayed HP of a unit, as in Advance
+/// Wars: by the funds value lost (1 charge per 100 funds). The army that took
+/// the hit gets this, the army that dealt it half.
+pub fn power_charge(hp_lost: i32, unit_type: UnitType, game_data: &GameData) -> u32 {
+    hp_lost.max(0) as u32 * game_data.unit_stats(unit_type).cost / 10 / 100
 }
 
 fn process_attacks(
@@ -205,6 +210,7 @@ fn process_attacks(
     mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
     map: Res<GameMap>,
     mut commanders: ResMut<Commanders>,
+    mut funds: ResMut<super::FactionFunds>,
     weather: Res<Weather>,
     game_data: Res<GameData>,
     mut defeated: MessageWriter<super::UnitDefeated>,
@@ -215,105 +221,90 @@ fn process_attacks(
             = units.get_many_mut([event.attacker, event.defender]) else {
             continue;
         };
+        let attacker_co = commanders.get_bonuses(attacker_faction.faction, &game_data);
+        let defender_co = commanders.get_bonuses(defender_faction.faction, &game_data);
+        let attacker_range = attacker_co.range(attacker_unit.unit_type, &game_data);
+        let defender_range = defender_co.range(defender_unit.unit_type, &game_data);
 
         // Verify attack is valid
-        if !can_attack(&attacker_unit, attacker_pos, attacker_faction, &defender_unit, defender_pos, defender_faction, &game_data) {
+        if !can_attack(&attacker_unit, attacker_pos, attacker_faction, &defender_unit, defender_pos,
+            defender_faction, attacker_range, &game_data)
+        {
             warn!("Invalid attack!");
             continue;
         }
+        let attacker_terrain = map.get(attacker_pos.x, attacker_pos.y).unwrap_or(Terrain::Grass);
+        let defender_terrain = map.get(defender_pos.x, defender_pos.y).unwrap_or(Terrain::Grass);
+        let attacker_side = (attacker_terrain, &attacker_co, attacker_faction.faction);
+        let defender_side = (defender_terrain, &defender_co, defender_faction.faction);
+        let can_counter = |defender: &Unit, attacker: &Unit| {
+            defender.hp > 0 && can_attack(defender, defender_pos, defender_faction, attacker, attacker_pos,
+                attacker_faction, defender_range, &game_data)
+        };
 
-        // Check ammo - can't attack without ammo (if unit uses ammo)
-        let attacker_max_ammo = game_data.unit_stats(attacker_unit.unit_type).max_ammo;
-        if attacker_max_ammo > 0 && attacker_unit.ammo == 0 {
-            warn!("No ammo to attack!");
-            continue;
+        // AW Sonja's Counter Break: the defender strikes back first
+        let counter_first = defender_co.mods.counter_first && can_counter(&defender_unit, &attacker_unit);
+        if counter_first {
+            strike(&mut defender_unit, defender_side, &mut attacker_unit, attacker_side, defender_co.counter(),
+                &mut commanders, &mut funds, &weather, &game_data);
         }
-
-        // Deduct ammo if unit uses ammo
-        if attacker_max_ammo > 0 {
-            attacker_unit.ammo = attacker_unit.ammo.saturating_sub(1);
-            info!("Ammo: {} -> {}", attacker_unit.ammo + 1, attacker_unit.ammo);
-        }
-
-        // Get CO bonuses for both factions
-        let attacker_co = commanders.get_bonuses(attacker_faction.faction, &game_data);
-        let defender_co = commanders.get_bonuses(defender_faction.faction, &game_data);
-
-        // Get defender's terrain
-        let defender_terrain = map
-            .get(defender_pos.x, defender_pos.y)
-            .unwrap_or(Terrain::Grass);
-
-        // Calculate and apply damage (with CO bonuses and weather effects)
-        let damage = calculate_damage(&attacker_unit, &defender_unit, defender_terrain, &attacker_co, &defender_co, &weather, &game_data);
-        defender_unit.hp -= damage;
-
-        info!(
-            "{} attacks {} for {} damage! (HP: {} -> {})",
-            game_data.unit_name(attacker_unit.unit_type),
-            game_data.unit_name(defender_unit.unit_type),
-            damage,
-            defender_unit.hp + damage,
-            defender_unit.hp
-        );
-
-        // Charge power meters (damage dealt/taken generates charge)
-        let charge_amount = (damage as u32) / 10;
-        commanders.charge(attacker_faction.faction, charge_amount, &game_data);
-        commanders.charge(defender_faction.faction, charge_amount / 2, &game_data); // Less for taking damage
-
-        // Mark attacker as having attacked
-        attacker_unit.attacked = true;
-
-        // Check if defender is destroyed
-        if defender_unit.hp <= 0 {
-            info!("{} destroyed!", game_data.unit_name(defender_unit.unit_type));
-            defeated.write(super::UnitDefeated { position: *defender_pos });
-            commands.entity(event.defender).despawn();
-        } else {
-            // Counter-attack (if defender can reach attacker)
-            // Can only counter if:
-            // 1. The damage table lets the defender hit the attacker
-            // 2. Attacker is within defender's attack range (for counter)
-            // 3. Has ammo (if uses ammo)
-            // Note: Ranged/indirect units (min_range > 1) typically can't counter at all
-            // because they can't fire at adjacent units
-            let counter_max_ammo = game_data.unit_stats(defender_unit.unit_type).max_ammo;
-            let can_counter = can_attack(&defender_unit, defender_pos, defender_faction, &attacker_unit, attacker_pos, attacker_faction, &game_data)
-                && (counter_max_ammo == 0 || defender_unit.ammo > 0);
-
-            if can_counter {
-                // Deduct ammo for counter-attack if unit uses ammo
-                if counter_max_ammo > 0 {
-                    defender_unit.ammo = defender_unit.ammo.saturating_sub(1);
-                }
-
-                let attacker_terrain = map
-                    .get(attacker_pos.x, attacker_pos.y)
-                    .unwrap_or(Terrain::Grass);
-
-                let counter_damage = calculate_damage(&defender_unit, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &weather, &game_data);
-                attacker_unit.hp -= counter_damage;
-
-                info!(
-                    "{} counter-attacks for {} damage! (HP: {})",
-                    game_data.unit_name(defender_unit.unit_type),
-                    counter_damage,
-                    attacker_unit.hp
-                );
-
-                // Charge power meters for counter-attack
-                let counter_charge = (counter_damage as u32) / 10;
-                commanders.charge(defender_faction.faction, counter_charge, &game_data);
-                commanders.charge(attacker_faction.faction, counter_charge / 2, &game_data);
-
-                if attacker_unit.hp <= 0 {
-                    info!("{} destroyed by counter-attack!", game_data.unit_name(attacker_unit.unit_type));
-                    defeated.write(super::UnitDefeated { position: *attacker_pos });
-                    commands.entity(event.attacker).despawn();
-                }
+        if attacker_unit.hp > 0 {
+            strike(&mut attacker_unit, attacker_side, &mut defender_unit, defender_side, 1.0,
+                &mut commanders, &mut funds, &weather, &game_data);
+            attacker_unit.attacked = true;
+            // Counter-attack: the defender survived and can reach the attacker
+            // (indirect units never can: they can't fire at adjacent units)
+            if !counter_first && can_counter(&defender_unit, &attacker_unit) {
+                strike(&mut defender_unit, defender_side, &mut attacker_unit, attacker_side, defender_co.counter(),
+                    &mut commanders, &mut funds, &weather, &game_data);
             }
         }
+
+        for (unit, pos, entity) in [(&defender_unit, defender_pos, event.defender), (&attacker_unit, attacker_pos, event.attacker)] {
+            if unit.hp <= 0 {
+                info!("{} destroyed!", game_data.unit_name(unit.unit_type));
+                defeated.write(super::UnitDefeated { position: *pos });
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+}
+
+/// One side fires at the other: damage (times `multiplier` for counters), ammo,
+/// CO power charge and any funds the shooter's CO earns from damage
+fn strike(
+    shooter: &mut Unit,
+    (shooter_terrain, shooter_co, shooter_army): (Terrain, &CoBonuses, super::Faction),
+    target: &mut Unit,
+    (target_terrain, target_co, target_army): (Terrain, &CoBonuses, super::Faction),
+    multiplier: f32,
+    commanders: &mut Commanders,
+    funds: &mut super::FactionFunds,
+    weather: &Weather,
+    game_data: &GameData,
+) {
+    let uses_ammo = game_data.weapon(shooter.unit_type, shooter.ammo, target.unit_type)
+        .is_some_and(|(_, uses_ammo)| uses_ammo);
+    let damage = (calculate_damage(shooter, shooter_terrain, target, target_terrain, shooter_co, target_co, weather, game_data) as f32
+        * multiplier).floor() as i32;
+    if uses_ammo {
+        shooter.ammo = shooter.ammo.saturating_sub(1);
+    }
+    let shown = target.display_hp();
+    target.hp -= damage;
+    let lost = shown - target.display_hp();
+    info!("{} hits {} for {} damage (HP {} -> {})", game_data.unit_name(shooter.unit_type),
+        game_data.unit_name(target.unit_type), damage, target.hp + damage, target.hp);
+
+    // The side that was hit charges fully, the shooter half
+    let charge = power_charge(lost, target.unit_type, game_data);
+    commanders.charge(target_army, charge, game_data);
+    commanders.charge(shooter_army, charge / 2, game_data);
+
+    // AW Sasha's War Bonds: funds worth part of the damage dealt
+    if shooter_co.mods.funds_from_damage > 0 {
+        let value = lost.max(0) as u32 * game_data.unit_stats(target.unit_type).cost / 10;
+        funds.add(shooter_army, value * shooter_co.mods.funds_from_damage as u32 / 100);
     }
 }
 
@@ -323,6 +314,7 @@ fn process_captures(
     mut tiles: Query<(&mut Tile, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     game_data: Res<GameData>,
+    commanders: Res<Commanders>,
 ) {
     for event in events.read() {
         let Ok((unit, faction_member)) = units.get(event.unit) else {
@@ -346,9 +338,10 @@ fn process_captures(
             continue;
         }
 
-        // Calculate capture points based on unit HP (like Advance Wars)
-        // Full HP = full capture power, half HP = half capture power
-        let capture_power = unit.hp;
+        // Advance Wars: each capture removes the unit's displayed HP from the
+        // property's 20 points, so a healthy unit takes two turns
+        let capture_power = unit.display_hp()
+            * commanders.get_bonuses(faction_member.faction, &game_data).capture_percent() / 100;
 
         // If a different faction is capturing, reset progress
         if tile.capturing_faction != Some(faction_member.faction) {
@@ -388,15 +381,34 @@ fn process_captures(
     }
 }
 
+/// Advance Wars: a capture in progress is lost as soon as the capturing unit
+/// leaves the property or is destroyed
+fn abandon_interrupted_captures(
+    mut tiles: Query<&mut Tile>,
+    units: Query<(&GridPosition, &FactionMember), With<Unit>>,
+) {
+    for mut tile in tiles.iter_mut() {
+        let Some(capturer) = tile.capturing_faction else { continue };
+        let held = units.iter().any(|(pos, faction)| {
+            pos.x == tile.position.x && pos.y == tile.position.y && faction.faction == capturer
+        });
+        if !held {
+            tile.capture_progress = 0;
+            tile.capturing_faction = None;
+        }
+    }
+}
+
 /// Process unit joining/merging
 fn process_joins(
     mut events: MessageReader<JoinEvent>,
     mut commands: Commands,
-    mut units: Query<&mut Unit>,
+    mut units: Query<(&mut Unit, &FactionMember)>,
+    mut funds: ResMut<super::FactionFunds>,
     game_data: Res<GameData>,
 ) {
     for event in events.read() {
-        let Ok([source_unit, mut target_unit]) = units.get_many_mut([event.source, event.target]) else {
+        let Ok([(source_unit, faction), (mut target_unit, _)]) = units.get_many_mut([event.source, event.target]) else {
             warn!("Failed to get units for join!");
             continue;
         };
@@ -409,8 +421,13 @@ fn process_joins(
 
         let stats = game_data.unit_stats(target_unit.unit_type);
 
-        // Combine HP (capped at max)
+        // Combine HP (capped at max). Advance Wars refunds the displayed HP
+        // that didn't fit, at 10% of the unit's cost each
         let combined_hp = (target_unit.hp + source_unit.hp).min(stats.max_hp);
+        let excess = (target_unit.display_hp() + source_unit.display_hp() - 10).max(0) as u32;
+        if excess > 0 {
+            funds.add(faction.faction, excess * stats.cost / 10);
+        }
 
         // Combine stamina and ammo (capped at max)
         let combined_stamina = (target_unit.stamina + source_unit.stamina).min(stats.max_stamina);
@@ -522,55 +539,29 @@ fn process_load(
     game_data: Res<GameData>,
 ) {
     for event in events.read() {
-        // Get passenger info first
-        let passenger_info = {
-            let Ok((_, passenger_unit, _, passenger_faction)) = units.get(event.passenger) else {
-                warn!("Failed to get passenger unit!");
-                continue;
-            };
-
-            if !passenger_unit.can_be_transported() {
-                warn!("{} cannot be transported!", game_data.unit_name(passenger_unit.unit_type));
-                continue;
-            }
-
-            (CargoUnit::from_unit(&passenger_unit), passenger_faction.faction)
+        let Ok((_, passenger_unit, _, passenger_faction)) = units.get(event.passenger) else {
+            warn!("Failed to get passenger unit!");
+            continue;
         };
+        let (cargo, faction, passenger_type) =
+            (CargoUnit::from_unit(&passenger_unit), passenger_faction.faction, passenger_unit.unit_type);
 
-        // Find transport at the given position
+        // The friendly transport the passenger moved onto, with room for it
         let transport_entity = units.iter()
-            .find(|(_, unit, pos, faction)| {
-                pos.x == event.transport_pos.0 &&
-                pos.y == event.transport_pos.1 &&
-                unit.is_transport() &&
-                !unit.has_cargo() &&
-                faction.faction == passenger_info.1
+            .find(|(entity, unit, pos, f)| {
+                *entity != event.passenger
+                    && (pos.x, pos.y) == event.transport_pos
+                    && f.faction == faction
+                    && unit.can_carry(passenger_type, &game_data)
             })
-            .map(|(entity, _, _, _)| entity);
-
+            .map(|(entity, ..)| entity);
         let Some(transport_entity) = transport_entity else {
-            warn!("No valid transport found at position {:?}!", event.transport_pos);
+            warn!("No transport with room at {:?}!", event.transport_pos);
             continue;
         };
-
-        // Now get transport and load the passenger
-        let Ok((_, mut transport_unit, _, _)) = units.get_mut(transport_entity) else {
-            warn!("Failed to get transport unit!");
-            continue;
-        };
-
-        // Load the passenger
-        let cargo = passenger_info.0.clone();
-        transport_unit.cargo = Some(cargo.clone());
-        transport_unit.attacked = true; // Loading ends the transport's action
-
-        info!(
-            "{} loaded into {}",
-            game_data.unit_name(cargo.unit_type),
-            game_data.unit_name(transport_unit.unit_type)
-        );
-
-        // Despawn the passenger entity (it's now stored as cargo)
+        let Ok((_, mut transport_unit, _, _)) = units.get_mut(transport_entity) else { continue };
+        info!("{} boarded {}", game_data.unit_name(cargo.unit_type), game_data.unit_name(transport_unit.unit_type));
+        transport_unit.cargo.push(cargo);
         commands.entity(event.passenger).despawn();
     }
 }
@@ -588,56 +579,24 @@ fn process_unload(
     game_data: Res<GameData>,
 ) {
     for event in events.read() {
-        let (cargo, faction) = {
-            let Ok((mut transport_unit, _transport_pos, transport_faction)) = units.get_mut(event.transport) else {
-                warn!("Failed to get transport unit!");
-                continue;
-            };
-
-            // Verify transport has cargo
-            let Some(cargo) = transport_unit.cargo.take() else {
-                warn!("Transport has no cargo to unload!");
-                continue;
-            };
-
-            // Mark transport as having acted
-            transport_unit.attacked = true;
-
-            (cargo, transport_faction.faction)
-        };
-
-        // Check if unload position is valid (on map and passable)
         let (ux, uy) = event.position;
-        if ux < 0 || uy < 0 || ux >= map.width as i32 || uy >= map.height as i32 {
-            warn!("Invalid unload position!");
-            // Put cargo back (need to re-get transport)
-            if let Ok((mut transport_unit, _, _)) = units.get_mut(event.transport) {
-                transport_unit.cargo = Some(cargo);
-            }
+        let occupied = units.iter().any(|(_, pos, _)| pos.x == ux && pos.y == uy);
+        let Ok((mut transport_unit, _, transport_faction)) = units.get_mut(event.transport) else {
+            warn!("Failed to get transport unit!");
+            continue;
+        };
+        let Some(cargo) = transport_unit.cargo.get(event.cargo_index).cloned() else {
+            warn!("Transport has no passenger {}!", event.cargo_index);
+            continue;
+        };
+        let passable = map.get(ux, uy).is_some_and(|t| game_data.is_passable(t, game_data.unit_class(cargo.unit_type)));
+        if !passable || occupied {
+            warn!("Cannot unload onto ({}, {})!", ux, uy);
             continue;
         }
-
-        // Check terrain is passable for the cargo unit
-        let terrain = map.get(ux, uy).unwrap_or(Terrain::Grass);
-        if !game_data.is_passable(terrain, game_data.unit_class(cargo.unit_type)) {
-            warn!("Cannot unload onto impassable terrain!");
-            // Put cargo back
-            if let Ok((mut transport_unit, _, _)) = units.get_mut(event.transport) {
-                transport_unit.cargo = Some(cargo);
-            }
-            continue;
-        }
-
-        // Check no other unit is at the position
-        let position_occupied = units.iter().any(|(_, pos, _)| pos.x == ux && pos.y == uy);
-        if position_occupied {
-            warn!("Cannot unload onto occupied tile!");
-            // Put cargo back
-            if let Ok((mut transport_unit, _, _)) = units.get_mut(event.transport) {
-                transport_unit.cargo = Some(cargo);
-            }
-            continue;
-        }
+        transport_unit.cargo.remove(event.cargo_index);
+        transport_unit.attacked = true;
+        let faction = transport_faction.faction;
 
         info!(
             "{} unloaded at ({}, {})",
@@ -676,14 +635,98 @@ mod tests {
         Unit::new(unit_type, game_data)
     }
 
+    /// Run one capture by a unit with `hp` (0-100) on a neutral storehouse,
+    /// returning the tile afterwards
+    fn capture_world(hp: i32) -> (App, Entity, Entity) {
+        capture_world_with(hp, None)
+    }
+
+    fn capture_world_with(hp: i32, co: Option<crate::game::CommanderId>) -> (App, Entity, Entity) {
+        let data = GameData::load_defaults();
+        let mut app = App::new();
+        app.add_message::<CaptureEvent>()
+            .insert_resource(Assets::<StandardMaterial>::default())
+            .insert_resource({
+                let mut commanders = Commanders::default();
+                commanders.active.clear();
+                if let Some(co) = co {
+                    commanders.set_commander(Faction::Western, co);
+                }
+                commanders
+            })
+            .add_systems(Update, process_captures);
+        let mut scout = Unit::new(UnitType::Scout, &data);
+        scout.hp = hp;
+        app.insert_resource(data);
+        let unit = app.world_mut().spawn((scout, FactionMember { faction: Faction::Western }, GridPosition::new(0, 0))).id();
+        let tile = app.world_mut().spawn((
+            Tile { terrain: Terrain::Storehouse, position: IVec2::ZERO, owner: None, capture_progress: 0, capturing_faction: None },
+            MeshMaterial3d::<StandardMaterial>(Handle::default()),
+        )).id();
+        (app, unit, tile)
+    }
+
+    fn capture(app: &mut App, unit: Entity, tile: Entity) -> Tile {
+        app.world_mut().write_message(CaptureEvent { unit, tile });
+        app.update();
+        app.world().get::<Tile>(tile).unwrap().clone()
+    }
+
+    #[test]
+    fn tanks_use_machine_guns_on_infantry_and_when_out_of_ammo() {
+        let gd = GameData::load_defaults();
+        // Cannon vs a vehicle uses ammo; the machine gun vs infantry doesn't
+        assert_eq!(gd.weapon(UnitType::Ironclad, 9, UnitType::Recon), Some((85, true)));
+        assert_eq!(gd.weapon(UnitType::Ironclad, 9, UnitType::Scout), Some((75, false)));
+        // Out of ammo: still shoots infantry, can't hurt vehicles
+        assert_eq!(gd.weapon(UnitType::Ironclad, 0, UnitType::Scout), Some((75, false)));
+        assert_eq!(gd.weapon(UnitType::Ironclad, 0, UnitType::Recon), None);
+        // Infantry has only a machine gun and no ammo to run out of
+        assert_eq!(gd.weapon(UnitType::Scout, 0, UnitType::Scout), Some((55, false)));
+    }
+
+    #[test]
+    fn power_charges_by_funds_value_lost() {
+        let gd = GameData::load_defaults();
+        // A whole Militia (1000) is worth 10 charge, a whole Charger (7000) 70
+        assert_eq!(power_charge(10, UnitType::Scout, &gd), 10);
+        assert_eq!(power_charge(10, UnitType::Ironclad, &gd), 70);
+        assert_eq!(power_charge(3, UnitType::Ironclad, &gd), 21);
+    }
+
+    #[test]
+    fn full_health_unit_captures_in_two_turns() {
+        let (mut app, unit, tile) = capture_world(100);
+        let first = capture(&mut app, unit, tile);
+        assert_eq!((first.owner, first.capture_progress), (None, 10), "10 HP takes 10 of the 20 points");
+        let second = capture(&mut app, unit, tile);
+        assert_eq!(second.owner, Some(Faction::Western));
+    }
+
+    #[test]
+    fn sami_style_commanders_capture_faster() {
+        // Bandit plays like AW Sami: 150% capture, so 10 HP takes 15 points
+        let (mut app, unit, tile) = capture_world_with(100, Some(crate::game::CommanderId::Bandit));
+        assert_eq!(capture(&mut app, unit, tile).capture_progress, 15);
+    }
+
+    #[test]
+    fn wounded_unit_captures_slower() {
+        let (mut app, unit, tile) = capture_world(45); // shows 5 HP
+        for _ in 0..3 {
+            assert_eq!(capture(&mut app, unit, tile).owner, None);
+        }
+        assert_eq!(capture(&mut app, unit, tile).owner, Some(Faction::Western), "5 HP needs four turns");
+    }
+
     #[test]
     fn infantry_vs_infantry_on_plains_matches_aw2() {
         // AW2 reference: full HP infantry vs infantry on plains deals 49-57%.
         // (55 + luck) * 1.0 * (200 - (100 + 1 * 10)) / 100
         let (gd, co, weather) = setup();
         let scout = unit(UnitType::Scout, &gd);
-        let (min, max) = estimate_damage(&scout, &scout, Terrain::Grass, &co, &co, &weather, &gd);
-        assert_eq!((min, max), (50, 58));
+        let (min, max) = estimate_damage(&scout, Terrain::Grass, &scout, Terrain::Grass, &co, &co, &weather, &gd);
+        assert_eq!((min, max), (49, 57), "AW floors damage");
     }
 
     #[test]
@@ -691,8 +734,8 @@ mod tests {
         let (gd, co, weather) = setup();
         let scout = unit(UnitType::Scout, &gd);
         let tank = unit(UnitType::Ironclad, &gd);
-        let (scout_on_tank, _) = estimate_damage(&scout, &tank, Terrain::Log, &co, &co, &weather, &gd);
-        let (tank_on_scout, _) = estimate_damage(&tank, &scout, Terrain::Log, &co, &co, &weather, &gd);
+        let (scout_on_tank, _) = estimate_damage(&scout, Terrain::Grass, &tank, Terrain::Log, &co, &co, &weather, &gd);
+        let (tank_on_scout, _) = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Log, &co, &co, &weather, &gd);
         assert_eq!(scout_on_tank, 5);
         assert_eq!(tank_on_scout, 75);
     }
@@ -702,8 +745,8 @@ mod tests {
         let (gd, co, weather) = setup();
         let tank = unit(UnitType::Ironclad, &gd);
         let scout = unit(UnitType::Scout, &gd);
-        let (open, _) = estimate_damage(&tank, &scout, Terrain::Log, &co, &co, &weather, &gd);
-        let (fortified, _) = estimate_damage(&tank, &scout, Terrain::Base, &co, &co, &weather, &gd);
+        let (open, _) = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Log, &co, &co, &weather, &gd);
+        let (fortified, _) = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Base, &co, &co, &weather, &gd);
         assert!(fortified < open, "base ({fortified}) should protect better than a log ({open})");
     }
 
@@ -712,31 +755,45 @@ mod tests {
         let (gd, co, weather) = setup();
         let mut tank = unit(UnitType::Ironclad, &gd);
         let scout = unit(UnitType::Scout, &gd);
-        let (full, _) = estimate_damage(&tank, &scout, Terrain::Log, &co, &co, &weather, &gd);
+        let (full, _) = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Log, &co, &co, &weather, &gd);
         tank.hp = 50;
-        let (half, _) = estimate_damage(&tank, &scout, Terrain::Log, &co, &co, &weather, &gd);
-        assert_eq!(half, (full as f32 / 2.0).round() as i32);
+        let (half, _) = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Log, &co, &co, &weather, &gd);
+        assert!((half - full / 2).abs() <= 1, "half HP hits about half as hard ({half} vs {full})");
     }
 
     #[test]
     fn co_attack_bonus_increases_damage() {
         let (gd, co, weather) = setup();
         let scout = unit(UnitType::Scout, &gd);
-        let boosted = CoBonuses { attack: 1.2, ..CoBonuses::none() };
-        let (normal, _) = estimate_damage(&scout, &scout, Terrain::Log, &co, &co, &weather, &gd);
-        let (strong, _) = estimate_damage(&scout, &scout, Terrain::Log, &boosted, &co, &weather, &gd);
+        let boosted = CoBonuses {
+            mods: crate::game::CoModifiers { attack: vec![(crate::game::UnitFilter::All, 20)], ..Default::default() },
+            ..CoBonuses::none()
+        };
+        let (normal, _) = estimate_damage(&scout, Terrain::Grass, &scout, Terrain::Log, &co, &co, &weather, &gd);
+        let (strong, _) = estimate_damage(&scout, Terrain::Grass, &scout, Terrain::Log, &boosted, &co, &weather, &gd);
         assert_eq!(strong, (normal as f32 * 1.2).round() as i32);
     }
 
     #[test]
-    fn rain_removes_forest_cover() {
+    fn weather_never_changes_damage() {
         let (gd, co, clear) = setup();
-        let rain = Weather::new(WeatherType::Rain);
         let tank = unit(UnitType::Ironclad, &gd);
         let scout = unit(UnitType::Scout, &gd);
-        let (covered, _) = estimate_damage(&tank, &scout, Terrain::Thicket, &co, &co, &clear, &gd);
-        let (exposed, _) = estimate_damage(&tank, &scout, Terrain::Thicket, &co, &co, &rain, &gd);
-        assert!(exposed > covered);
+        let clear_damage = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Thicket, &co, &co, &clear, &gd);
+        for weather in [WeatherType::Rain, WeatherType::Snow, WeatherType::Sandstorm, WeatherType::Fog] {
+            let damage = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Thicket, &co, &co, &Weather::new(weather), &gd);
+            assert_eq!(damage, clear_damage, "{weather:?}");
+        }
+    }
+
+    #[test]
+    fn fliers_get_no_terrain_defense() {
+        let (gd, co, weather) = setup();
+        let flak = unit(UnitType::Flak, &gd);
+        let flier = unit(UnitType::Skywing, &gd);
+        let open = estimate_damage(&flak, Terrain::Grass, &flier, Terrain::Grass, &co, &co, &weather, &gd);
+        let covered = estimate_damage(&flak, Terrain::Grass, &flier, Terrain::Boulder, &co, &co, &weather, &gd);
+        assert_eq!(open, covered);
     }
 
     #[test]
@@ -744,9 +801,9 @@ mod tests {
         let (gd, co, weather) = setup();
         let tank = unit(UnitType::Ironclad, &gd);
         let scout = unit(UnitType::Scout, &gd);
-        let (min, max) = estimate_damage(&tank, &scout, Terrain::Grass, &co, &co, &weather, &gd);
+        let (min, max) = estimate_damage(&tank, Terrain::Grass, &scout, Terrain::Grass, &co, &co, &weather, &gd);
         for _ in 0..200 {
-            let dmg = calculate_damage(&tank, &scout, Terrain::Grass, &co, &co, &weather, &gd);
+            let dmg = calculate_damage(&tank, Terrain::Grass, &scout, Terrain::Grass, &co, &co, &weather, &gd);
             assert!((min..=max).contains(&dmg), "{dmg} outside {min}..={max}");
         }
     }
@@ -758,13 +815,13 @@ mod tests {
         assert!(!gd.can_damage(UnitType::Scout, UnitType::Raptor));
         let scout = unit(UnitType::Scout, &gd);
         let raptor = unit(UnitType::Raptor, &gd);
-        assert_eq!(estimate_damage(&scout, &raptor, Terrain::Grass, &co, &co, &weather, &gd), (0, 0));
+        assert_eq!(estimate_damage(&scout, Terrain::Grass, &raptor, Terrain::Grass, &co, &co, &weather, &gd), (0, 0));
 
         let east = FactionMember { faction: Faction::Eastern };
         let north = FactionMember { faction: Faction::Northern };
         let here = GridPosition::new(0, 0);
         let adjacent = GridPosition::new(1, 0);
-        assert!(!can_attack(&scout, &here, &east, &raptor, &adjacent, &north, &gd));
+        assert!(!can_attack(&scout, &here, &east, &raptor, &adjacent, &north, 0, &gd));
     }
 
     #[test]
@@ -776,12 +833,12 @@ mod tests {
         let north = FactionMember { faction: Faction::Northern };
         let origin = GridPosition::new(0, 0);
 
-        assert!(can_attack(&scout, &origin, &east, &scout, &GridPosition::new(1, 0), &north, &gd));
-        assert!(!can_attack(&scout, &origin, &east, &scout, &GridPosition::new(1, 0), &east, &gd), "friendly fire");
-        assert!(!can_attack(&scout, &origin, &east, &scout, &GridPosition::new(2, 0), &north, &gd), "out of range");
+        assert!(can_attack(&scout, &origin, &east, &scout, &GridPosition::new(1, 0), &north, 0, &gd));
+        assert!(!can_attack(&scout, &origin, &east, &scout, &GridPosition::new(1, 0), &east, 0, &gd), "friendly fire");
+        assert!(!can_attack(&scout, &origin, &east, &scout, &GridPosition::new(2, 0), &north, 0, &gd), "out of range");
 
         // Artillery has a minimum range of 2
-        assert!(!can_attack(&siege, &origin, &east, &scout, &GridPosition::new(1, 0), &north, &gd));
-        assert!(can_attack(&siege, &origin, &east, &scout, &GridPosition::new(2, 1), &north, &gd));
+        assert!(!can_attack(&siege, &origin, &east, &scout, &GridPosition::new(1, 0), &north, 0, &gd));
+        assert!(can_attack(&siege, &origin, &east, &scout, &GridPosition::new(2, 1), &north, 0, &gd));
     }
 }

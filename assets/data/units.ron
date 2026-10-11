@@ -63,7 +63,7 @@
                 vision: 2,
                 can_capture: true,
                 cost: 3000,
-                class: Foot,
+                class: Mech,
                 max_stamina: 70,
                 max_ammo: 3,
             ),
@@ -250,6 +250,8 @@
                 class: Transport,
                 max_stamina: 70,
                 max_ammo: 0,
+                carries: [Foot, Mech],
+                capacity: 1,
             ),
         ),
         // APC variant for resupply
@@ -292,6 +294,9 @@
                 class: AirTransport,
                 max_stamina: 99,
                 max_ammo: 0,
+                carries: [Foot, Mech],
+                capacity: 1,
+                daily_stamina: 2,
             ),
         ),
         // B Copter: Cost 9000, Move 6, Vision 3, Fuel 99, Ammo 6
@@ -312,6 +317,7 @@
                 class: Air,
                 max_stamina: 99,
                 max_ammo: 6,
+                daily_stamina: 2,
             ),
         ),
         // Fighter: Cost 20000, Move 9, Vision 2, Fuel 99, Ammo 9
@@ -332,6 +338,7 @@
                 class: Air,
                 max_stamina: 99,
                 max_ammo: 9,
+                daily_stamina: 5,
             ),
         ),
         // Bomber: Cost 22000, Move 7, Vision 2, Fuel 99, Ammo 9
@@ -352,6 +359,7 @@
                 class: Air,
                 max_stamina: 99,
                 max_ammo: 9,
+                daily_stamina: 5,
             ),
         ),
 
@@ -374,6 +382,9 @@
                 class: NavalTransport,
                 max_stamina: 99,
                 max_ammo: 0,
+                carries: [Foot, Mech, Wheels, Treads, Transport],
+                capacity: 2,
+                daily_stamina: 1,
             ),
         ),
         // Cruiser: Cost 18000, Move 6, Vision 3, Fuel 99, Ammo 9
@@ -394,6 +405,7 @@
                 class: Naval,
                 max_stamina: 99,
                 max_ammo: 9,
+                daily_stamina: 1,
             ),
         ),
         // Sub: Cost 20000, Move 5, Vision 5, Fuel 60, Ammo 6
@@ -414,6 +426,7 @@
                 class: Naval,
                 max_stamina: 70,
                 max_ammo: 6,
+                daily_stamina: 1,
             ),
         ),
         // Battleship: Cost 28000, Move 5, Vision 2, Fuel 99, Ammo 9, Range 2-6
@@ -434,6 +447,7 @@
                 class: Naval,
                 max_stamina: 99,
                 max_ammo: 9,
+                daily_stamina: 1,
             ),
         ),
     }

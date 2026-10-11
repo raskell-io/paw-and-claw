@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition, MovementHighlights, GameData};
+use super::{Faction, FactionMember, Unit, Tile, Terrain, Commanders, GridPosition, MovementHighlights, GameData, UnitType};
 
 pub struct TurnPlugin;
 
@@ -12,7 +12,7 @@ impl Plugin for TurnPlugin {
             .init_resource::<GameResult>()
             .init_resource::<BattleConfig>()
             .add_message::<TurnStartEvent>()
-            .add_systems(Update, (check_victory_condition, generate_income, resupply_units));
+            .add_systems(Update, (check_victory_condition, (generate_income, resupply_units).chain()));
     }
 }
 
@@ -232,122 +232,97 @@ fn generate_income(
     game_data: Res<GameData>,
 ) {
     for event in events.read() {
-        // Calculate base income from owned properties
-        let base_income: u32 = tiles.iter()
-            .filter(|t| t.owner == Some(event.faction))
-            .map(|t| game_data.terrain_income(t.terrain))
-            .sum();
-
-        // Apply CO income bonus
+        // Each owned property pays its income, plus the CO's bonus per property (AW Sasha)
         let co_bonuses = commanders.get_bonuses(event.faction, &game_data);
-        let income = (base_income as f32 * co_bonuses.income).round() as u32;
-
+        let income: u32 = tiles.iter()
+            .filter(|t| t.owner == Some(event.faction))
+            .map(|t| (game_data.terrain_income(t.terrain) as i32 + co_bonuses.mods.income).max(0) as u32)
+            .sum();
         if income > 0 {
             funds.add(event.faction, income);
-            if co_bonuses.income > 1.0 {
-                info!("{:?} receives {} income (+{:.0}% CO bonus, total: {})",
-                    event.faction, income, (co_bonuses.income - 1.0) * 100.0, funds.get(event.faction));
-            } else {
-                info!("{:?} receives {} income (total: {})",
-                    event.faction, income, funds.get(event.faction));
-            }
+            info!("{:?} receives {} income (total: {})", event.faction, income, funds.get(event.faction));
         }
     }
 }
 
-/// Resupply and heal units on friendly buildings that serve them at turn start
-/// (ground units at bases, workshops and storehouses, boats at docks, fliers at
-/// roosts: `resupplies` in terrain.ron)
+/// Advance Wars repair: 2 displayed HP (20 internal, capped at full), for 10%
+/// of the unit's cost per displayed HP gained, in whole HP only; with too
+/// little money it heals 1 HP, or none. Returns (new hp, cost).
+pub fn repair(hp: i32, max_hp: i32, unit_cost: u32, funds: u32, extra: i32) -> (i32, u32) {
+    let shown = |hp: i32| ((hp as f32) / 10.0).ceil() as i32;
+    for steps in (1..=2 + extra.max(0)).rev() {
+        let healed = (hp + steps * 10).min(max_hp);
+        let gained = (shown(healed) - shown(hp)).max(0) as u32;
+        let cost = gained * unit_cost / 10;
+        if healed > hp && cost <= funds {
+            return (healed, cost);
+        }
+    }
+    (hp, 0)
+}
+
+/// Start-of-turn upkeep for the army whose turn begins, in Advance Wars order
+/// (after income): units on their own properties that serve them
+/// (`resupplies` in terrain.ron) are repaired and refilled, supply units refill
+/// their neighbors, then fliers and boats that weren't refilled burn their
+/// daily stamina and crash or sink at 0
 fn resupply_units(
     mut events: MessageReader<TurnStartEvent>,
-    mut units: Query<(&mut Unit, &GridPosition, &FactionMember)>,
+    mut commands: Commands,
+    mut units: Query<(Entity, &mut Unit, &GridPosition, &FactionMember)>,
     tiles: Query<&Tile>,
     mut funds: ResMut<FactionFunds>,
+    mut defeated: MessageWriter<super::UnitDefeated>,
+    commanders: Res<Commanders>,
     game_data: Res<GameData>,
 ) {
     for event in events.read() {
-        // Build a map of supply buildings owned by this faction
-        let supply_buildings: HashMap<(i32, i32), Terrain> = tiles.iter()
+        let co = commanders.get_bonuses(event.faction, &game_data);
+        let properties: HashMap<(i32, i32), Terrain> = tiles.iter()
             .filter(|t| t.owner == Some(event.faction))
-            .filter(|t| !game_data.terrain(t.terrain).resupplies.is_empty())
             .map(|t| ((t.position.x, t.position.y), t.terrain))
             .collect();
+        let suppliers: Vec<(i32, i32)> = units.iter()
+            .filter(|(_, u, _, f)| f.faction == event.faction && u.unit_type == UnitType::Supplier)
+            .map(|(_, _, p, _)| (p.x, p.y))
+            .collect();
 
-        // Resupply and heal units on these buildings
-        for (mut unit, pos, faction) in units.iter_mut() {
-            // Only resupply units of the active faction
+        for (entity, mut unit, pos, faction) in units.iter_mut() {
             if faction.faction != event.faction {
                 continue;
             }
+            // A paralyzing power (AW Von Bolt) costs the unit this turn
+            if unit.paralyzed {
+                unit.paralyzed = false;
+                unit.exhausted = true;
+            }
+            let stats = game_data.unit_stats(unit.unit_type);
+            let on_property = properties.get(&(pos.x, pos.y))
+                .is_some_and(|&terrain| game_data.terrain_resupplies(terrain, unit.unit_type));
+            let beside_supplier = suppliers.iter()
+                .any(|&(x, y)| (x - pos.x).abs() + (y - pos.y).abs() == 1);
 
-            // Check if unit is on a supply building
-            if let Some(terrain) = supply_buildings.get(&(pos.x, pos.y))
-                .filter(|&&terrain| game_data.terrain_resupplies(terrain, unit.unit_type))
-            {
-                let stats = game_data.unit_stats(unit.unit_type);
-                let old_hp = unit.hp;
-                let old_stamina = unit.stamina;
-                let old_ammo = unit.ammo;
-
-                // Restore stamina and ammo to max (free)
+            if on_property {
+                let (hp, cost) = repair(unit.hp, stats.max_hp, stats.cost, funds.get(event.faction), co.mods.repair);
+                if hp > unit.hp {
+                    funds.spend(event.faction, cost);
+                    info!("{} repaired: HP {} -> {} (cost {})", game_data.unit_name(unit.unit_type), unit.hp, hp, cost);
+                    unit.hp = hp;
+                }
+            }
+            if on_property || beside_supplier {
                 unit.stamina = stats.max_stamina;
                 unit.ammo = stats.max_ammo;
+                continue;
+            }
 
-                // Heal HP (20% per turn, costs funds based on unit cost)
-                // Healing rate: 20 HP per turn (like Advance Wars' 2 HP out of 10)
-                let heal_amount = 20;
-                let hp_needed = stats.max_hp - unit.hp;
-
-                if hp_needed > 0 {
-                    // Calculate healing cost: (heal_amount / max_hp) * unit_cost
-                    let actual_heal = heal_amount.min(hp_needed);
-                    let unit_cost = stats.cost;
-                    let heal_cost = (actual_heal as u32 * unit_cost) / stats.max_hp as u32;
-
-                    // Only heal if we can afford it (or heal as much as we can afford)
-                    let available_funds = funds.get(event.faction);
-                    if available_funds >= heal_cost {
-                        unit.hp += actual_heal;
-                        funds.spend(event.faction, heal_cost);
-                        info!(
-                            "{} healed at {:?}: HP {}->{} (cost: {})",
-                            game_data.unit_name(unit.unit_type),
-                            terrain,
-                            old_hp,
-                            unit.hp,
-                            heal_cost
-                        );
-                    } else if available_funds > 0 {
-                        // Partial healing based on available funds
-                        let affordable_heal = (available_funds * stats.max_hp as u32) / unit_cost;
-                        if affordable_heal > 0 {
-                            let partial_heal = (affordable_heal as i32).min(hp_needed);
-                            unit.hp += partial_heal;
-                            let partial_cost = (partial_heal as u32 * unit_cost) / stats.max_hp as u32;
-                            funds.spend(event.faction, partial_cost.max(1));
-                            info!(
-                                "{} partially healed at {:?}: HP {}->{} (cost: {})",
-                                game_data.unit_name(unit.unit_type),
-                                terrain,
-                                old_hp,
-                                unit.hp,
-                                partial_cost
-                            );
-                        }
-                    }
-                }
-
-                // Log resupply if anything was resupplied
-                if old_stamina < stats.max_stamina || old_ammo < stats.max_ammo {
-                    info!(
-                        "{} resupplied at {:?}: stamina {}->{}, ammo {}->{}",
-                        game_data.unit_name(unit.unit_type),
-                        terrain,
-                        old_stamina,
-                        unit.stamina,
-                        old_ammo,
-                        unit.ammo
-                    );
+            let daily = (stats.daily_stamina as i32 + co.daily_stamina(unit.unit_type, &game_data)).max(0) as u32;
+            if stats.daily_stamina > 0 {
+                unit.stamina = unit.stamina.saturating_sub(daily);
+                if unit.stamina == 0 {
+                    info!("{} ran out of stamina and was lost", game_data.unit_name(unit.unit_type));
+                    defeated.write(super::UnitDefeated { position: *pos });
+                    commands.entity(entity).despawn();
                 }
             }
         }
@@ -357,6 +332,21 @@ fn resupply_units(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repair_is_two_hp_for_ten_percent_each() {
+        // Infantry (1000) at 6 HP heals to 8 for 200
+        assert_eq!(repair(60, 100, 1000, 5000, 0), (80, 200));
+        // 9 HP (85 internal) tops up to full for one HP's worth
+        assert_eq!(repair(85, 100, 7000, 5000, 0), (100, 700));
+        // Too little money for two HP heals one, for none heals nothing
+        assert_eq!(repair(50, 100, 7000, 1000, 0), (60, 700));
+        assert_eq!(repair(50, 100, 7000, 600, 0), (50, 0));
+        // Already full: no change, no charge
+        assert_eq!(repair(100, 100, 7000, 5000, 0), (100, 0));
+        // AW Rachel repairs one more
+        assert_eq!(repair(50, 100, 1000, 5000, 1), (80, 300));
+    }
 
     #[test]
     fn funds_start_empty_and_refuse_overspending() {

@@ -80,7 +80,8 @@ pub struct SavedUnit {
     pub ammo: u32,
     pub moved: bool,
     pub attacked: bool,
-    pub cargo: Option<SavedCargoUnit>,
+    #[serde(default)]
+    pub cargo: Vec<SavedCargoUnit>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -132,7 +133,11 @@ impl From<SavedTurnPhase> for TurnPhase {
 pub struct SavedCommanders {
     pub active: HashMap<Faction, CommanderId>,
     pub power_meter: HashMap<Faction, u32>,
-    pub power_active: HashMap<Faction, bool>,
+    pub power_active: HashMap<Faction, super::PowerLevel>,
+    #[serde(default)]
+    pub power_uses: HashMap<Faction, u32>,
+    #[serde(default)]
+    pub power_attack: HashMap<Faction, i32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -261,12 +266,12 @@ fn handle_save_game(
                 ammo: u.ammo,
                 moved: u.moved,
                 attacked: u.attacked,
-                cargo: u.cargo.as_ref().map(|c| SavedCargoUnit {
+                cargo: u.cargo.iter().map(|c| SavedCargoUnit {
                     unit_type: c.unit_type,
                     hp: c.hp,
                     stamina: c.stamina,
                     ammo: c.ammo,
-                }),
+                }).collect(),
             }).collect(),
             turn_state: SavedTurnState {
                 current_faction: turn_state.current_faction,
@@ -284,6 +289,8 @@ fn handle_save_game(
                 active: commanders.active.clone(),
                 power_meter: commanders.power_meter.clone(),
                 power_active: commanders.power_active.clone(),
+                power_uses: commanders.power_uses.clone(),
+                power_attack: commanders.power_attack.clone(),
             },
             weather: SavedWeather {
                 current: weather.current,
@@ -376,6 +383,8 @@ fn handle_load_game(
         commanders.active = save_data.commanders.active;
         commanders.power_meter = save_data.commanders.power_meter;
         commanders.power_active = save_data.commanders.power_active;
+        commanders.power_uses = save_data.commanders.power_uses;
+        commanders.power_attack = save_data.commanders.power_attack;
 
         // Restore weather
         weather.set(save_data.weather.current);
@@ -445,12 +454,12 @@ fn handle_load_game(
             unit.ammo = saved_unit.ammo;
             unit.moved = saved_unit.moved;
             unit.attacked = saved_unit.attacked;
-            unit.cargo = saved_unit.cargo.as_ref().map(|c| super::CargoUnit {
+            unit.cargo = saved_unit.cargo.iter().map(|c| super::CargoUnit {
                 unit_type: c.unit_type,
                 hp: c.hp,
                 stamina: c.stamina,
                 ammo: c.ammo,
-            });
+            }).collect();
 
             super::spawn_unit_with_state(
                 &mut commands,

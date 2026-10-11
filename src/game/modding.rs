@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{Faction, UnitType, UnitClass, Terrain, CommanderId, AiPersonality, PowerEffect};
+use super::{Faction, UnitType, UnitClass, Terrain, CommanderId, AiPersonality, PowerEffect, CoModifiers};
 
 pub struct ModdingPlugin;
 
@@ -98,6 +98,17 @@ pub struct UnitStatsData {
     pub class: UnitClass,
     pub max_stamina: u32,
     pub max_ammo: u32,
+    /// Stamina (AW fuel) used up at the start of each of its army's turns,
+    /// even without moving: fliers and boats. At 0 they crash or sink.
+    #[serde(default)]
+    pub daily_stamina: u32,
+    /// Unit classes this transport can carry (AW: APC and T Copter carry foot
+    /// soldiers, the Lander any ground unit)
+    #[serde(default)]
+    pub carries: Vec<UnitClass>,
+    /// How many units it carries at once
+    #[serde(default)]
+    pub capacity: u32,
 }
 
 /// Moddable terrain data
@@ -130,12 +141,19 @@ pub struct TerrainData {
     pub resupplies: Vec<UnitClass>,
 }
 
-/// Moddable CO power data
+/// One of a CO's powers (CO Power or Super CO Power)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoPowerData {
     pub name: String,
     pub description: String,
-    pub effect: PowerEffect,
+    /// Power meter stars it costs
+    pub stars: u32,
+    /// Abilities added while it runs (on top of the always-on ones)
+    #[serde(default)]
+    pub modifiers: CoModifiers,
+    /// What happens the moment it's activated
+    #[serde(default)]
+    pub effects: Vec<PowerEffect>,
 }
 
 /// Moddable commander data
@@ -145,24 +163,17 @@ pub struct CommanderData {
     pub faction: Faction,
     pub personality: AiPersonality,
     pub description: String,
-    /// Attack multiplier (1.0 = normal)
-    pub attack_bonus: f32,
-    /// Defense multiplier (1.0 = normal)
-    pub defense_bonus: f32,
-    /// Movement bonus (0 = normal)
-    pub movement_bonus: i32,
-    /// Income multiplier (1.0 = normal)
-    pub income_bonus: f32,
-    /// Vision bonus (0 = normal)
-    pub vision_bonus: u32,
-    /// Unit cost multiplier (1.0 = normal)
-    pub cost_modifier: f32,
-    /// Terrain movement cost reduction
-    pub terrain_cost_reduction: u32,
-    /// CO Power definition
-    pub power: CoPowerData,
-    /// Power meter cost to activate
-    pub power_cost: u32,
+    /// The Advance Wars CO whose abilities this commander copies
+    #[serde(default)]
+    pub based_on: String,
+    /// Always-on abilities (AW "day to day")
+    #[serde(default)]
+    pub abilities: CoModifiers,
+    /// CO Power (some COs, like AW Von Bolt, have none)
+    #[serde(default)]
+    pub power: Option<CoPowerData>,
+    /// Super CO Power
+    pub super_power: CoPowerData,
 }
 
 // ============================================================================
@@ -198,7 +209,12 @@ pub struct CommandersRegistry {
 /// Values are base damage percentages (0-100+, where 100 = can one-shot at full HP)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DamageTablesRegistry {
+    /// Primary weapons: these use ammo when the unit carries ammo
     pub tables: HashMap<String, HashMap<String, u32>>,
+    /// Secondary weapons (machine guns): used when the primary can't hit or is
+    /// out of ammo, and never use ammo
+    #[serde(default)]
+    pub secondary: HashMap<String, HashMap<String, u32>>,
 }
 
 /// Container for movement costs (terrain vs unit class)
@@ -293,6 +309,9 @@ impl GameData {
                 for (attacker, row) in r.tables {
                     self.damage_tables.tables.entry(attacker).or_default().extend(row);
                 }
+                for (attacker, row) in r.secondary {
+                    self.damage_tables.secondary.entry(attacker).or_default().extend(row);
+                }
             });
             merge_mod_file(&path.join("movement_costs.ron"), |r: MovementCostsRegistry| {
                 for (terrain, row) in r.costs {
@@ -336,14 +355,14 @@ impl GameData {
         for &id in CommanderId::all() {
             match self.commanders.commanders.get(commander_to_key(id)) {
                 None => problems.push(format!("missing commander '{}'", commander_to_key(id))),
-                Some(co) if co.power_cost == 0 => {
-                    problems.push(format!("commander '{}' has power_cost 0", commander_to_key(id)))
+                Some(co) if co.super_power.stars == 0 => {
+                    problems.push(format!("commander '{}' has a free Super CO Power", commander_to_key(id)))
                 }
                 Some(_) => {}
             }
         }
         let unit_keys: Vec<&str> = UnitType::all().iter().map(|&u| unit_type_to_key(u)).collect();
-        for (attacker, row) in &self.damage_tables.tables {
+        for (attacker, row) in self.damage_tables.tables.iter().chain(&self.damage_tables.secondary) {
             if !unit_keys.contains(&attacker.as_str()) {
                 problems.push(format!("damage table has unknown attacker '{}'", attacker));
             }
@@ -483,9 +502,28 @@ impl GameData {
             .copied()
     }
 
-    /// Check if attacker can damage defender (has a damage table entry)
+    /// Base damage of an attacker's secondary weapon (machine gun) against a defender
+    pub fn get_secondary_damage(&self, attacker: UnitType, defender: UnitType) -> Option<u32> {
+        self.damage_tables.secondary
+            .get(unit_type_to_key(attacker))
+            .and_then(|targets| targets.get(unit_type_to_key(defender)))
+            .copied()
+    }
+
+    /// Check if attacker can damage defender with either weapon, ammo aside
     pub fn can_damage(&self, attacker: UnitType, defender: UnitType) -> bool {
-        self.get_base_damage(attacker, defender).is_some()
+        self.get_base_damage(attacker, defender).is_some() || self.get_secondary_damage(attacker, defender).is_some()
+    }
+
+    /// The weapon a unit attacks a defender type with, as in Advance Wars: its
+    /// primary if that can hit and it has ammo for it, else its secondary.
+    /// Returns (base damage, whether the shot uses ammo), or None if it can't attack.
+    pub fn weapon(&self, attacker_type: UnitType, ammo: u32, defender: UnitType) -> Option<(u32, bool)> {
+        let uses_ammo = self.unit_stats(attacker_type).max_ammo > 0;
+        self.get_base_damage(attacker_type, defender)
+            .filter(|_| !uses_ammo || ammo > 0)
+            .map(|base| (base, uses_ammo))
+            .or_else(|| self.get_secondary_damage(attacker_type, defender).map(|base| (base, false)))
     }
 
     // === MOVEMENT COST LOOKUPS ===
@@ -500,6 +538,13 @@ impl GameData {
     /// Movement points a unit class spends to enter a terrain (99+ = impassable)
     pub fn movement_cost(&self, terrain: Terrain, unit_class: UnitClass) -> u32 {
         self.get_movement_cost(terrain, unit_class).unwrap_or(IMPASSABLE)
+    }
+
+    /// Movement cost of one step; with `flat` (AW Lash, Sturm) every passable
+    /// terrain costs 1
+    pub fn step_cost(&self, terrain: Terrain, unit_class: UnitClass, flat: bool) -> u32 {
+        let cost = self.movement_cost(terrain, unit_class);
+        if flat && cost < IMPASSABLE { 1 } else { cost }
     }
 
     pub fn is_passable(&self, terrain: Terrain, unit_class: UnitClass) -> bool {
@@ -599,24 +644,38 @@ pub fn commander_to_key(id: CommanderId) -> &'static str {
         CommanderId::Kira => "kira",
         CommanderId::Tanuki => "tanuki",
         CommanderId::Sensei => "sensei",
+        CommanderId::Goro => "goro",
         CommanderId::Grimjaw => "grimjaw",
         CommanderId::Frost => "frost",
         CommanderId::Bjorn => "bjorn",
+        CommanderId::Sable => "sable",
         CommanderId::Bandit => "bandit",
         CommanderId::Talon => "talon_co",  // Avoid conflict with unit
         CommanderId::Dusty => "dusty",
+        CommanderId::Clover => "clover",
+        CommanderId::Shell => "shell",
+        CommanderId::Ridge => "ridge",
+        CommanderId::Hollis => "hollis",
         CommanderId::Lionheart => "lionheart",
         CommanderId::Tusker => "tusker",
         CommanderId::Prowler => "prowler",
+        CommanderId::Rumble => "rumble",
         CommanderId::Burrower => "burrower",
         CommanderId::Hivemind => "hivemind",
         CommanderId::Dredge => "dredge",
+        CommanderId::Wriggle => "wriggle",
+        CommanderId::Carapace => "carapace",
+        CommanderId::Clank => "clank",
+        CommanderId::Cinder => "cinder",
+        CommanderId::Velvet => "velvet",
+        CommanderId::Vesper => "vesper",
     }
 }
 
 fn unit_class_to_key(class: UnitClass) -> &'static str {
     match class {
         UnitClass::Foot => "foot",
+        UnitClass::Mech => "mech",
         UnitClass::Wheels => "wheels",
         UnitClass::Treads => "treads",
         UnitClass::Air => "air",
@@ -675,7 +734,7 @@ mod tests {
         // One turn of a single base's income should buy at least one infantry
         let data = GameData::load_defaults();
         let scout = data.unit_stats(UnitType::Scout).cost;
-        assert!(data.terrain_produces(Terrain::Base) && data.terrain_produces(Terrain::Workshop));
+        assert!(!data.terrain_produces(Terrain::Base) && data.terrain_produces(Terrain::Workshop));
         assert!(!data.terrain_produces(Terrain::Outpost) && !data.terrain_produces(Terrain::Storehouse));
         assert!(data.terrain_builds(Terrain::Workshop, UnitType::Ironclad));
         assert!(!data.terrain_builds(Terrain::Workshop, UnitType::Frigate));
@@ -687,6 +746,32 @@ mod tests {
         assert!(data.terrain_resupplies(Terrain::Dock, UnitType::Frigate));
         assert!(data.terrain_income(Terrain::Base) >= scout);
         assert!(data.terrain_income(Terrain::Base) < data.unit_stats(UnitType::Ironclad).cost);
+    }
+
+    #[test]
+    fn transports_carry_like_advance_wars() {
+        use crate::game::Unit;
+        let data = GameData::load_defaults();
+        let mut wagon = Unit::new(UnitType::Carrier, &data);
+        assert!(wagon.can_carry(UnitType::Scout, &data) && wagon.can_carry(UnitType::Shocktrooper, &data));
+        assert!(!wagon.can_carry(UnitType::Ironclad, &data), "an APC carries only foot soldiers");
+        wagon.cargo.push(crate::game::CargoUnit::from_unit(&Unit::new(UnitType::Scout, &data)));
+        assert!(!wagon.can_carry(UnitType::Scout, &data), "and only one");
+        let mut raft = Unit::new(UnitType::Barge, &data);
+        assert!(raft.can_carry(UnitType::Ironclad, &data), "a Lander carries vehicles");
+        raft.cargo.push(crate::game::CargoUnit::from_unit(&Unit::new(UnitType::Ironclad, &data)));
+        assert!(raft.can_carry(UnitType::Scout, &data), "and two units");
+        assert!(!raft.can_carry(UnitType::Skywing, &data));
+    }
+
+    #[test]
+    fn mechs_cross_mountains_and_rivers_cheaply() {
+        let data = GameData::load_defaults();
+        assert_eq!(data.unit_class(UnitType::Shocktrooper), UnitClass::Mech);
+        for terrain in [Terrain::Boulder, Terrain::Brambles, Terrain::Creek] {
+            assert_eq!(data.movement_cost(terrain, UnitClass::Mech), 1, "{terrain:?}");
+            assert_eq!(data.movement_cost(terrain, UnitClass::Foot), 2, "{terrain:?}");
+        }
     }
 
     #[test]

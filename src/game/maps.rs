@@ -125,6 +125,10 @@ pub enum MapId {
     AncientRuins,
     #[default]
     SpannIsland,
+    SoleHarbor,
+    PivotIsle,
+    RidgeIsland,
+    TwinIsle,
     #[allow(dead_code)] // Custom map loading, see ROADMAP
     Custom(usize),
 }
@@ -141,6 +145,10 @@ impl MapId {
             MapId::MarshLands => "Marsh Lands",
             MapId::AncientRuins => "Ancient Ruins",
             MapId::SpannIsland => "Spann Island",
+            MapId::SoleHarbor => "Sole Harbor",
+            MapId::PivotIsle => "Pivot Isle",
+            MapId::RidgeIsland => "Ridge Island",
+            MapId::TwinIsle => "Twin Isle",
             MapId::Custom(_) => "Custom Map",
         }
     }
@@ -148,6 +156,10 @@ impl MapId {
     pub fn all_builtin() -> Vec<MapId> {
         vec![
             MapId::SpannIsland,
+            MapId::SoleHarbor,
+            MapId::PivotIsle,
+            MapId::RidgeIsland,
+            MapId::TwinIsle,
             MapId::Woodland,
             MapId::RiverCrossing,
             MapId::TwinBases,
@@ -166,7 +178,7 @@ impl MapId {
 
 /// Get a built-in map by ID
 pub fn get_builtin_map(id: MapId) -> MapData {
-    match id {
+    let mut map = match id {
         MapId::Woodland => create_woodland_map(),
         MapId::RiverCrossing => create_river_crossing_map(),
         MapId::TwinBases => create_twin_bases_map(),
@@ -176,7 +188,40 @@ pub fn get_builtin_map(id: MapId) -> MapData {
         MapId::MarshLands => create_marsh_lands_map(),
         MapId::AncientRuins => create_ancient_ruins_map(),
         MapId::SpannIsland => create_spann_island_map(),
+        MapId::SoleHarbor => create_sole_harbor_map(),
+        MapId::PivotIsle => create_pivot_isle_map(),
+        MapId::RidgeIsland => create_ridge_island_map(),
+        MapId::TwinIsle => create_twin_isle_map(),
         MapId::Custom(_) => create_woodland_map(), // Fallback
+    };
+    add_workshops_beside_hqs(&mut map);
+    map
+}
+
+/// As in Advance Wars, HQs don't build units. Any army with an HQ but no
+/// workshop gets one on the nearest open land beside its HQ, so every map
+/// stays playable.
+fn add_workshops_beside_hqs(map: &mut MapData) {
+    let hqs: Vec<(i32, i32, Faction)> = map.properties.iter()
+        .filter(|p| map.get_terrain(p.x, p.y) == Some(Terrain::Base))
+        .map(|p| (p.x, p.y, p.owner))
+        .collect();
+    for (hx, hy, owner) in hqs {
+        let has_workshop = map.properties.iter()
+            .any(|p| p.owner == owner && map.get_terrain(p.x, p.y) == Some(Terrain::Workshop));
+        if has_workshop {
+            continue;
+        }
+        let open = |map: &MapData, x: i32, y: i32| {
+            matches!(map.get_terrain(x, y), Some(Terrain::Grass | Terrain::TallGrass))
+                && !map.units.iter().any(|u| (u.x, u.y) == (x, y))
+        };
+        let spot = (1..=3).flat_map(|r| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (hx + dx, hy + dy))))
+            .find(|&(x, y)| open(map, x, y));
+        if let Some((x, y)) = spot {
+            map.set_terrain(x, y, Terrain::Workshop);
+            map.add_property(x, y, owner);
+        }
     }
 }
 
@@ -968,6 +1013,146 @@ fn create_spann_island_map() -> MapData {
     map
 }
 
+/// Sole Harbor, the fourth Advance Wars War Room map (also in AW2 and Dual
+/// Strike). Tile for tile like the original, with the same translation as
+/// Spann Island; shoals are shores and its three ports are docks. The first
+/// army holds the mainland in the north-west, the second the peninsula in the
+/// south-east. Both start with no units.
+fn create_sole_harbor_map() -> MapData {
+    let mut map = map_from_rows("Sole Harbor", &[
+        "T.To....wwwrwwwwwwwwww",
+        ".Bo...SPwwwwwwwrwwwrww",
+        "S=To.Swwwwrwwwssssswww",
+        "T=o...wwwrwww..S.S.Pwr",
+        ".=oo.FwwwwwwwS=====.ww",
+        "T=ToF.STTTFT..=.oo=Sww",
+        ".=So===========Too=.ww",
+        "S=oo=FTTSTTTF.SToS=.wr",
+        "T=oS=TwwwwwwwwTSoo=Sww",
+        ".====FsrwwwrwwTooS=.ww",
+        ".S.T..swwwwsswToT.=Sww",
+        "wsssswwwrww.F.S.S.F.wr",
+        "wwwwwwwrwwwP.F.BTF.Tww",
+        "wrwwwwwwwwwwwwwwwwwwww",
+        "wwwrwwwwwwwwwrwwwwwrww",
+    ]);
+    map.description = "A narrow land bridge links the mainland to a crowded peninsula, with docks on both coasts.".to_string();
+
+    for (x, y) in [(1, 1), (7, 1), (0, 2), (2, 6), (0, 7), (5, 4), (4, 5), (5, 9)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(15, 12), (11, 12), (14, 11), (16, 11), (13, 12), (17, 12)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
+/// Pivot Isle, an Advance Wars War Room map (also in AW2 and Dual Strike),
+/// transcribed from the Dual Strike version. Islands joined by trails that
+/// bridge the water, with shoals as shores, ports as docks and airports as
+/// roosts. The first army starts in the north-west, the second on the small
+/// south-eastern island with a roost of its own. No starting units.
+fn create_pivot_isle_map() -> MapData {
+    let mut map = map_from_rows("Pivot Isle", &[
+        "..T..wrwwwwrwwwwwwwww",
+        ".B.FPwwwwwwwwwwwwwwrw",
+        "T====wwsA======srwwww",
+        ".F=FAwws=SToTS=swwwww",
+        "T.=.wwws=FoooF=swwwrw",
+        "T.=.wwws=SToTS=swsssw",
+        "ww=wwrws======Pww..Tw",
+        "ww=wwwww=wwwwwwwwA.Aw",
+        "wr=wwwww=wwwwwwwww=ww",
+        "ww=wwwwr=wwrwsTSSS.Tw",
+        ".T=.Pwww=wwwws===FBFw",
+        "===============SSS.Tw",
+        ".SF.T..SSwwwwwssssssw",
+        "T.T.AS.TTT.wwwwwwwwww",
+    ]);
+    map.description = "Bridges pivot around a mountain island; docks and roosts reward a sea and air game.".to_string();
+
+    for (x, y) in [(1, 1), (3, 1), (1, 3), (3, 3), (2, 12), (1, 12)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(18, 10), (17, 10), (19, 10), (17, 11), (19, 7)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
+/// Ridge Island, an Advance Wars War Room map (also in AW2 and Dual Strike).
+/// A land map: one island split by a ridge of boulders and thickets, all
+/// terrain translated as on Spann Island. The first army starts in the south,
+/// the second in the north-east. No starting units.
+fn create_ridge_island_map() -> MapData {
+    let mut map = map_from_rows("Ridge Island", &[
+        "wwwwwwwwwwwwwwwwwww",
+        "wwwwwooT...TTwwwwww",
+        "www.oooTSSS.TTTwwww",
+        "ww...ooT......TTwww",
+        "wwTSFToTTSS.FBFTwww",
+        "ww.T=.T.=====F...ww",
+        "www.=.o.=....=..Tww",
+        "wwwS=Soo=STTS=.STww",
+        "www.=.ToTTTTT=STTww",
+        "wwT.=..TTooooToooww",
+        "wwTF=....oo..=Tooww",
+        "ww..BF=F======Towww",
+        "ww...TT.......T.www",
+        "www...TT.SSSF..wwww",
+        "wwwwww.TTTT..wwwwww",
+        "wwwwwwwwwwwwwwwwwww",
+    ]);
+    map.description = "An all-land island fight across a ridge of boulders and thickets.".to_string();
+
+    for (x, y) in [(4, 11), (3, 10), (5, 11), (7, 11), (3, 7), (9, 13), (10, 13)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(13, 4), (12, 4), (14, 4), (13, 5), (9, 2), (10, 2), (9, 4), (10, 4), (12, 7), (15, 7), (14, 8)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
+/// Twin Isle, an Advance Wars War Room map (also in AW2 and Dual Strike).
+/// Two mirrored islands, each ringed by a trail around a long boulder ridge,
+/// joined by a narrow neck of storehouses. Terrain translated as on Spann
+/// Island. The first army holds the northern island, the second the southern
+/// one, which starts with eight storehouses. No starting units.
+fn create_twin_isle_map() -> MapData {
+    let mut map = map_from_rows("Twin Isle", &[
+        "wwwwwwwwwwwwwwwwwwwwww",
+        "wT..TTTTSS.TTTT.TT.www",
+        "w.B===============Twww",
+        "wT=FoooooSSoooooF=Swww",
+        "wT=FooooooooooooF=Swww",
+        "wS================Twww",
+        "wTTTSS.TTTT..TTT..Twww",
+        "wwwwwwww.SSS..wwwwwwww",
+        "wwwwwwww..SSS.wwwwwwww",
+        "wwwTTT..TT..TTT..T.S.w",
+        "www.================Sw",
+        "wwwS=FooooooooooooF=Tw",
+        "wwwS=FooSSooooSSooF=.w",
+        "www.===============B.w",
+        "wwwTTTTTSST.TSS.TTTTTw",
+        "wwwwwwwwwwwwwwwwwwwwww",
+    ]);
+    map.description = "Two long islands joined by a narrow neck of storehouses; races around the ridges.".to_string();
+
+    for (x, y) in [(2, 2), (3, 3), (3, 4), (1, 5)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(19, 13), (18, 11), (18, 12), (8, 12), (9, 12), (14, 12), (15, 12), (8, 14), (9, 14), (13, 14), (14, 14)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1006,6 +1191,78 @@ mod tests {
         assert_eq!(count(Terrain::Storehouse, Some(Faction::Eastern)), 1);
         assert_eq!(count(Terrain::Storehouse, None), 9);
         assert_eq!(count(Terrain::LilyPads, None), 1);
+    }
+
+    /// Size, then (terrain, owner, count) checks for one imported map.
+    fn assert_layout(id: MapId, size: (u32, u32), expected: &[(Terrain, Option<Faction>, usize)]) {
+        let map = get_builtin_map(id);
+        assert_eq!((map.width, map.height), size, "{}", map.name);
+        assert!(map.units.is_empty(), "{}: both armies start with nothing", map.name);
+        for &(terrain, owner, n) in expected {
+            let found = (0..map.height as i32).flat_map(|y| (0..map.width as i32).map(move |x| (x, y)))
+                .filter(|&(x, y)| map.get_terrain(x, y) == Some(terrain))
+                .filter(|&(x, y)| map.properties.iter().find(|p| (p.x, p.y) == (x, y)).map(|p| p.owner) == owner)
+                .count();
+            assert_eq!(found, n, "{}: {:?} owned by {:?}", map.name, terrain, owner);
+        }
+    }
+
+    #[test]
+    fn sole_harbor_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::SoleHarbor, (22, 15), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 3), (Terrain::Workshop, n, 2), (Terrain::Workshop, None, 5),
+            (Terrain::Dock, e, 1), (Terrain::Dock, n, 1), (Terrain::Dock, None, 1),
+            (Terrain::Storehouse, e, 3), (Terrain::Storehouse, n, 2), (Terrain::Storehouse, None, 16),
+        ]);
+    }
+
+    #[test]
+    fn pivot_isle_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::PivotIsle, (21, 14), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 4), (Terrain::Workshop, n, 2), (Terrain::Workshop, None, 2),
+            (Terrain::Dock, None, 3),
+            (Terrain::Roost, n, 1), (Terrain::Roost, None, 4),
+            (Terrain::Storehouse, e, 1), (Terrain::Storehouse, n, 1), (Terrain::Storehouse, None, 12),
+        ]);
+    }
+
+    #[test]
+    fn ridge_island_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::RidgeIsland, (19, 16), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 3), (Terrain::Workshop, n, 3), (Terrain::Workshop, None, 2),
+            (Terrain::Storehouse, e, 3), (Terrain::Storehouse, n, 7), (Terrain::Storehouse, None, 5),
+        ]);
+    }
+
+    #[test]
+    fn twin_isle_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::TwinIsle, (22, 16), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 2), (Terrain::Workshop, n, 2), (Terrain::Workshop, None, 4),
+            (Terrain::Storehouse, e, 1), (Terrain::Storehouse, n, 8), (Terrain::Storehouse, None, 18),
+        ]);
+    }
+
+    #[test]
+    fn every_army_can_build_on_every_map() {
+        let data = crate::game::GameData::load_defaults();
+        for id in MapId::all_builtin() {
+            let map = get_builtin_map(id);
+            for army in [Faction::Eastern, Faction::Northern] {
+                let builds = map.properties.iter()
+                    .filter(|p| p.owner == army)
+                    .any(|p| map.get_terrain(p.x, p.y).is_some_and(|t| data.terrain_produces(t)));
+                assert!(builds, "{}: {:?} has nowhere to build", map.name, army);
+            }
+        }
+        assert!(!data.terrain_produces(Terrain::Base), "HQs don't build");
     }
 
     #[test]

@@ -28,6 +28,9 @@ pub struct GameStateContext<'w> {
     pub game_result: Res<'w, GameResult>,
     pub commanders: Res<'w, Commanders>,
     pub weather: Res<'w, Weather>,
+    /// The player's fog: enemies they can't see can't be targeted, don't
+    /// block planned routes and spring traps when walked into
+    pub fog: Res<'w, super::FogOfWar>,
 }
 
 /// Bundled input state for systems with many parameters
@@ -97,6 +100,8 @@ pub struct MovementPath {
     pub total_cost: u32,
     /// Whether mouse/touch is currently held down for dragging
     pub dragging: bool,
+    /// Every passable terrain costs 1 (the mover's CO; AW Lash, Sturm)
+    pub flat_cost: bool,
 }
 
 impl MovementPath {
@@ -120,8 +125,8 @@ impl MovementPath {
         &mut self,
         pos: IVec2,
         map: &GameMap,
-        valid_tiles: &HashSet<(i32, i32)>,
-        _tile_costs: &HashMap<(i32, i32), u32>,
+        _valid_tiles: &HashSet<(i32, i32)>,
+        tile_costs: &HashMap<(i32, i32), u32>,
         unit_class: UnitClass,
         game_data: &GameData,
     ) -> bool {
@@ -129,8 +134,9 @@ impl MovementPath {
             return false;
         }
 
-        // Check if position is in valid movement range
-        if !valid_tiles.contains(&(pos.x, pos.y)) {
+        // Anywhere within reach, including through friendly units (only the
+        // final tile must be one the unit can stop on)
+        if !tile_costs.contains_key(&(pos.x, pos.y)) {
             return false;
         }
 
@@ -161,7 +167,7 @@ impl MovementPath {
         self.total_cost = 0;
         for pos in self.path.iter().skip(1) {  // Skip starting position
             let terrain = map.get(pos.x, pos.y).unwrap_or(Terrain::Grass);
-            self.total_cost += game_data.movement_cost(terrain, unit_class);
+            self.total_cost += game_data.step_cost(terrain, unit_class, self.flat_cost);
         }
     }
 
@@ -434,6 +440,8 @@ pub struct MovementHighlights {
     pub attack_targets: HashSet<Entity>,  // Enemy units that can be attacked
     pub selected_unit: Option<Entity>,
     pub selected_unit_class: Option<UnitClass>,  // Unit class for movement cost lookup
+    /// The selected unit's CO makes every passable terrain cost 1 (AW Lash, Sturm)
+    pub flat_cost: bool,
 }
 
 /// Grid cursor for keyboard navigation
@@ -464,9 +472,16 @@ pub fn calculate_attack_targets(
     attacker_faction: &FactionMember,
     units: &[(Entity, GridPosition, FactionMember, UnitType)],
     game_data: &GameData,
+    co: &super::CoBonuses,
 ) -> HashSet<Entity> {
     let mut targets = HashSet::new();
     let (min_range, max_range) = game_data.unit_stats(attacker.unit_type).attack_range;
+    // CO range changes apply to indirect units (AW Grit, Max)
+    let max_range = if min_range > 1 {
+        (max_range as i32 + co.range(attacker.unit_type, game_data)).max(min_range as i32) as u32
+    } else {
+        max_range
+    };
 
     for (entity, pos, faction, unit_type) in units {
         // Can't attack own faction
@@ -474,8 +489,8 @@ pub fn calculate_attack_targets(
             continue;
         }
 
-        // Damage table decides which unit types this attacker can hit
-        if !game_data.can_damage(attacker.unit_type, *unit_type) {
+        // A weapon that can hit this unit type and has ammo, or a machine gun
+        if game_data.weapon(attacker.unit_type, attacker.ammo, *unit_type).is_none() {
             continue;
         }
 
@@ -565,14 +580,16 @@ pub fn calculate_movement_range_with_costs(
 
 /// Cheapest orthogonal route from `start` to `goal` (both included), by the same
 /// rules as the movement range: terrain costs for the unit class, and no passing
-/// through occupied tiles (the goal itself may be occupied, for joining). Units
-/// never cut corners, so this is the route a move animates along.
+/// through `occupied` tiles, which callers fill with enemy units (friendly units
+/// can be passed, as in Advance Wars). Units never cut corners, so this is the
+/// route a move animates along.
 pub fn find_path(
     start: IVec2,
     goal: IVec2,
     map: &GameMap,
     occupied: &HashSet<(i32, i32)>,
     unit_class: UnitClass,
+    flat_cost: bool,
     game_data: &GameData,
 ) -> Option<Vec<IVec2>> {
     use std::cmp::Reverse;
@@ -602,7 +619,7 @@ pub fn find_path(
             {
                 continue;
             }
-            let next_cost = cost + game_data.movement_cost(terrain, unit_class);
+            let next_cost = cost + game_data.step_cost(terrain, unit_class, flat_cost);
             if next_cost < best.get(&next).copied().unwrap_or(u32::MAX) {
                 best.insert(next, next_cost);
                 came_from.insert(next, here);
@@ -613,7 +630,8 @@ pub fn find_path(
     None
 }
 
-/// The orthogonal route a player's unit takes to `goal` when no path was drawn
+/// The orthogonal route a player's unit takes to `goal` when no path was drawn,
+/// around the enemies the player can see
 fn fallback_move_route(
     units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     mover: Entity,
@@ -621,10 +639,91 @@ fn fallback_move_route(
     unit_class: Option<UnitClass>,
     map: &GameMap,
     game_data: &GameData,
+    fog: &super::FogOfWar,
+    flat_cost: bool,
 ) -> Option<Vec<IVec2>> {
-    let start = units.get(mover).map(|(_, p, ..)| IVec2::new(p.x, p.y)).ok()?;
-    let occupied = units.iter().filter(|(e, ..)| *e != mover).map(|(_, p, ..)| (p.x, p.y)).collect();
-    find_path(start, goal, map, &occupied, unit_class?, game_data)
+    let (start, side) = units.get(mover).map(|(_, p, _, f, _)| (IVec2::new(p.x, p.y), f.faction)).ok()?;
+    let occupied = units.iter()
+        .filter(|(_, p, _, f, _)| f.faction != side && fog.is_visible(p.x, p.y))
+        .map(|(_, p, ..)| (p.x, p.y))
+        .collect();
+    find_path(start, goal, map, &occupied, unit_class?, flat_cost, game_data)
+}
+
+/// The tiles a move walks: the drawn route if it ends at the goal, else the
+/// fallback route, else one axis then the other
+fn planned_route(path: &MovementPath, fallback: Option<Vec<IVec2>>, start: IVec2, goal: IVec2) -> Vec<IVec2> {
+    if path.ends_at(goal.x, goal.y) {
+        return path.path.clone();
+    }
+    fallback.unwrap_or_else(|| {
+        let corner = IVec2::new(goal.x, start.y);
+        if corner == start || corner == goal { vec![start, goal] } else { vec![start, corner, goal] }
+    })
+}
+
+/// Advance Wars trap: a route into an enemy hidden in fog stops on the last
+/// free tile before it, and the unit's turn ends. Returns whether it sprang.
+fn spring_trap(route: &mut Vec<IVec2>, hidden_enemies: &HashSet<(i32, i32)>, friends: &HashSet<(i32, i32)>) -> bool {
+    let Some(hit) = route.iter().position(|p| hidden_enemies.contains(&(p.x, p.y))) else { return false };
+    route.truncate(hit.max(1));
+    while route.len() > 1 && route.last().is_some_and(|p| friends.contains(&(p.x, p.y))) {
+        route.pop();
+    }
+    true
+}
+
+/// Enemy units the player can't see (traps), and the mover's own army's tiles
+fn hidden_enemies_and_friends(
+    units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
+    mover: Entity,
+    fog: &super::FogOfWar,
+) -> (HashSet<(i32, i32)>, HashSet<(i32, i32)>) {
+    let side = units.get(mover).map(|(_, _, _, f, _)| f.faction).ok();
+    let mut hidden = HashSet::new();
+    let mut friends = HashSet::new();
+    for (entity, pos, _, faction, _) in units.iter() {
+        if Some(faction.faction) == side {
+            if entity != mover {
+                friends.insert((pos.x, pos.y));
+            }
+        } else if !fog.is_visible(pos.x, pos.y) {
+            hidden.insert((pos.x, pos.y));
+        }
+    }
+    (hidden, friends)
+}
+
+/// A trapped unit walks to where it stopped and its turn ends (no action menu)
+fn end_move_in_trap(
+    commands: &mut Commands,
+    unit: Entity,
+    highlights: &mut MovementHighlights,
+    path: &mut MovementPath,
+    pending_action: &mut PendingAction,
+    turn_state: &mut TurnState,
+) {
+    info!("Trap! An enemy was hiding in the fog");
+    commands.entity(unit).insert(super::AutoExhaust);
+    highlights.selected_unit = None;
+    highlights.selected_unit_class = None;
+    highlights.tiles.clear();
+    highlights.tile_costs.clear();
+    highlights.attack_targets.clear();
+    path.clear();
+    pending_action.unit = None;
+    turn_state.phase = TurnPhase::Select;
+}
+
+/// Whether an owned, empty tile of this terrain builds units for this CO
+/// (storehouses do too under AW Hachi's Merchant Union)
+pub fn builds_here(terrain: Terrain, co: &super::CoBonuses, game_data: &GameData) -> bool {
+    game_data.terrain_produces(terrain) || (co.mods.build_on_cities && terrain == Terrain::Storehouse)
+}
+
+/// Stamina a route costs (every tile after the first)
+fn route_cost(route: &[IVec2], map: &GameMap, unit_class: UnitClass, flat_cost: bool, game_data: &GameData) -> u32 {
+    route.iter().skip(1).filter_map(|p| map.get(p.x, p.y)).map(|t| game_data.step_cost(t, unit_class, flat_cost)).sum()
 }
 
 /// World waypoints for moving a unit along a grid route at height `y`. Without
@@ -640,83 +739,63 @@ pub fn route_waypoints(route: Option<Vec<IVec2>>, start: IVec2, goal: IVec2, y: 
     }).collect()
 }
 
-/// Calculate reachable tiles including those occupied by joinable friendly units
-/// Uses GameData for terrain movement costs based on unit class
+/// Reachable tiles under Advance Wars rules: enemy units block, friendly units
+/// can be passed through but not stopped on, except to join a unit of the same
+/// type when at least one of the two is wounded, or to board a transport with
+/// room for the mover. `all_units` holds (entity, tile, faction, type, at full
+/// HP, has room for the mover).
 pub fn calculate_movement_range_with_joins(
     start: &GridPosition,
     movement: u32,
     map: &GameMap,
     moving_unit_type: super::UnitType,
     moving_faction: Faction,
-    all_units: &[(Entity, (i32, i32), Faction, super::UnitType)],
+    all_units: &[(Entity, (i32, i32), Faction, super::UnitType, bool, bool)],
     unit_class: UnitClass,
+    flat_cost: bool,
     game_data: &GameData,
 ) -> (HashSet<(i32, i32)>, HashMap<(i32, i32), u32>) {
-    let mut reachable = HashSet::new();
-    let mut visited = HashMap::new();
-    let mut queue = VecDeque::new();
-
-    // Build a set of blocked positions (enemy units)
-    // and joinable positions (friendly same-type units)
-    let mut blocked: HashSet<(i32, i32)> = HashSet::new();
+    let mover_full = all_units.iter()
+        .find(|(_, tile, ..)| *tile == (start.x, start.y))
+        .is_some_and(|(.., full, _)| *full);
+    let mut enemies: HashSet<(i32, i32)> = HashSet::new();
+    let mut friends: HashSet<(i32, i32)> = HashSet::new();
     let mut joinable: HashSet<(i32, i32)> = HashSet::new();
-
-    for (_, (x, y), faction, unit_type) in all_units {
-        if (*x, *y) == (start.x, start.y) {
-            continue; // Skip self
+    for &(_, tile, faction, unit_type, full, has_room) in all_units {
+        if tile == (start.x, start.y) {
+            continue;
         }
-        if *faction == moving_faction && *unit_type == moving_unit_type {
-            joinable.insert((*x, *y));
+        if faction != moving_faction {
+            enemies.insert(tile);
         } else {
-            blocked.insert((*x, *y));
-        }
-    }
-
-    queue.push_back((start.x, start.y, 0u32));
-    visited.insert((start.x, start.y), 0);
-
-    let directions = [(0, 1), (0, -1), (1, 0), (-1, 0)];
-
-    while let Some((x, y, cost)) = queue.pop_front() {
-        if cost <= movement {
-            reachable.insert((x, y));
-        }
-
-        for (dx, dy) in directions {
-            let nx = x + dx;
-            let ny = y + dy;
-
-            if let Some(terrain) = map.get(nx, ny) {
-                // Use GameData for movement cost based on unit class
-                let move_cost = game_data.movement_cost(terrain, unit_class);
-                let new_cost = cost + move_cost;
-
-                // Can't move through blocked tiles (enemy units)
-                if blocked.contains(&(nx, ny)) {
-                    continue;
-                }
-
-                // Can move onto joinable tiles, but can't move THROUGH them
-                let is_joinable = joinable.contains(&(nx, ny));
-
-                if new_cost <= movement {
-                    let should_visit = visited
-                        .get(&(nx, ny))
-                        .map(|&prev_cost| new_cost < prev_cost)
-                        .unwrap_or(true);
-
-                    if should_visit {
-                        visited.insert((nx, ny), new_cost);
-                        // If this is a joinable tile, add it to reachable but don't continue BFS from it
-                        if !is_joinable {
-                            queue.push_back((nx, ny, new_cost));
-                        }
-                    }
-                }
+            friends.insert(tile);
+            if (unit_type == moving_unit_type && !(full && mover_full)) || has_room {
+                joinable.insert(tile);
             }
         }
     }
 
+    let mut visited: HashMap<(i32, i32), u32> = HashMap::from([((start.x, start.y), 0)]);
+    let mut queue = VecDeque::from([(start.x, start.y, 0u32)]);
+    while let Some((x, y, cost)) = queue.pop_front() {
+        for (dx, dy) in [(0, 1), (0, -1), (1, 0), (-1, 0)] {
+            let next = (x + dx, y + dy);
+            let Some(terrain) = map.get(next.0, next.1) else { continue };
+            if enemies.contains(&next) {
+                continue;
+            }
+            let new_cost = cost + game_data.step_cost(terrain, unit_class, flat_cost);
+            if new_cost <= movement && visited.get(&next).is_none_or(|&prev| new_cost < prev) {
+                visited.insert(next, new_cost);
+                queue.push_back((next.0, next.1, new_cost));
+            }
+        }
+    }
+    // Every tile within reach is a destination, except friendly-occupied ones
+    // (unless joining there)
+    let reachable = visited.keys().copied()
+        .filter(|tile| !friends.contains(tile) || joinable.contains(tile))
+        .collect();
     (reachable, visited)
 }
 
@@ -901,28 +980,30 @@ fn handle_keyboard_input(
             if let Ok((entity, pos, _, faction, unit)) = units.get(next_entity) {
                 let stats = game_data.unit_stats(unit.unit_type);
                 let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
-                let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                let weather_movement = game_ctx.weather.apply_movement(base_movement);
+                let weather_movement = co_bonuses.total_movement(unit.unit_type, &game_ctx.weather, &game_data);
                 let total_movement = effective_movement(weather_movement, unit.stamina);
 
                 // Build unit list for join-aware movement
                 let all_unit_info: Vec<_> = units.iter()
-                    .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
+                    .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type, u.display_hp() >= 10, u.can_carry(unit.unit_type, &game_data)))
                     .collect();
                 let unit_class = stats.class;
                 let (tiles, tile_costs) = calculate_movement_range_with_joins(
                     &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
-                    unit_class, &game_data
+                    unit_class, co_bonuses.mods.flat_terrain_cost, &game_data
                 );
 
                 // Calculate attack targets
                 let all_units: Vec<_> = units.iter()
-                    .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                    .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                     .collect();
-                let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
+                let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
                 highlights.selected_unit = Some(entity);
                 highlights.selected_unit_class = Some(unit_class);
+                highlights.flat_cost = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data).mods.flat_terrain_cost;
                 highlights.tiles = tiles;
                 highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
@@ -985,12 +1066,14 @@ fn handle_keyboard_input(
                 input.cursor.x = target_x;
                 input.cursor.y = target_y;
                 // Check if target has a joinable unit (friendly same-type)
-                let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type));
+                let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type, u.display_hp() >= 10));
+                // AW: join a same-type unit when at least one of the two is wounded
                 let joinable_unit = units.iter()
                     .find(|(e, p, _, f, u)| {
                         *e != selected_entity
                             && p.x == input.cursor.x && p.y == input.cursor.y
-                            && selected_unit_info.map_or(false, |(sf, su)| f.faction == sf && u.unit_type == su)
+                            && selected_unit_info.map_or(false, |(sf, su, full)| f.faction == sf
+                                && ((u.unit_type == su && !(full && u.display_hp() >= 10)) || u.can_carry(su, &game_data)))
                     })
                     .map(|(e, _, _, _, _)| e);
 
@@ -1020,7 +1103,9 @@ fn handle_keyboard_input(
                     let unit_copy;
                     let original_pos;
                     // Without a drawn path, walk the cheapest orthogonal route (never diagonal)
-                    let fallback_route = fallback_move_route(&units, selected_entity, IVec2::from((input.cursor.x, input.cursor.y)), highlights.selected_unit_class, &map, &game_data);
+                    let fallback_route = fallback_move_route(&units, selected_entity, IVec2::from((input.cursor.x, input.cursor.y)), highlights.selected_unit_class, &map, &game_data, &game_ctx.fog, highlights.flat_cost);
+                    let (hidden_enemies, friends) = hidden_enemies_and_friends(&units, selected_entity, &game_ctx.fog);
+                    let mut trapped = false;
                     if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
                         let start_pos = transform.translation;
                         // Save original position before moving (for cancel)
@@ -1030,16 +1115,16 @@ fn handle_keyboard_input(
 
                         // Only create animation if actually moving
                         if !staying_in_place {
-                            // Convert path to world positions for animation
-                            let waypoints: Vec<Vec3> = if input.movement_path.ends_at(grid_pos.x, grid_pos.y) {
-                                input.movement_path.path.iter().map(|p| {
-                                    let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
-                                    Vec3::new(world_pos.x, start_pos.y, world_pos.z)
-                                }).collect()
-                            } else {
-                                let goal = IVec2::new(grid_pos.x, grid_pos.y);
-                                route_waypoints(fallback_route, IVec2::from(original_pos), goal, start_pos.y, &map)
-                            };
+                            let start = IVec2::from(original_pos);
+                            let mut route = planned_route(&input.movement_path, fallback_route, start, IVec2::new(grid_pos.x, grid_pos.y));
+                            let mut move_cost = move_cost;
+                            if spring_trap(&mut route, &hidden_enemies, &friends) {
+                                trapped = true;
+                                let stop = *route.last().unwrap_or(&start);
+                                (grid_pos.x, grid_pos.y) = (stop.x, stop.y);
+                                move_cost = route_cost(&route, &map, game_data.unit_class(unit.unit_type), highlights.flat_cost, &game_data);
+                            }
+                            let waypoints = route_waypoints(Some(route), start, start, start_pos.y, &map);
 
                             // Add animation component for smooth movement along path
                             commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
@@ -1056,12 +1141,17 @@ fn handle_keyboard_input(
                     } else {
                         return;
                     }
+                    if trapped {
+                        end_move_in_trap(&mut commands, selected_entity, &mut highlights, &mut input.movement_path, &mut pending_action, &mut turn_state);
+                        return;
+                    }
 
                     // Calculate attack targets from current/new position
                     let all_units: Vec<_> = units.iter()
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
                         .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                         .collect();
-                    let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data);
+                    let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
                     // Check if unit can capture the tile
                     let (can_capture, capture_tile) = if game_data.unit_stats(unit_copy.unit_type).can_capture {
@@ -1077,7 +1167,9 @@ fn handle_keyboard_input(
                     };
 
                     // Check if can join (moved onto friendly same-type unit)
-                    let (can_join, join_target) = if let Some(join_entity) = joinable_unit {
+                    let (can_join, join_target) = if let Some(join_entity) = joinable_unit
+                        .filter(|&e| units.get(e).is_ok_and(|(_, _, _, _, u)| selected_unit_info.as_ref().ok().map(|i| i.1) == Some(u.unit_type)))
+                    {
                         (true, Some(join_entity))
                     } else {
                         (false, None)
@@ -1092,7 +1184,9 @@ fn handle_keyboard_input(
 
                     // Set up pending action (action menu shown after animation completes)
                     pending_action.unit = Some(selected_entity);
-                    pending_action.targets = if unit_copy.attacked { HashSet::new() } else { targets };
+                    // AW: indirect units (minimum range 2+) can't fire after moving
+                    let indirect_moved = !staying_in_place && game_data.unit_stats(unit_copy.unit_type).attack_range.0 > 1;
+                    pending_action.targets = if unit_copy.attacked || indirect_moved { HashSet::new() } else { targets };
                     pending_action.can_capture = can_capture;
                     pending_action.capture_tile = capture_tile;
                     pending_action.can_join = can_join;
@@ -1117,28 +1211,28 @@ fn handle_keyboard_input(
                     && !unit.exhausted
                     && faction.faction == turn_state.current_faction
                 {
-                    let stats = game_data.unit_stats(unit.unit_type);
                     let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
-                    let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                    let weather_movement = game_ctx.weather.apply_movement(base_movement);
+                    let weather_movement = co_bonuses.total_movement(unit.unit_type, &game_ctx.weather, &game_data);
                     // Limit movement by stamina
                     let total_movement = effective_movement(weather_movement, unit.stamina);
 
                     // Build unit list for join-aware movement
                     let all_unit_info: Vec<_> = units.iter()
-                        .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type, u.display_hp() >= 10, u.can_carry(unit.unit_type, &game_data)))
                         .collect();
                     let unit_class = game_data.unit_stats(unit.unit_type).class;
                     let (tiles, tile_costs) = calculate_movement_range_with_joins(
                         &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
-                        unit_class, &game_data
+                        unit_class, co_bonuses.mods.flat_terrain_cost, &game_data
                     );
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
                         .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                         .collect();
-                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
+                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
                     found_unit = Some((entity, tiles, tile_costs, attack_targets, unit_class));
                     break;
@@ -1147,6 +1241,7 @@ fn handle_keyboard_input(
             if let Some((entity, tiles, tile_costs, attack_targets, unit_class)) = found_unit {
                 highlights.selected_unit = Some(entity);
                 highlights.selected_unit_class = Some(unit_class);
+                highlights.flat_cost = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data).mods.flat_terrain_cost;
                 highlights.tiles = tiles;
                 highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
@@ -1160,7 +1255,7 @@ fn handle_keyboard_input(
                     .collect();
                 for (tile_entity, tile) in tiles.iter() {
                     if tile.position.x == input.cursor.x && tile.position.y == input.cursor.y
-                        && game_data.terrain_produces(tile.terrain)
+                        && builds_here(tile.terrain, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data), &game_data)
                         && tile.owner == Some(turn_state.current_faction)
                         && !unit_positions.contains(&(input.cursor.x, input.cursor.y))
                     {
@@ -1373,7 +1468,7 @@ fn update_cursor_from_mouse(
     input_mode: Res<InputMode>,
     mut pointer_moved: MessageReader<CursorMoved>,
     highlights: Res<MovementHighlights>,
-    unit_positions: Query<(Entity, &GridPosition), With<Unit>>,
+    unit_positions: Query<(Entity, &GridPosition, &FactionMember), With<Unit>>,
 ) {
     // Skip if in keyboard-only mode
     if *input_mode == InputMode::Keyboard {
@@ -1394,8 +1489,8 @@ fn update_cursor_from_mouse(
 
     if let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) {
         let attack_positions = || unit_positions.iter()
-            .filter(|(e, _)| highlights.attack_targets.contains(e))
-            .map(|(_, p)| (p.x, p.y));
+            .filter(|(e, ..)| highlights.attack_targets.contains(e))
+            .map(|(_, p, _)| (p.x, p.y));
         if cursor_allowed(&highlights, (grid_pos.x, grid_pos.y), attack_positions) {
             input.cursor.x = grid_pos.x;
             input.cursor.y = grid_pos.y;
@@ -1648,31 +1743,34 @@ fn handle_click_input(
                     && faction.faction == turn_state.current_faction
                     && entity != selected_entity
                 {
-                    let unit_positions: HashMap<(i32, i32), Entity> = units
-                        .iter()
-                        .map(|(e, p, _, _, _)| ((p.x, p.y), e))
+                    let unit_list: Vec<_> = units.iter()
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type, u.display_hp() >= 10, u.can_carry(unit.unit_type, &game_data)))
                         .collect();
                     let stats = game_data.unit_stats(unit.unit_type);
                     let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
-                    let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-                    let total_movement = game_ctx.weather.apply_movement(base_movement);
-                    let tiles = calculate_movement_range(&pos, total_movement, &map, &unit_positions, stats.class, &game_data);
+                    let total_movement = effective_movement(co_bonuses.total_movement(unit.unit_type, &game_ctx.weather, &game_data), unit.stamina);
+                    let (tiles, tile_costs) = calculate_movement_range_with_joins(&pos, total_movement, &map,
+                        unit.unit_type, faction.faction, &unit_list, stats.class, co_bonuses.mods.flat_terrain_cost, &game_data);
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
                         .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                         .collect();
-                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
+                    let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
-                    switch_to = Some((entity, tiles, attack_targets, stats.class));
+                    switch_to = Some((entity, tiles, tile_costs, attack_targets, stats.class));
                     break;
                 }
             }
 
-            if let Some((entity, tiles, attack_targets, unit_class)) = switch_to {
+            if let Some((entity, tiles, tile_costs, attack_targets, unit_class)) = switch_to {
                 highlights.selected_unit = Some(entity);
                 highlights.selected_unit_class = Some(unit_class);
+                highlights.flat_cost = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data).mods.flat_terrain_cost;
                 highlights.tiles = tiles;
+                highlights.tile_costs = tile_costs;
                 highlights.attack_targets = attack_targets;
                 // Start path from unit's new position
                 input.movement_path.start(IVec2::new(grid_x, grid_y));
@@ -1681,12 +1779,14 @@ fn handle_click_input(
             }
 
             // Check if target has a joinable unit (friendly same-type)
-            let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type));
+            let selected_unit_info = units.get(selected_entity).map(|(_, _, _, f, u)| (f.faction, u.unit_type, u.display_hp() >= 10));
+            // AW: join a same-type unit when at least one of the two is wounded
             let joinable_unit = units.iter()
                 .find(|(e, p, _, f, u)| {
                     *e != selected_entity
                         && p.x == grid_x && p.y == grid_y
-                        && selected_unit_info.map_or(false, |(sf, su)| f.faction == sf && u.unit_type == su)
+                        && selected_unit_info.map_or(false, |(sf, su, full)| f.faction == sf
+                            && ((u.unit_type == su && !(full && u.display_hp() >= 10)) || u.can_carry(su, &game_data)))
                 })
                 .map(|(e, _, _, _, _)| e);
 
@@ -1710,7 +1810,9 @@ fn handle_click_input(
             let unit_copy;
             let original_pos;
             // Without a drawn path, walk the cheapest orthogonal route (never diagonal)
-            let fallback_route = fallback_move_route(&units, selected_entity, IVec2::from((grid_x, grid_y)), highlights.selected_unit_class, &map, &game_data);
+            let fallback_route = fallback_move_route(&units, selected_entity, IVec2::from((grid_x, grid_y)), highlights.selected_unit_class, &map, &game_data, &game_ctx.fog, highlights.flat_cost);
+            let (hidden_enemies, friends) = hidden_enemies_and_friends(&units, selected_entity, &game_ctx.fog);
+            let mut trapped = false;
             if let Ok((_, mut grid_pos, transform, faction, mut unit)) = units.get_mut(selected_entity) {
                 let start_pos = transform.translation;
                 // Save original position before moving (for cancel)
@@ -1720,16 +1822,16 @@ fn handle_click_input(
 
                 // Only create animation if actually moving
                 if !staying_in_place {
-                    // Convert path to world positions for animation
-                    let waypoints: Vec<Vec3> = if input.movement_path.ends_at(grid_x, grid_y) {
-                        input.movement_path.path.iter().map(|p| {
-                            let world_pos = GridPosition::new(p.x, p.y).to_world(&map);
-                            Vec3::new(world_pos.x, start_pos.y, world_pos.z)
-                        }).collect()
-                    } else {
-                        let goal = IVec2::new(grid_pos.x, grid_pos.y);
-                        route_waypoints(fallback_route, IVec2::from(original_pos), goal, start_pos.y, &map)
-                    };
+                    let start = IVec2::from(original_pos);
+                    let mut route = planned_route(&input.movement_path, fallback_route, start, IVec2::new(grid_x, grid_y));
+                    let mut move_cost = move_cost;
+                    if spring_trap(&mut route, &hidden_enemies, &friends) {
+                        trapped = true;
+                        let stop = *route.last().unwrap_or(&start);
+                        (grid_pos.x, grid_pos.y) = (stop.x, stop.y);
+                        move_cost = route_cost(&route, &map, game_data.unit_class(unit.unit_type), highlights.flat_cost, &game_data);
+                    }
+                    let waypoints = route_waypoints(Some(route), start, start, start_pos.y, &map);
 
                     // Add animation component for smooth movement along path
                     commands.entity(selected_entity).insert(UnitAnimation::from_path(waypoints));
@@ -1746,12 +1848,17 @@ fn handle_click_input(
             } else {
                 return;
             }
+            if trapped {
+                end_move_in_trap(&mut commands, selected_entity, &mut highlights, &mut input.movement_path, &mut pending_action, &mut turn_state);
+                return;
+            }
 
             // Calculate attack targets from new position
             let all_units: Vec<_> = units.iter()
-                .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                 .collect();
-            let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data);
+            let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
             // Check if unit can capture the tile it moved to
             let (can_capture, capture_tile) = if game_data.unit_stats(unit_copy.unit_type).can_capture {
@@ -1767,7 +1874,9 @@ fn handle_click_input(
             };
 
             // Check if can join (moved onto friendly same-type unit)
-            let (can_join, join_target) = if let Some(join_entity) = joinable_unit {
+            let (can_join, join_target) = if let Some(join_entity) = joinable_unit
+                        .filter(|&e| units.get(e).is_ok_and(|(_, _, _, _, u)| selected_unit_info.as_ref().ok().map(|i| i.1) == Some(u.unit_type)))
+                    {
                 (true, Some(join_entity))
             } else {
                 (false, None)
@@ -1782,7 +1891,9 @@ fn handle_click_input(
 
             // Set up pending action (action menu shown after animation completes)
             pending_action.unit = Some(selected_entity);
-            pending_action.targets = if unit_copy.attacked { HashSet::new() } else { targets };
+            // AW: indirect units (minimum range 2+) can't fire after moving
+                    let indirect_moved = !staying_in_place && game_data.unit_stats(unit_copy.unit_type).attack_range.0 > 1;
+                    pending_action.targets = if unit_copy.attacked || indirect_moved { HashSet::new() } else { targets };
             pending_action.can_capture = can_capture;
             pending_action.capture_tile = capture_tile;
             pending_action.can_join = can_join;
@@ -1810,25 +1921,26 @@ fn handle_click_input(
         {
             let stats = game_data.unit_stats(unit.unit_type);
             let co_bonuses = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data);
-            let base_movement = (stats.movement as i32 + co_bonuses.movement).max(1) as u32;
-            let weather_movement = game_ctx.weather.apply_movement(base_movement);
+            let weather_movement = co_bonuses.total_movement(unit.unit_type, &game_ctx.weather, &game_data);
             // Limit movement by stamina
             let total_movement = effective_movement(weather_movement, unit.stamina);
 
             // Build unit list for join-aware movement
             let all_unit_info: Vec<_> = units.iter()
-                .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type))
+                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, (p.x, p.y), f.faction, u.unit_type, u.display_hp() >= 10, u.can_carry(unit.unit_type, &game_data)))
                 .collect();
             let (move_tiles, move_costs) = calculate_movement_range_with_joins(
                 &pos, total_movement, &map, unit.unit_type, faction.faction, &all_unit_info,
-                stats.class, &game_data
+                stats.class, co_bonuses.mods.flat_terrain_cost, &game_data
             );
 
             // Calculate attack targets
             let all_units: Vec<_> = units.iter()
-                .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
                 .collect();
-            let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data);
+            let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
             select_unit = Some((entity, move_tiles, move_costs, attack_targets, pos.x, pos.y, stats.class));
             break;
@@ -1838,6 +1950,7 @@ fn handle_click_input(
     if let Some((entity, tiles, tile_costs, attack_targets, x, y, unit_class)) = select_unit {
         highlights.selected_unit = Some(entity);
         highlights.selected_unit_class = Some(unit_class);
+        highlights.flat_cost = game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data).mods.flat_terrain_cost;
         highlights.tiles = tiles;
         highlights.tile_costs = tile_costs;
         highlights.attack_targets = attack_targets;
@@ -1855,7 +1968,7 @@ fn handle_click_input(
 
     for (tile_entity, tile) in tiles.iter() {
         if tile.position.x == grid_x && tile.position.y == grid_y
-            && game_data.terrain_produces(tile.terrain)
+            && builds_here(tile.terrain, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data), &game_data)
             && tile.owner == Some(turn_state.current_faction)
             && !unit_positions.contains(&(grid_x, grid_y))
         {
@@ -2020,7 +2133,7 @@ fn handle_path_drawing(
     egui_wants_input: Res<EguiWantsInput>,
     game_data: Res<GameData>,
     mut pointer_moved: MessageReader<CursorMoved>,
-    unit_positions: Query<(Entity, &GridPosition), With<Unit>>,
+    unit_positions: Query<(Entity, &GridPosition, &FactionMember), With<Unit>>,
 ) {
     let moved = pointer_moved.read().count() > 0;
     if egui_wants_input.wants_any_pointer_input() || *input_mode == InputMode::Keyboard {
@@ -2045,18 +2158,20 @@ fn handle_path_drawing(
     let start = match movement_path.path.first() {
         Some(&start) => start,
         None => {
-            let Ok((_, pos)) = unit_positions.get(mover) else { return };
+            let Ok((_, pos, _)) = unit_positions.get(mover) else { return };
             let start = IVec2::new(pos.x, pos.y);
             movement_path.start(start);
             start
         }
     };
+    movement_path.flat_cost = highlights.flat_cost;
     if !movement_path.try_extend(hover, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
+        let side = unit_positions.get(mover).map(|(_, _, f)| f.faction).ok();
         let occupied = unit_positions.iter()
-            .filter(|(e, _)| *e != mover)
-            .map(|(_, p)| (p.x, p.y))
+            .filter(|(_, _, f)| Some(f.faction) != side)
+            .map(|(_, p, _)| (p.x, p.y))
             .collect();
-        if let Some(route) = find_path(start, hover, &map, &occupied, unit_class, &game_data) {
+        if let Some(route) = find_path(start, hover, &map, &occupied, unit_class, highlights.flat_cost, &game_data) {
             movement_path.reroute(route, &map, unit_class, &game_data);
         }
     }
@@ -2074,7 +2189,7 @@ fn handle_keyboard_path_drawing(
     game_data: Res<GameData>,
     time: Res<Time>,
     mut cursor_repeat: ResMut<CursorRepeat>,
-    unit_positions: Query<(Entity, &GridPosition), With<Unit>>,
+    unit_positions: Query<(Entity, &GridPosition, &FactionMember), With<Unit>>,
 ) {
     // Skip during non-select phases
     if turn_state.phase != TurnPhase::Select {
@@ -2142,6 +2257,7 @@ fn handle_keyboard_path_drawing(
             }
         };
 
+        movement_path.flat_cost = highlights.flat_cost;
         if let (true, Some(unit_class)) = (should_move, highlights.selected_unit_class) {
             let step = IVec2::new(cursor.x + dx, cursor.y + dy);
             let extended = movement_path.ends_at(cursor.x, cursor.y) || movement_path.path.len() == 1
@@ -2154,8 +2270,8 @@ fn handle_keyboard_path_drawing(
                 // the next tile in this direction the unit can move to or attack,
                 // and draw the cheapest route to it
                 let attack_positions = || unit_positions.iter()
-                    .filter(|(e, _)| highlights.attack_targets.contains(e))
-                    .map(|(_, p)| (p.x, p.y));
+                    .filter(|(e, ..)| highlights.attack_targets.contains(e))
+                    .map(|(_, p, _)| (p.x, p.y));
                 let next = (1..map.width.max(map.height) as i32)
                     .map(|i| (cursor.x + dx * i, cursor.y + dy * i))
                     .take_while(|&(x, y)| map.get(x, y).is_some())
@@ -2166,11 +2282,12 @@ fn handle_keyboard_path_drawing(
                     let start = movement_path.path.first().copied();
                     if let (Some(start), Some(mover)) = (start, highlights.selected_unit) {
                         if highlights.tiles.contains(&(x, y)) {
+                            let side = unit_positions.get(mover).map(|(_, _, f)| f.faction).ok();
                             let occupied = unit_positions.iter()
-                                .filter(|(e, _)| *e != mover)
-                                .map(|(_, p)| (p.x, p.y))
+                                .filter(|(_, _, f)| Some(f.faction) != side)
+                                .map(|(_, p, _)| (p.x, p.y))
                                 .collect();
-                            if let Some(route) = find_path(start, IVec2::new(x, y), &map, &occupied, unit_class, &game_data) {
+                            if let Some(route) = find_path(start, IVec2::new(x, y), &map, &occupied, unit_class, highlights.flat_cost, &game_data) {
                                 movement_path.reroute(route, &map, unit_class, &game_data);
                             }
                         }
@@ -2559,14 +2676,56 @@ mod tests {
     fn drawn_path_costs_each_tiles_terrain_once() {
         use Terrain::*;
         let data = GameData::load_defaults();
-        let map = map_from_rows(&[&[Grass, Grass, Thicket, Grass]]);
+        let map = map_from_rows(&[&[Grass, Grass, Boulder, Grass]]);
         let tiles: HashSet<_> = (0..4).map(|x| (x, 0)).collect();
+        let costs: HashMap<_, _> = tiles.iter().map(|&t| (t, 1)).collect();
         let mut path = MovementPath::default();
         path.start(IVec2::new(0, 0));
         for x in 1..4 {
-            assert!(path.try_extend(IVec2::new(x, 0), &map, &tiles, &HashMap::new(), UnitClass::Foot, &data));
+            assert!(path.try_extend(IVec2::new(x, 0), &map, &tiles, &costs, UnitClass::Foot, &data));
         }
-        assert_eq!(path.total_cost, 1 + 2 + 1, "grass, thicket, grass");
+        assert_eq!(path.total_cost, 1 + 2 + 1, "grass, mountain, grass");
+    }
+
+    #[test]
+    fn units_pass_friends_but_not_enemies_and_join_only_when_wounded() {
+        use Terrain::*;
+        let data = GameData::load_defaults();
+        let map = map_from_rows(&[&[Grass; 5]]);
+        let unit = |x, faction, unit_type, full| (Entity::PLACEHOLDER, (x, 0), faction, unit_type, full, false);
+        let range = |others: &[(Entity, (i32, i32), Faction, UnitType, bool, bool)]| {
+            let mut all = vec![unit(0, Faction::Western, UnitType::Scout, true)];
+            all.extend_from_slice(others);
+            calculate_movement_range_with_joins(&GridPosition::new(0, 0), 3, &map, UnitType::Scout,
+                Faction::Western, &all, UnitClass::Foot, false, &data).0
+        };
+        // A friendly pikeman: walk past it, but not stop on it
+        let past_friend = range(&[unit(1, Faction::Western, UnitType::Shocktrooper, true)]);
+        assert!(past_friend.contains(&(2, 0)) && past_friend.contains(&(3, 0)));
+        assert!(!past_friend.contains(&(1, 0)));
+        // An enemy blocks the way
+        let blocked = range(&[unit(1, Faction::Southern, UnitType::Scout, true)]);
+        assert!(!blocked.contains(&(2, 0)));
+        // Same type: join only if one of the two is wounded
+        assert!(!range(&[unit(1, Faction::Western, UnitType::Scout, true)]).contains(&(1, 0)));
+        assert!(range(&[unit(1, Faction::Western, UnitType::Scout, false)]).contains(&(1, 0)));
+    }
+
+    #[test]
+    fn walking_into_a_hidden_enemy_stops_before_it() {
+        let route = |xs: &[i32]| xs.iter().map(|&x| IVec2::new(x, 0)).collect::<Vec<_>>();
+        let hidden = HashSet::from([(3, 0)]);
+        let mut path = route(&[0, 1, 2, 3, 4]);
+        assert!(spring_trap(&mut path, &hidden, &HashSet::new()));
+        assert_eq!(path, route(&[0, 1, 2]), "stops on the tile before the ambush");
+        // Never on a friend's tile: steps back further
+        let mut path = route(&[0, 1, 2, 3, 4]);
+        assert!(spring_trap(&mut path, &hidden, &HashSet::from([(2, 0)])));
+        assert_eq!(path, route(&[0, 1]));
+        // No hidden enemy on the way: untouched
+        let mut path = route(&[0, 1, 2]);
+        assert!(!spring_trap(&mut path, &hidden, &HashSet::new()));
+        assert_eq!(path.len(), 3);
     }
 
     #[test]
@@ -2590,7 +2749,7 @@ mod tests {
             &[Grass, Pond, Grass],
             &[Grass, Grass, Grass],
         ]);
-        let route = find_path(IVec2::new(0, 1), IVec2::new(2, 1), &map, &HashSet::new(), UnitClass::Foot, &data).unwrap();
+        let route = find_path(IVec2::new(0, 1), IVec2::new(2, 1), &map, &HashSet::new(), UnitClass::Foot, false, &data).unwrap();
         assert_orthogonal(&route);
         assert_eq!(route.len(), 5);
         assert!(!route.contains(&IVec2::new(1, 1)));
@@ -2602,7 +2761,7 @@ mod tests {
         let data = GameData::load_defaults();
         let map = map_from_rows(&[&[Grass, Grass, Grass], &[Grass, Grass, Grass]]);
         let occupied = HashSet::from([(1, 0), (2, 0)]);
-        let route = find_path(IVec2::new(0, 0), IVec2::new(2, 0), &map, &occupied, UnitClass::Foot, &data).unwrap();
+        let route = find_path(IVec2::new(0, 0), IVec2::new(2, 0), &map, &occupied, UnitClass::Foot, false, &data).unwrap();
         assert_orthogonal(&route);
         assert!(!route.contains(&IVec2::new(1, 0)));
         assert_eq!(route.last(), Some(&IVec2::new(2, 0)));
@@ -2623,9 +2782,9 @@ mod tests {
     fn movement_range_pays_terrain_costs() {
         use Terrain::*;
         let data = GameData::load_defaults();
-        let map = map_from_rows(&[&[Grass, Grass, Thicket, Grass, Grass]]);
+        let map = map_from_rows(&[&[Grass, Grass, Boulder, Grass, Grass]]);
         let reach = calculate_movement_range(&GridPosition::new(0, 0), 3, &map, &HashMap::new(), UnitClass::Foot, &data);
-        // grass(1) + thicket(2) = 3 movement used reaching x=2
+        // grass(1) + mountain(2) = 3 movement used reaching x=2
         assert!(reach.contains(&(2, 0)));
         assert!(!reach.contains(&(3, 0)));
     }
@@ -2655,7 +2814,7 @@ mod tests {
             (enemy_jet, GridPosition::new(-1, 0), enemy_faction.clone(), UnitType::Raptor),
             (far_enemy, GridPosition::new(3, 0), enemy_faction, UnitType::Scout),
         ];
-        let targets = calculate_attack_targets(&scout, &GridPosition::new(0, 0), &me, &units, &data);
+        let targets = calculate_attack_targets(&scout, &GridPosition::new(0, 0), &me, &units, &data, &crate::game::CoBonuses::none());
         assert_eq!(targets, HashSet::from([enemy]));
     }
 }

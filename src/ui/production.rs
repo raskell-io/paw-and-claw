@@ -62,13 +62,20 @@ pub fn draw_production_menu(
 
     let game_data: &GameData = &ctx_res.game_data;
     let faction = turn_state.current_faction;
-    let co_cost = commanders.get_bonuses(faction, game_data).cost;
+    let co = commanders.get_bonuses(faction, game_data);
+    let co_cost = co.cost();
     let available = funds.get(faction);
     // Everything this building makes (`builds` in terrain.ron), cheapest first
     let (bx, by) = production.base_position;
     let Some(building) = spawner.map.get(bx, by) else {
         production.active = false;
         return;
+    };
+    // Storehouses muster ground units like workshops under AW Hachi's Merchant Union
+    let building = if co.mods.build_on_cities && building == crate::game::Terrain::Storehouse {
+        crate::game::Terrain::Workshop
+    } else {
+        building
     };
     let roster: Vec<(UnitType, u32)> = game_data.buildable_units(building).into_iter()
         .map(|unit_type| (unit_type, game_data.production_cost(unit_type, co_cost)))

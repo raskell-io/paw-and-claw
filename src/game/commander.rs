@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use super::{
     Faction, UnitType, Unit, FactionMember, GridPosition,
-    FactionFunds, spawn_unit, FogOfWar, GameMap, Tile, SpriteAssets,
-    BattleConfig, GameData, CommanderData,
+    FactionFunds, GameMap, Tile, SpriteAssets, Terrain, UnitClass,
+    BattleConfig, GameData, CommanderData, Weather, WeatherType,
 };
 
 pub struct CommanderPlugin;
@@ -24,39 +24,54 @@ impl Plugin for CommanderPlugin {
 // COMMANDER DEFINITIONS
 // ============================================================================
 
-/// Unique identifier for each CO
+/// Unique identifier for each CO. Every Advance Wars 2 / Dual Strike CO has a
+/// woodland counterpart with the same abilities (see `based_on` in commanders.ron).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CommanderId {
-    // Eastern Empire
+    // Eastern Empire (Yellow Comet)
     Kira,
     Tanuki,
     Sensei,
-    // Northern Realm
+    Goro,
+    // Northern Realm (Blue Moon)
     Grimjaw,
     Frost,
     Bjorn,
-    // Western Frontier
+    Sable,
+    // Western Frontier (Orange Star)
     Bandit,
     Talon,
     Dusty,
-    // Southern Pride
+    Clover,
+    Shell,
+    Ridge,
+    Hollis,
+    // Southern Pride (Green Earth)
     Lionheart,
     Tusker,
     Prowler,
-    // Nether Dominion
+    Rumble,
+    // Nether Dominion (Black Hole)
     Burrower,
     Hivemind,
     Dredge,
+    Wriggle,
+    Carapace,
+    Clank,
+    Cinder,
+    Velvet,
+    Vesper,
 }
 
 impl CommanderId {
     pub fn all() -> &'static [CommanderId] {
+        use CommanderId::*;
         &[
-            CommanderId::Kira, CommanderId::Tanuki, CommanderId::Sensei,
-            CommanderId::Grimjaw, CommanderId::Frost, CommanderId::Bjorn,
-            CommanderId::Bandit, CommanderId::Talon, CommanderId::Dusty,
-            CommanderId::Lionheart, CommanderId::Tusker, CommanderId::Prowler,
-            CommanderId::Burrower, CommanderId::Hivemind, CommanderId::Dredge,
+            Kira, Tanuki, Sensei, Goro,
+            Grimjaw, Frost, Bjorn, Sable,
+            Bandit, Talon, Dusty, Clover, Shell, Ridge, Hollis,
+            Lionheart, Tusker, Prowler, Rumble,
+            Burrower, Hivemind, Dredge, Wriggle, Carapace, Clank, Cinder, Velvet, Vesper,
         ]
     }
 
@@ -70,42 +85,208 @@ impl CommanderId {
     }
 }
 
-/// Effects that CO powers can have
+/// Which units a CO modifier applies to
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum UnitFilter {
+    All,
+    /// Units that attack adjacent targets (max range 1)
+    Direct,
+    /// Direct combat units other than foot soldiers (AW Max's specialty)
+    DirectNonFoot,
+    /// Units that fire from range 2+
+    Indirect,
+    /// Foot soldiers (infantry and mechs)
+    Foot,
+    /// Everything but foot soldiers
+    NonFoot,
+    /// Ground units other than foot soldiers
+    Vehicles,
+    /// Every ground unit
+    Ground,
+    Air,
+    Naval,
+    /// Units that carry others
+    Transports,
+    /// A specific list of unit types (e.g. copters)
+    Units(Vec<UnitType>),
+}
+
+impl UnitFilter {
+    pub fn matches(&self, unit_type: UnitType, game_data: &GameData) -> bool {
+        let stats = game_data.unit_stats(unit_type);
+        let foot = matches!(stats.class, UnitClass::Foot | UnitClass::Mech);
+        let air = matches!(stats.class, UnitClass::Air | UnitClass::AirTransport);
+        let naval = matches!(stats.class, UnitClass::Naval | UnitClass::NavalTransport);
+        let direct = stats.attack > 0 && stats.attack_range.1 == 1;
+        match self {
+            UnitFilter::All => true,
+            UnitFilter::Direct => direct,
+            UnitFilter::DirectNonFoot => direct && !foot,
+            UnitFilter::Indirect => stats.attack_range.0 > 1,
+            UnitFilter::Foot => foot,
+            UnitFilter::NonFoot => !foot,
+            UnitFilter::Vehicles => !foot && !air && !naval,
+            UnitFilter::Ground => !air && !naval,
+            UnitFilter::Air => air,
+            UnitFilter::Naval => naval,
+            UnitFilter::Transports => stats.capacity > 0,
+            UnitFilter::Units(list) => list.contains(&unit_type),
+        }
+    }
+}
+
+/// Terrain groups some COs fight better on
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum TerrainGroup {
+    /// Grass and tall grass (AW plains)
+    Plains,
+    /// Trails (AW roads)
+    Roads,
+    /// Any capturable building (AW urban terrain)
+    Properties,
+}
+
+impl TerrainGroup {
+    pub fn matches(&self, terrain: Terrain, game_data: &GameData) -> bool {
+        match self {
+            TerrainGroup::Plains => matches!(terrain, Terrain::Grass | Terrain::TallGrass),
+            TerrainGroup::Roads => terrain == Terrain::Log,
+            TerrainGroup::Properties => game_data.terrain_capturable(terrain),
+        }
+    }
+}
+
+/// One layer of a CO's abilities: always on (`abilities`), or added while a
+/// power is active. Percentages are in Advance Wars points: attack +20 means
+/// 120% firepower. Every field is optional in commanders.ron.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CoModifiers {
+    pub attack: Vec<(UnitFilter, i32)>,
+    pub defense: Vec<(UnitFilter, i32)>,
+    pub movement: Vec<(UnitFilter, i32)>,
+    /// Extra maximum range
+    pub range: Vec<(UnitFilter, i32)>,
+    pub vision: Vec<(UnitFilter, i32)>,
+    /// Attack bonus for units standing on this terrain
+    pub attack_on: Vec<(TerrainGroup, i32)>,
+    /// Attack bonus per terrain defense star under the attacker (AW Lash)
+    pub attack_per_terrain_star: i32,
+    /// Extra terrain defense stars, in percent (100 doubles them)
+    pub terrain_stars: i32,
+    /// Extra capture speed, in percent (50 = 150%)
+    pub capture: i32,
+    /// Unit price change, in percent (-20 = 80%)
+    pub cost: i32,
+    /// Extra good luck (AW luck is 0-9 on top of damage)
+    pub luck: i32,
+    /// Bad luck: up to this much subtracted from damage
+    pub bad_luck: i32,
+    /// Extra counter-attack damage, in percent
+    pub counter: i32,
+    /// Extra funds per owned property each turn
+    pub income: i32,
+    /// Change to daily stamina (fuel) use
+    pub daily_stamina: Vec<(UnitFilter, i32)>,
+    /// Weather that doesn't slow or blind these units
+    pub weather_proof: Vec<WeatherType>,
+    /// Every passable terrain costs 1 to move through
+    pub flat_terrain_cost: bool,
+    /// The enemy can't see these units' HP (AW Sonja)
+    pub hidden_hp: bool,
+    /// Units see into forests and lily pads from range
+    pub see_hidden: bool,
+    /// Defenders strike back before the attacker hits
+    pub counter_first: bool,
+    /// Funds gained from damage dealt, in percent of its value
+    pub funds_from_damage: i32,
+    /// Extra defense against indirect fire
+    pub defense_vs_indirect: i32,
+    /// Storehouses build ground units like workshops
+    pub build_on_cities: bool,
+    /// Extra HP repaired on properties
+    pub repair: i32,
+}
+
+impl CoModifiers {
+    /// Stack another layer on top of this one
+    fn merge(&mut self, other: &CoModifiers) {
+        self.attack.extend(other.attack.iter().cloned());
+        self.defense.extend(other.defense.iter().cloned());
+        self.movement.extend(other.movement.iter().cloned());
+        self.range.extend(other.range.iter().cloned());
+        self.vision.extend(other.vision.iter().cloned());
+        self.attack_on.extend(other.attack_on.iter().cloned());
+        self.daily_stamina.extend(other.daily_stamina.iter().cloned());
+        self.weather_proof.extend(other.weather_proof.iter().cloned());
+        self.attack_per_terrain_star += other.attack_per_terrain_star;
+        self.terrain_stars += other.terrain_stars;
+        self.capture += other.capture;
+        self.cost += other.cost;
+        self.luck += other.luck;
+        self.bad_luck += other.bad_luck;
+        self.counter += other.counter;
+        self.income += other.income;
+        self.funds_from_damage += other.funds_from_damage;
+        self.defense_vs_indirect += other.defense_vs_indirect;
+        self.repair += other.repair;
+        self.flat_terrain_cost |= other.flat_terrain_cost;
+        self.hidden_hp |= other.hidden_hp;
+        self.see_hidden |= other.see_hidden;
+        self.counter_first |= other.counter_first;
+        self.build_on_cities |= other.build_on_cities;
+    }
+}
+
+fn sum_for(list: &[(UnitFilter, i32)], unit_type: UnitType, game_data: &GameData) -> i32 {
+    list.iter().filter(|(f, _)| f.matches(unit_type, game_data)).map(|(_, v)| v).sum()
+}
+
+/// Instant effects when a power is activated
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum PowerEffect {
-    /// Boost attack/defense/movement for this turn
-    StatBoost {
-        attack: f32,
-        defense: f32,
-        movement: i32,
-    },
-    /// Gain bonus funds (multiplier of current funds)
-    BonusFunds {
-        multiplier: f32,
-    },
-    /// Reveal map and boost attack
-    RevealAndBoost {
-        attack_boost: f32,
-    },
-    /// Defense boost and heal all units (heal is in HP, 10 = 1 displayed HP)
-    DefenseAndHeal {
-        defense: f32,
-        heal: i32,
-    },
-    /// Spawn free units at all bases
-    FreeUnits {
-        unit_type: UnitType,
-    },
-    /// Allow all units to move again
-    ExtraMove,
-    /// Steal funds from enemy and boost attack
-    StealFunds {
-        steal_percent: f32,
-        attack_boost: f32,
-    },
-    /// Ignore terrain movement costs this turn
-    IgnoreTerrain,
+    /// Heal all own units by this many displayed HP
+    Heal(i32),
+    /// Damage every enemy unit by this many displayed HP (never below 0.1 HP)
+    DamageEnemies(i32),
+    /// Damage enemy units standing on properties
+    DamageEnemiesOnProperties(i32),
+    /// Enemy units lose half their stamina (fuel)
+    HalveEnemyStamina,
+    /// Change the weather until this CO's next turn
+    Weather(WeatherType),
+    /// Multiply current funds
+    MultiplyFunds(f32),
+    /// Drain the enemy's power meter by this percent per 5000 funds held
+    DrainEnemyPower(i32),
+    /// Attack bonus for the power's duration: this percent per 1000 funds held
+    AttackPerFunds(f32),
+    /// Attack bonus for the power's duration: this percent per owned property
+    AttackPerProperty(i32),
+    /// Refill every own unit's stamina and ammo
+    Resupply,
+    /// Units matching the filter may move and act again
+    ExtraMove(UnitFilter),
+    /// Deploy a unit with this HP (internal, 0-100) on every empty owned storehouse
+    Reinforce { unit: UnitType, hp: i32 },
+    /// Strike the densest enemy group: `strikes` times, this many HP within `radius`
+    Meteor { damage: i32, radius: i32, strikes: u32, paralyze: bool },
 }
+
+/// Which of a CO's powers is running
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum PowerLevel {
+    #[default]
+    None,
+    /// CO Power
+    Power,
+    /// Super CO Power
+    Super,
+}
+
+/// Power meter charge per star (9000 funds of damage taken, as in Advance Wars,
+/// at 1 charge per 100 funds)
+pub const CHARGE_PER_STAR: u32 = 90;
 
 // ============================================================================
 // ACTIVE COMMANDER STATE
@@ -116,46 +297,31 @@ pub enum PowerEffect {
 pub struct Commanders {
     /// Active CO per faction
     pub active: HashMap<Faction, CommanderId>,
-    /// Power meter per faction (0 to power_cost)
+    /// Power meter per faction
     pub power_meter: HashMap<Faction, u32>,
-    /// Whether CO power is active this turn (for stat boosts)
-    pub power_active: HashMap<Faction, bool>,
-    /// Cached power effect when activated (for systems to read)
-    pub active_effect: HashMap<Faction, PowerEffect>,
+    /// Which power is running this turn
+    pub power_active: HashMap<Faction, PowerLevel>,
+    /// How often each faction has used a power (each use makes stars 20% dearer)
+    pub power_uses: HashMap<Faction, u32>,
+    /// Attack bonus worked out when a power started (funds or property based)
+    pub power_attack: HashMap<Faction, i32>,
 }
 
 impl Default for Commanders {
     fn default() -> Self {
-        let mut active = HashMap::new();
-        let mut power_meter = HashMap::new();
-        let mut power_active = HashMap::new();
-
-        // Default COs for each faction
-        active.insert(Faction::Eastern, CommanderId::Kira);
-        active.insert(Faction::Northern, CommanderId::Grimjaw);
-        active.insert(Faction::Western, CommanderId::Bandit);
-        active.insert(Faction::Southern, CommanderId::Lionheart);
-        active.insert(Faction::Nether, CommanderId::Burrower);
-
-        // Starting power (0)
-        power_meter.insert(Faction::Eastern, 0);
-        power_meter.insert(Faction::Northern, 0);
-        power_meter.insert(Faction::Western, 0);
-        power_meter.insert(Faction::Southern, 0);
-        power_meter.insert(Faction::Nether, 0);
-
-        // No powers active
-        power_active.insert(Faction::Eastern, false);
-        power_active.insert(Faction::Northern, false);
-        power_active.insert(Faction::Western, false);
-        power_active.insert(Faction::Southern, false);
-        power_active.insert(Faction::Nether, false);
-
+        let active = HashMap::from([
+            (Faction::Eastern, CommanderId::Kira),
+            (Faction::Northern, CommanderId::Grimjaw),
+            (Faction::Western, CommanderId::Bandit),
+            (Faction::Southern, CommanderId::Lionheart),
+            (Faction::Nether, CommanderId::Burrower),
+        ]);
         Self {
             active,
-            power_meter,
-            power_active,
-            active_effect: HashMap::new(),
+            power_meter: HashMap::new(),
+            power_active: HashMap::new(),
+            power_uses: HashMap::new(),
+            power_attack: HashMap::new(),
         }
     }
 }
@@ -165,7 +331,8 @@ impl Commanders {
     pub fn set_commander(&mut self, faction: Faction, co: CommanderId) {
         self.active.insert(faction, co);
         self.power_meter.insert(faction, 0);
-        self.power_active.insert(faction, false);
+        self.power_active.insert(faction, PowerLevel::None);
+        self.power_uses.insert(faction, 0);
     }
 
     /// Get the active commander ID for a faction
@@ -178,13 +345,32 @@ impl Commanders {
         self.active.get(&faction).map(|&id| game_data.commander(id))
     }
 
-    /// Add charge to power meter (from dealing/taking damage)
+    /// Charge one star costs now (AW: +20% per power used, up to +200%)
+    fn star_cost(&self, faction: Faction) -> u32 {
+        let uses = self.power_uses.get(&faction).copied().unwrap_or(0).min(10);
+        CHARGE_PER_STAR * (5 + uses) / 5
+    }
+
+    /// Charge a power needs (None if the CO has no such power)
+    pub fn power_cost(&self, faction: Faction, level: PowerLevel, game_data: &GameData) -> Option<u32> {
+        let co = self.get_commander(faction, game_data)?;
+        let stars = match level {
+            PowerLevel::Power => co.power.as_ref()?.stars,
+            PowerLevel::Super => co.super_power.stars,
+            PowerLevel::None => return None,
+        };
+        Some(stars * self.star_cost(faction))
+    }
+
+    /// Add charge to power meter (from dealing/taking damage). Charging stops
+    /// while a power runs, and the meter holds at most the Super CO Power.
     pub fn charge(&mut self, faction: Faction, amount: u32, game_data: &GameData) {
-        let current = self.power_meter.get(&faction).copied().unwrap_or(0);
-        if let Some(co) = self.get_commander(faction, game_data) {
-            let new_value = (current + amount).min(co.power_cost);
-            self.power_meter.insert(faction, new_value);
+        if self.active_power(faction) != PowerLevel::None {
+            return;
         }
+        let Some(full) = self.power_cost(faction, PowerLevel::Super, game_data) else { return };
+        let current = self.get_charge(faction);
+        self.power_meter.insert(faction, (current + amount).min(full));
     }
 
     /// Get current power charge
@@ -192,123 +378,156 @@ impl Commanders {
         self.power_meter.get(&faction).copied().unwrap_or(0)
     }
 
-    /// Get power cost for faction's CO
-    pub fn get_power_cost(&self, faction: Faction, game_data: &GameData) -> u32 {
-        self.get_commander(faction, game_data).map(|c| c.power_cost).unwrap_or(100)
+    /// Whether a power can be activated now
+    pub fn can_activate(&self, faction: Faction, level: PowerLevel, game_data: &GameData) -> bool {
+        self.active_power(faction) == PowerLevel::None
+            && self.power_cost(faction, level, game_data).is_some_and(|cost| self.get_charge(faction) >= cost)
     }
 
-    /// Check if power can be activated
-    pub fn can_activate(&self, faction: Faction, game_data: &GameData) -> bool {
-        let charge = self.get_charge(faction);
-        let cost = self.get_power_cost(faction, game_data);
-        charge >= cost && !self.is_power_active(faction)
+    /// Which power is running for a faction
+    pub fn active_power(&self, faction: Faction) -> PowerLevel {
+        self.power_active.get(&faction).copied().unwrap_or_default()
     }
 
-    /// Check if power is currently active
-    pub fn is_power_active(&self, faction: Faction) -> bool {
-        self.power_active.get(&faction).copied().unwrap_or(false)
-    }
-
-    /// Activate CO power - returns the effect to apply
-    pub fn activate_power(&mut self, faction: Faction, game_data: &GameData) -> Option<PowerEffect> {
-        if !self.can_activate(faction, game_data) {
+    /// Activate a power: spends its charge and returns its instant effects
+    pub fn activate_power(&mut self, faction: Faction, level: PowerLevel, game_data: &GameData) -> Option<Vec<PowerEffect>> {
+        if !self.can_activate(faction, level, game_data) {
             return None;
         }
-
-        if let Some(co) = self.get_commander(faction, game_data) {
-            self.power_meter.insert(faction, 0);
-            self.power_active.insert(faction, true);
-            self.active_effect.insert(faction, co.power.effect.clone());
-            info!("{} activated {}!", co.name, co.power.name);
-            return Some(co.power.effect.clone());
-        }
-        None
-    }
-
-    /// Get the currently active power effect for a faction
-    pub fn get_active_effect(&self, faction: Faction) -> Option<&PowerEffect> {
-        if self.is_power_active(faction) {
-            self.active_effect.get(&faction)
-        } else {
-            None
-        }
+        let cost = self.power_cost(faction, level, game_data)?;
+        let co = self.get_commander(faction, game_data)?;
+        let power = if level == PowerLevel::Super { &co.super_power } else { co.power.as_ref()? };
+        info!("{} activated {}!", co.name, power.name);
+        let effects = power.effects.clone();
+        self.power_meter.insert(faction, self.get_charge(faction) - cost);
+        self.power_active.insert(faction, level);
+        *self.power_uses.entry(faction).or_default() += 1;
+        Some(effects)
     }
 
     /// Clear power active state (called at end of turn)
     pub fn clear_power(&mut self, faction: Faction) {
-        self.power_active.insert(faction, false);
-        self.active_effect.remove(&faction);
+        self.power_active.insert(faction, PowerLevel::None);
+        self.power_attack.remove(&faction);
     }
 
-    /// Get computed bonuses for a faction (passive + active power)
+    /// The faction's CO abilities right now: always-on plus the running power
     pub fn get_bonuses(&self, faction: Faction, game_data: &GameData) -> CoBonuses {
-        let co = match self.get_commander(faction, game_data) {
-            Some(c) => c,
-            None => return CoBonuses::none(),
+        let Some(co) = self.get_commander(faction, game_data) else {
+            return CoBonuses::none();
         };
-
-        let mut bonuses = CoBonuses {
-            attack: co.attack_bonus,
-            defense: co.defense_bonus,
-            movement: co.movement_bonus,
-            income: co.income_bonus,
-            vision: co.vision_bonus,
-            cost: co.cost_modifier,
+        let mut mods = co.abilities.clone();
+        let level = self.active_power(faction);
+        let power = match level {
+            PowerLevel::Power => co.power.as_ref(),
+            PowerLevel::Super => Some(&co.super_power),
+            PowerLevel::None => None,
         };
-
-        // Apply active power bonuses if power is active
-        if let Some(effect) = self.get_active_effect(faction) {
-            match effect {
-                PowerEffect::StatBoost { attack, defense, movement } => {
-                    bonuses.attack *= attack;
-                    bonuses.defense *= defense;
-                    bonuses.movement += movement;
-                }
-                PowerEffect::RevealAndBoost { attack_boost } => {
-                    bonuses.attack *= attack_boost;
-                }
-                PowerEffect::DefenseAndHeal { defense, .. } => {
-                    bonuses.defense *= defense;
-                }
-                PowerEffect::StealFunds { attack_boost, .. } => {
-                    bonuses.attack *= attack_boost;
-                }
-                _ => {}
-            }
+        if let Some(power) = power {
+            mods.merge(&power.modifiers);
         }
-
-        bonuses
+        CoBonuses {
+            mods,
+            powered: level != PowerLevel::None,
+            power_attack: self.power_attack.get(&faction).copied().unwrap_or(0),
+        }
     }
 }
 
-/// Computed bonuses from active CO (passive + power effects)
-#[derive(Clone)]
+/// A faction's CO abilities in effect (always-on plus any running power).
+/// Queries take the unit (and terrain) they're about, since AW COs boost some
+/// unit types and not others.
+#[derive(Clone, Debug, Default)]
 pub struct CoBonuses {
-    pub attack: f32,
-    pub defense: f32,
-    pub movement: i32,
-    pub income: f32,
-    pub vision: u32,
-    pub cost: f32,
-}
-
-impl Default for CoBonuses {
-    fn default() -> Self {
-        Self::none()
-    }
+    pub mods: CoModifiers,
+    /// A power is running: every unit gets +10 attack and +10 defense (AW)
+    pub powered: bool,
+    /// Attack bonus fixed when the power started (funds or property based)
+    pub power_attack: i32,
 }
 
 impl CoBonuses {
-    /// Create default bonuses (no CO)
+    /// No CO: plain Advance Wars stats
     pub fn none() -> Self {
-        Self {
-            attack: 1.0,
-            defense: 1.0,
-            movement: 0,
-            income: 1.0,
-            vision: 0,
-            cost: 1.0,
-        }
+        Self::default()
+    }
+
+    fn power_boost(&self) -> i32 {
+        if self.powered { 10 } else { 0 }
+    }
+
+    /// Firepower multiplier (1.0 = 100%) for a unit on `terrain`
+    pub fn attack(&self, unit_type: UnitType, terrain: Terrain, game_data: &GameData) -> f32 {
+        let on_terrain: i32 = self.mods.attack_on.iter()
+            .filter(|(group, _)| group.matches(terrain, game_data))
+            .map(|(_, v)| v)
+            .sum();
+        let stars = self.mods.attack_per_terrain_star * game_data.terrain_defense(terrain) as i32;
+        let total = 100 + sum_for(&self.mods.attack, unit_type, game_data) + on_terrain + stars
+            + self.power_boost() + self.power_attack;
+        total.max(0) as f32 / 100.0
+    }
+
+    /// Defense multiplier (1.0 = 100%); `vs_indirect` when the attacker fires from range
+    pub fn defense(&self, unit_type: UnitType, vs_indirect: bool, game_data: &GameData) -> f32 {
+        let indirect = if vs_indirect { self.mods.defense_vs_indirect } else { 0 };
+        let total = 100 + sum_for(&self.mods.defense, unit_type, game_data) + self.power_boost() + indirect;
+        total.max(0) as f32 / 100.0
+    }
+
+    /// Terrain defense stars for this CO's units
+    pub fn terrain_stars(&self, stars: u32) -> f32 {
+        stars as f32 * (100 + self.mods.terrain_stars) as f32 / 100.0
+    }
+
+    pub fn movement(&self, unit_type: UnitType, game_data: &GameData) -> i32 {
+        sum_for(&self.mods.movement, unit_type, game_data)
+    }
+
+    /// A unit's movement after its CO and the weather
+    pub fn total_movement(&self, unit_type: UnitType, weather: &Weather, game_data: &GameData) -> u32 {
+        let base = (game_data.unit_stats(unit_type).movement as i32 + self.movement(unit_type, game_data)).max(1) as u32;
+        if self.mods.weather_proof.contains(&weather.current) { base } else { weather.apply_movement(base) }
+    }
+
+    pub fn range(&self, unit_type: UnitType, game_data: &GameData) -> i32 {
+        sum_for(&self.mods.range, unit_type, game_data)
+    }
+
+    /// A unit's vision after its CO and the weather
+    pub fn total_vision(&self, unit_type: UnitType, weather: &Weather, game_data: &GameData) -> u32 {
+        let base = (game_data.unit_stats(unit_type).vision as i32 + sum_for(&self.mods.vision, unit_type, game_data)).max(1) as u32;
+        if self.mods.weather_proof.contains(&weather.current) { base } else { weather.apply_vision(base) }
+    }
+
+    /// Capture speed in percent
+    pub fn capture_percent(&self) -> i32 {
+        (100 + self.mods.capture).max(0)
+    }
+
+    /// Unit price multiplier
+    pub fn cost(&self) -> f32 {
+        (100 + self.mods.cost).max(10) as f32 / 100.0
+    }
+
+    /// Highest good-luck roll (AW: 9)
+    pub fn luck(&self) -> i32 {
+        (9 + self.mods.luck).max(0)
+    }
+
+    /// Highest bad-luck roll
+    pub fn bad_luck(&self) -> i32 {
+        self.mods.bad_luck.max(0)
+    }
+
+    /// Counter-attack damage multiplier
+    pub fn counter(&self) -> f32 {
+        (100 + self.mods.counter) as f32 / 100.0
+    }
+
+    /// Change to a unit's daily stamina (fuel) use
+    pub fn daily_stamina(&self, unit_type: UnitType, game_data: &GameData) -> i32 {
+        sum_for(&self.mods.daily_stamina, unit_type, game_data)
     }
 }
 
@@ -320,36 +539,41 @@ impl CoBonuses {
 #[derive(Message)]
 pub struct PowerActivatedEvent {
     pub faction: Faction,
-    pub effect: PowerEffect,
+    pub level: PowerLevel,
+    pub effects: Vec<PowerEffect>,
 }
 
 // ============================================================================
 // SYSTEMS
 // ============================================================================
 
-/// Clear power active state at the end of each turn
+/// Powers last one turn: clear them when the faction's turn ends
 fn clear_power_at_turn_end(
     mut commanders: ResMut<Commanders>,
     turn_state: Res<super::TurnState>,
     mut last_faction: Local<Option<Faction>>,
 ) {
-    // Detect faction change (turn ended)
     let current = turn_state.current_faction;
     if let Some(last) = *last_faction {
         if last != current {
-            // Turn changed - clear the previous faction's power
             commanders.clear_power(last);
         }
     }
     *last_faction = Some(current);
 }
 
-/// Apply CO power effects when activated
+/// Damage a unit by displayed HP; powers never destroy (AW leaves 0.1 HP)
+fn power_damage(unit: &mut Unit, hp: i32) {
+    unit.hp = (unit.hp - hp * 10).max(1);
+}
+
+/// Apply a power's instant effects when it's activated
 fn apply_power_effects(
     mut events: MessageReader<PowerActivatedEvent>,
     mut units: Query<(&mut Unit, &FactionMember, &GridPosition)>,
     mut funds: ResMut<FactionFunds>,
-    mut fog: ResMut<FogOfWar>,
+    mut commanders: ResMut<Commanders>,
+    mut weather: ResMut<Weather>,
     mut commands: Commands,
     map: Res<GameMap>,
     tiles: Query<&Tile>,
@@ -361,112 +585,113 @@ fn apply_power_effects(
     game_data: Res<GameData>,
 ) {
     for event in events.read() {
-        info!("Applying power effect for {:?}", event.faction);
-
-        match &event.effect {
-            PowerEffect::StatBoost { attack: _, defense: _, movement: _ } => {
-                // StatBoost is handled passively through get_bonuses()
-                info!("StatBoost power active - bonuses will be applied automatically");
-            }
-
-            PowerEffect::BonusFunds { multiplier } => {
-                // Add bonus funds based on current funds
-                let current = funds.get(event.faction);
-                let bonus = (current as f32 * multiplier).round() as u32;
-                funds.add(event.faction, bonus);
-                info!("{:?} gained {} bonus funds (Gold Rush)!", event.faction, bonus);
-            }
-
-            PowerEffect::RevealAndBoost { attack_boost: _ } => {
-                // Reveal entire map by disabling fog temporarily
-                // The attack boost is handled through get_bonuses()
-                // For now, mark all tiles as explored
-                for x in 0..map.width as i32 {
-                    for y in 0..map.height as i32 {
-                        fog.mark_explored(x, y);
+        let faction = event.faction;
+        let enemy = battle_config.next_faction(faction);
+        info!("{:?} power ({:?}): {} effects", faction, event.level, event.effects.len());
+        for effect in &event.effects {
+            match effect {
+                PowerEffect::Heal(hp) => {
+                    for (mut unit, f, _) in units.iter_mut().filter(|(_, f, _)| f.faction == faction) {
+                        let max = game_data.unit_stats(unit.unit_type).max_hp;
+                        unit.hp = (unit.hp + hp * 10).min(max);
+                        let _ = f;
                     }
                 }
-                info!("Fog Piercer activated - map revealed and attack boosted!");
-            }
-
-            PowerEffect::DefenseAndHeal { defense: _, heal } => {
-                // Heal all units of this faction
-                let heal_amount = *heal;
-                for (mut unit, faction, _pos) in units.iter_mut() {
-                    if faction.faction == event.faction {
-                        let max_hp = game_data.unit_stats(unit.unit_type).max_hp;
-                        let old_hp = unit.hp;
-                        unit.hp = (unit.hp + heal_amount).min(max_hp);
-                        if unit.hp > old_hp {
-                            info!("Healed unit: {} -> {} HP", old_hp, unit.hp);
+                PowerEffect::DamageEnemies(hp) => {
+                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                        power_damage(&mut unit, *hp);
+                    }
+                }
+                PowerEffect::DamageEnemiesOnProperties(hp) => {
+                    let properties: std::collections::HashSet<(i32, i32)> = tiles.iter()
+                        .filter(|t| game_data.terrain_capturable(t.terrain))
+                        .map(|t| (t.position.x, t.position.y))
+                        .collect();
+                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                        if properties.contains(&(pos.x, pos.y)) {
+                            power_damage(&mut unit, *hp);
                         }
                     }
                 }
-                info!("Iron Wall activated - all units healed and defense boosted!");
-            }
-
-            PowerEffect::FreeUnits { unit_type } => {
-                // Spawn free units at all owned bases without units
-                let unit_positions: std::collections::HashSet<(i32, i32)> = units
-                    .iter()
-                    .map(|(_, _, pos)| (pos.x, pos.y))
-                    .collect();
-
-                for tile in tiles.iter() {
-                    if game_data.terrain_produces(tile.terrain)
-                        && tile.owner == Some(event.faction)
-                        && !unit_positions.contains(&(tile.position.x, tile.position.y))
-                    {
-                        spawn_unit(
-                            &mut commands,
-                            &map,
-                            &mut meshes,
-                            &mut materials,
-                            &sprite_assets,
-                            &images,
-                            &game_data,
-                            event.faction,
-                            *unit_type,
-                            tile.position.x,
-                            tile.position.y,
-                        );
-                        info!("Spawned free {:?} at ({}, {})", unit_type, tile.position.x, tile.position.y);
+                PowerEffect::HalveEnemyStamina => {
+                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                        unit.stamina /= 2;
                     }
                 }
-                info!("Endless Horde activated - free units spawned!");
-            }
-
-            PowerEffect::ExtraMove => {
-                // Reset moved/exhausted flags on all units of this faction
-                for (mut unit, faction, _pos) in units.iter_mut() {
-                    if faction.faction == event.faction {
-                        unit.moved = false;
-                        unit.exhausted = false;
+                PowerEffect::Weather(kind) => {
+                    weather.set(*kind);
+                    weather.turns_remaining = 2; // until this CO's next turn
+                }
+                PowerEffect::MultiplyFunds(factor) => {
+                    let current = funds.get(faction);
+                    funds.add(faction, (current as f32 * (factor - 1.0)).round() as u32);
+                }
+                PowerEffect::DrainEnemyPower(percent_per_5000) => {
+                    let full = commanders.power_cost(enemy, PowerLevel::Super, &game_data).unwrap_or(0);
+                    let drain = full * (funds.get(faction) / 5000) * (*percent_per_5000 as u32) / 100;
+                    let left = commanders.get_charge(enemy).saturating_sub(drain);
+                    commanders.power_meter.insert(enemy, left);
+                }
+                PowerEffect::AttackPerFunds(percent_per_1000) => {
+                    let bonus = (funds.get(faction) as f32 / 1000.0 * percent_per_1000).round() as i32;
+                    *commanders.power_attack.entry(faction).or_default() += bonus;
+                }
+                PowerEffect::AttackPerProperty(percent) => {
+                    let owned = tiles.iter().filter(|t| t.owner == Some(faction)).count() as i32;
+                    *commanders.power_attack.entry(faction).or_default() += owned * percent;
+                }
+                PowerEffect::Resupply => {
+                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| f.faction == faction) {
+                        let stats = game_data.unit_stats(unit.unit_type);
+                        unit.stamina = stats.max_stamina;
+                        unit.ammo = stats.max_ammo;
                     }
                 }
-                info!("Charge! activated - all units can move again!");
-            }
-
-            PowerEffect::StealFunds { steal_percent, attack_boost: _ } => {
-                // Determine enemy faction and steal their funds
-                let enemy_faction = battle_config.next_faction(event.faction);
-
-                let enemy_funds = funds.get(enemy_faction);
-                let stolen = (enemy_funds as f32 * steal_percent).round() as u32;
-
-                if stolen > 0 && funds.spend(enemy_faction, stolen) {
-                    funds.add(event.faction, stolen);
-                    info!("Heist! Stole {} funds from {:?}!", stolen, enemy_faction);
-                } else {
-                    info!("Heist attempted but enemy has no funds!");
+                PowerEffect::ExtraMove(filter) => {
+                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| f.faction == faction) {
+                        if filter.matches(unit.unit_type, &game_data) {
+                            unit.moved = false;
+                            unit.attacked = false;
+                            unit.exhausted = false;
+                        }
+                    }
                 }
-                // Attack boost is handled through get_bonuses()
-            }
-
-            PowerEffect::IgnoreTerrain => {
-                // Terrain cost ignorance is handled in movement calculations
-                // by checking if the faction's CO power is active
-                info!("Undermine activated - all units ignore terrain movement costs!");
+                PowerEffect::Reinforce { unit: unit_type, hp } => {
+                    let occupied: std::collections::HashSet<(i32, i32)> = units.iter().map(|(_, _, p)| (p.x, p.y)).collect();
+                    for tile in tiles.iter() {
+                        let spot = (tile.position.x, tile.position.y);
+                        if tile.owner == Some(faction) && tile.terrain == Terrain::Storehouse && !occupied.contains(&spot) {
+                            let mut unit = Unit::new(*unit_type, &game_data);
+                            unit.hp = *hp;
+                            super::spawn_unit_with_state(&mut commands, &map, &mut meshes, &mut materials,
+                                &sprite_assets, &images, &game_data, faction, unit, spot.0, spot.1);
+                        }
+                    }
+                }
+                PowerEffect::Meteor { damage, radius, strikes, paralyze } => {
+                    for _ in 0..*strikes {
+                        // Aim where the most enemy value would be lost
+                        let targets: Vec<(i32, i32, i32, u32)> = units.iter()
+                            .filter(|(_, f, _)| f.faction != faction)
+                            .map(|(u, _, p)| (p.x, p.y, u.hp, game_data.unit_stats(u.unit_type).cost))
+                            .collect();
+                        let value_at = |cx: i32, cy: i32| -> u32 {
+                            targets.iter()
+                                .filter(|(x, y, ..)| (x - cx).abs() + (y - cy).abs() <= *radius)
+                                .map(|(_, _, hp, cost)| ((*damage * 10).min(hp - 1).max(0) as u32) * cost / 100)
+                                .sum()
+                        };
+                        let Some((cx, cy)) = targets.iter().map(|(x, y, ..)| (*x, *y)).max_by_key(|&(x, y)| value_at(x, y)) else { break };
+                        for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                            if (pos.x - cx).abs() + (pos.y - cy).abs() <= *radius {
+                                power_damage(&mut unit, *damage);
+                                if *paralyze {
+                                    unit.paralyzed = true;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -477,43 +702,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_commander_means_neutral_bonuses() {
+    fn no_commander_means_plain_stats() {
         let data = GameData::load_defaults();
         let mut commanders = Commanders::default();
         commanders.active.clear();
-        let bonuses = commanders.get_bonuses(Faction::Eastern, &data);
-        assert_eq!((bonuses.attack, bonuses.defense, bonuses.cost, bonuses.income), (1.0, 1.0, 1.0, 1.0));
+        let co = commanders.get_bonuses(Faction::Eastern, &data);
+        assert_eq!(co.attack(UnitType::Scout, Terrain::Grass, &data), 1.0);
+        assert_eq!(co.defense(UnitType::Scout, false, &data), 1.0);
+        assert_eq!((co.cost(), co.luck(), co.bad_luck(), co.capture_percent()), (1.0, 9, 0, 100));
     }
 
     #[test]
-    fn passive_bonuses_come_from_data() {
+    fn every_aw_co_has_a_counterpart_with_two_powers() {
         let data = GameData::load_defaults();
-        let mut commanders = Commanders::default();
-        commanders.set_commander(Faction::Eastern, CommanderId::Kira);
-        let bonuses = commanders.get_bonuses(Faction::Eastern, &data);
-        assert_eq!(bonuses.attack, data.commander(CommanderId::Kira).attack_bonus);
+        assert_eq!(CommanderId::all().len(), 28);
+        for &id in CommanderId::all() {
+            let co = data.commander(id);
+            assert!(!co.based_on.is_empty(), "{id:?} names the AW CO it plays like");
+            assert!(co.super_power.stars > co.power.as_ref().map_or(0, |p| p.stars), "{id:?}");
+        }
     }
 
     #[test]
-    fn power_charges_activates_and_stacks_with_passive() {
+    fn max_hits_harder_up_close_and_weaker_from_range() {
         let data = GameData::load_defaults();
         let mut commanders = Commanders::default();
-        commanders.set_commander(Faction::Eastern, CommanderId::Kira);
-        let cost = commanders.get_power_cost(Faction::Eastern, &data);
+        commanders.set_commander(Faction::Western, CommanderId::Talon); // plays like Max
+        let co = commanders.get_bonuses(Faction::Western, &data);
+        assert_eq!(co.attack(UnitType::Ironclad, Terrain::Grass, &data), 1.2);
+        assert_eq!(co.attack(UnitType::Scout, Terrain::Grass, &data), 1.0, "not his foot soldiers");
+        assert_eq!(co.attack(UnitType::Siege, Terrain::Grass, &data), 0.9);
+        assert_eq!(co.range(UnitType::Siege, &data), -1);
+    }
 
-        commanders.charge(Faction::Eastern, cost - 1, &data);
-        assert!(!commanders.can_activate(Faction::Eastern, &data));
-        commanders.charge(Faction::Eastern, 1000, &data);
-        assert_eq!(commanders.get_charge(Faction::Eastern), cost, "meter caps at power cost");
+    #[test]
+    fn powers_charge_in_stars_and_add_the_ten_percent_boost() {
+        let data = GameData::load_defaults();
+        let mut commanders = Commanders::default();
+        commanders.set_commander(Faction::Western, CommanderId::Dusty); // plays like Andy: 3 and 6 stars
+        let power = commanders.power_cost(Faction::Western, PowerLevel::Power, &data).unwrap();
+        let full = commanders.power_cost(Faction::Western, PowerLevel::Super, &data).unwrap();
+        assert_eq!((power, full), (3 * CHARGE_PER_STAR, 6 * CHARGE_PER_STAR));
 
-        let effect = commanders.activate_power(Faction::Eastern, &data).expect("power should activate");
-        assert_eq!(commanders.get_charge(Faction::Eastern), 0);
-        let PowerEffect::StatBoost { attack, .. } = effect else { panic!("Kira's Blitz is a StatBoost") };
-        let kira = data.commander(CommanderId::Kira);
-        let bonuses = commanders.get_bonuses(Faction::Eastern, &data);
-        assert!((bonuses.attack - kira.attack_bonus * attack).abs() < 1e-6);
+        commanders.charge(Faction::Western, 10_000, &data);
+        assert_eq!(commanders.get_charge(Faction::Western), full, "the meter holds the Super CO Power");
+        let effects = commanders.activate_power(Faction::Western, PowerLevel::Power, &data).unwrap();
+        assert!(matches!(effects[..], [PowerEffect::Heal(2)]));
+        assert_eq!(commanders.get_charge(Faction::Western), full - power);
+        let co = commanders.get_bonuses(Faction::Western, &data);
+        assert_eq!(co.attack(UnitType::Scout, Terrain::Grass, &data), 1.1);
+        assert_eq!(co.defense(UnitType::Scout, false, &data), 1.1);
+        assert!(!commanders.can_activate(Faction::Western, PowerLevel::Super, &data), "one power per turn");
 
-        commanders.clear_power(Faction::Eastern);
-        assert_eq!(commanders.get_bonuses(Faction::Eastern, &data).attack, kira.attack_bonus);
+        commanders.clear_power(Faction::Western);
+        assert_eq!(commanders.get_bonuses(Faction::Western, &data).attack(UnitType::Scout, Terrain::Grass, &data), 1.0);
+        let next = commanders.power_cost(Faction::Western, PowerLevel::Power, &data).unwrap();
+        assert_eq!(next, 3 * CHARGE_PER_STAR * 6 / 5, "each use makes stars 20% dearer");
     }
 }

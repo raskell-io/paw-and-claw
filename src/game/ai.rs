@@ -19,6 +19,7 @@ struct AiResources<'w> {
     memory: ResMut<'w, AiMemory>,
     game_data: Res<'w, GameData>,
     battle_config: Res<'w, BattleConfig>,
+    weather: Res<'w, Weather>,
 }
 
 pub struct AiPlugin;
@@ -756,7 +757,7 @@ fn predict_enemy_actions(
                         // They can attack us! (use neutral bonuses for prediction)
                         let no_bonus = CoBonuses::none();
                         let clear_weather = Weather::new(WeatherType::Clear);
-                        let damage = calculate_damage(&enemy.unit, &ai_unit.unit,
+                        let damage = calculate_damage(&enemy.unit, map.get(*mx, *my).unwrap_or(Terrain::Grass), &ai_unit.unit,
                             map.get(ai_unit.pos.x, ai_unit.pos.y).unwrap_or(Terrain::Grass),
                             &no_bonus, &no_bonus, &clear_weather, game_data);
 
@@ -1007,7 +1008,8 @@ fn score_attack_action(
     let clear_weather = Weather::new(WeatherType::Clear);
 
     let defender_terrain = map.get(target_unit.pos.x, target_unit.pos.y).unwrap_or(Terrain::Grass);
-    let damage = calculate_damage(&attacker.unit, &target_unit.unit, defender_terrain, &no_bonus, &no_bonus, &clear_weather, game_data);
+    let attacker_terrain = map.get(move_to.0, move_to.1).unwrap_or(Terrain::Grass);
+    let damage = calculate_damage(&attacker.unit, attacker_terrain, &target_unit.unit, defender_terrain, &no_bonus, &no_bonus, &clear_weather, game_data);
 
     // === BASE DAMAGE UTILITY ===
     // Apply personality attack preference
@@ -1021,10 +1023,9 @@ fn score_attack_action(
     // Apply personality risk tolerance (lower = ignores risk more)
     let target_stats = game_data.unit_stats(target_unit.unit.unit_type);
     if target_stats.attack > 0 && target_stats.attack_range.0 == 1 && target_unit.unit.hp > damage {
-        let attacker_terrain = map.get(move_to.0, move_to.1).unwrap_or(Terrain::Grass);
         let mut temp_target = target_unit.unit.clone();
         temp_target.hp -= damage;
-        let counter = calculate_damage(&temp_target, &attacker.unit, attacker_terrain, &no_bonus, &no_bonus, &clear_weather, game_data);
+        let counter = calculate_damage(&temp_target, defender_terrain, &attacker.unit, attacker_terrain, &no_bonus, &no_bonus, &clear_weather, game_data);
         score += UtilityCurves::risk_utility(counter, attacker.unit.hp, attacker.value)
             * config.risk_tolerance();
     }
@@ -1129,13 +1130,13 @@ fn score_capture_action(
         None => return -1000.0,
     };
 
-    // Progress toward capture (unit HP = capture power)
+    // Progress toward capture (displayed HP = capture power)
     let progress = if tile.capturing_faction == Some(ai_faction) {
         tile.capture_progress
     } else {
         0
     };
-    let total_progress = progress + unit.unit.hp;
+    let total_progress = progress + unit.unit.display_hp();
     let required = game_data.terrain_capture_points(tile.terrain) as i32;
 
     let is_base = game_data.terrain_produces(tile.terrain);
@@ -1419,6 +1420,8 @@ fn plan_turn_advanced(
     config: &AiConfig,
     game_data: &GameData,
     ai_faction: Faction,
+    co: &CoBonuses,
+    weather: &Weather,
 ) -> Vec<PlannedAction> {
     let mut actions: Vec<PlannedAction> = Vec::new();
     let mut planned_positions: HashSet<(i32, i32)> = HashSet::new();
@@ -1433,8 +1436,8 @@ fn plan_turn_advanced(
         }
 
         let stats = game_data.unit_stats(ai_unit.unit.unit_type);
-        // Use effective movement (limited by stamina)
-        let actual_movement = effective_movement(stats.movement, ai_unit.unit.stamina);
+        // Same movement as a player's unit: CO bonus, weather, limited by stamina
+        let actual_movement = effective_movement(co.total_movement(ai_unit.unit.unit_type, weather, game_data), ai_unit.unit.stamina);
         let moves = calculate_movement_range(
             &ai_unit.pos,
             actual_movement,
@@ -1457,6 +1460,15 @@ fn plan_turn_advanced(
                 for enemy in &analysis.enemy_units {
                     let dist = move_pos.distance_to(&enemy.pos);
                     let (min_r, max_r) = stats.attack_range;
+                    // Indirect units fire only from where they start the turn
+                    let moves = (*mx, *my) != (ai_unit.pos.x, ai_unit.pos.y);
+                    if min_r > 1 && moves {
+                        continue;
+                    }
+                    // Needs a weapon that hits this target (primary with ammo, or a machine gun)
+                    if game_data.weapon(ai_unit.unit.unit_type, ai_unit.unit.ammo, enemy.unit_type).is_none() {
+                        continue;
+                    }
 
                     if dist >= min_r && dist <= max_r {
                         let action = AiAction::Attack {
@@ -1711,104 +1723,28 @@ fn smart_production(
 // AI CO POWER DECISION
 // ============================================================================
 
-/// Decide whether the AI should activate its CO power
-fn should_ai_activate_power(
+/// Which power the AI uses this turn, if any: the Super CO Power as soon as
+/// it's charged; the CO Power when it's charged and the super is still far off
+/// (at least as far again), so the meter isn't spent just short of the super.
+/// Powers are worth using only with units on the board.
+fn ai_power_choice(
     commanders: &Commanders,
     units: &Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
-    tiles: &Query<(Entity, &Tile)>,
     faction: Faction,
     game_data: &GameData,
-) -> bool {
-    use super::PowerEffect;
-
-    let Some(co) = commanders.get_commander(faction, game_data) else {
-        return false;
-    };
-
-    let ai_units: Vec<_> = units.iter()
-        .filter(|(_, _, _, f, _)| f.faction == faction)
-        .collect();
-
-    let enemy_units: Vec<_> = units.iter()
-        .filter(|(_, _, _, f, _)| f.faction != faction)
-        .collect();
-
-    let ai_unit_count = ai_units.len();
-    let enemy_unit_count = enemy_units.len();
-
-    // Don't waste power if we have no units
-    if ai_unit_count == 0 {
-        return false;
+) -> Option<super::PowerLevel> {
+    use super::PowerLevel;
+    if !units.iter().any(|(_, _, _, f, _)| f.faction == faction) {
+        return None;
     }
-
-    match &co.power.effect {
-        PowerEffect::StatBoost { attack, defense, movement } => {
-            // Use stat boost when we have units to benefit
-            // Better when we have more units and enemies nearby
-            let has_good_army = ai_unit_count >= 2;
-            let has_enemies = enemy_unit_count > 0;
-            let boost_significant = *attack > 1.1 || *defense > 1.1 || *movement > 0;
-            has_good_army && has_enemies && boost_significant
-        }
-
-        PowerEffect::BonusFunds { multiplier: _ } => {
-            // Use Gold Rush when we have decent funds to multiply
-            // Don't use when nearly broke (waste) or when swimming in cash (overkill)
-            // Best used mid-game when economy is established
-            let owned_bases = tiles.iter()
-                .filter(|(_, t)| t.terrain == Terrain::Base && t.owner == Some(faction))
-                .count();
-            owned_bases >= 1 // Use if we have at least one base
-        }
-
-        PowerEffect::RevealAndBoost { attack_boost: _ } => {
-            // Fog Piercer - always useful if there are enemies
-            enemy_unit_count > 0
-        }
-
-        PowerEffect::DefenseAndHeal { defense: _, heal } => {
-            // Iron Wall - use when units are damaged
-            let damaged_units = ai_units.iter()
-                .filter(|(_, _, _, _, u)| {
-                    let max_hp = game_data.unit_stats(u.unit_type).max_hp;
-                    u.hp < max_hp - *heal // Would benefit from heal
-                })
-                .count();
-            damaged_units >= 2 || (damaged_units >= 1 && ai_unit_count <= 2)
-        }
-
-        PowerEffect::FreeUnits { unit_type: _ } => {
-            // Endless Horde - use when we have empty bases
-            let empty_bases = tiles.iter()
-                .filter(|(_, t)| game_data.terrain_produces(t.terrain) && t.owner == Some(faction))
-                .filter(|(_, t)| {
-                    !units.iter().any(|(_, p, _, _, _)| p.x == t.position.x && p.y == t.position.y)
-                })
-                .count();
-            empty_bases >= 1
-        }
-
-        PowerEffect::ExtraMove => {
-            // Charge! - use when we have unmoved units that can attack
-            // Best used when enemies are in range
-            let can_attack_count = ai_units.iter()
-                .filter(|(_, _, _, _, u)| !u.moved && game_data.unit_stats(u.unit_type).attack > 0)
-                .count();
-            can_attack_count >= 2 && enemy_unit_count > 0
-        }
-
-        PowerEffect::StealFunds { steal_percent: _, attack_boost: _ } => {
-            // Heist - use when enemies have units (implies they have funds)
-            // and we have units to benefit from attack boost
-            ai_unit_count >= 1 && enemy_unit_count > 0
-        }
-
-        PowerEffect::IgnoreTerrain => {
-            // Undermine - use when we have units on difficult terrain
-            // or when we need to cross difficult terrain to reach enemies
-            ai_unit_count >= 2 && enemy_unit_count > 0
-        }
+    if commanders.can_activate(faction, PowerLevel::Super, game_data) {
+        return Some(PowerLevel::Super);
     }
+    let charge = commanders.get_charge(faction);
+    let power = commanders.power_cost(faction, PowerLevel::Power, game_data)?;
+    let full = commanders.power_cost(faction, PowerLevel::Super, game_data)?;
+    (commanders.can_activate(faction, PowerLevel::Power, game_data) && full.saturating_sub(charge) >= power)
+        .then_some(PowerLevel::Power)
 }
 
 // ============================================================================
@@ -1877,24 +1813,10 @@ fn ai_turn_system(
         }
 
         AiTurnPhase::Planning => {
-            // Check if AI should activate CO power
-            if commanders.can_activate(ai_faction, game_data) {
-                let should_activate = should_ai_activate_power(
-                    &commanders,
-                    &units,
-                    &tiles,
-                    ai_faction,
-                    game_data,
-                );
-
-                if should_activate {
-                    if let Some(effect) = commanders.activate_power(ai_faction, game_data) {
-                        info!("AI activated CO Power: {}!", co.power.name);
-                        power_events.write(PowerActivatedEvent {
-                            faction: ai_faction,
-                            effect,
-                        });
-                    }
+            // Use a CO power before moving, as a player would
+            if let Some(level) = ai_power_choice(&commanders, &units, ai_faction, game_data) {
+                if let Some(effects) = commanders.activate_power(ai_faction, level, game_data) {
+                    power_events.write(PowerActivatedEvent { faction: ai_faction, level, effects });
                 }
             }
 
@@ -1915,7 +1837,9 @@ fn ai_turn_system(
             info!("AI Strategic Goals: {:?}", goals.iter().take(2).collect::<Vec<_>>());
 
             // Plan with all systems
-            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, game_data, ai_faction);
+            let co = commanders.get_bonuses(ai_faction, game_data);
+            let actions = plan_turn_advanced(&analysis, &influence, &goals, &predictions, &map, &config, game_data,
+                ai_faction, &co, &ai_res.weather);
 
             ai_res.turn_plan.actions = actions;
             ai_res.turn_plan.current_index = 0;
@@ -1939,6 +1863,7 @@ fn ai_turn_system(
                 &mut units,
                 &map,
                 &ai_res.game_data,
+                commanders.get_bonuses(ai_faction, &ai_res.game_data).mods.flat_terrain_cost,
                 &mut attack_events,
                 &mut capture_events,
             );
@@ -1981,7 +1906,7 @@ fn ai_turn_system(
                 &map,
                 &mut sprite_param,
                 &goals,
-                co_bonuses.cost,
+                co_bonuses.cost(),
                 game_data,
             );
 
@@ -2054,26 +1979,36 @@ fn execute_action(
     units: &mut Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     map: &GameMap,
     game_data: &GameData,
+    flat_cost: bool,
     attack_events: &mut MessageWriter<AttackEvent>,
     capture_events: &mut MessageWriter<CaptureEvent>,
 ) {
     // Walk the unit tile by tile along the cheapest orthogonal route, like a player move
+    // Only enemy units block the way; friendly ones can be passed
+    let side = units.get(entity).map(|(_, _, _, f, _)| f.faction).ok();
     let occupied: HashSet<(i32, i32)> = units.iter()
-        .filter(|(e, ..)| *e != entity)
+        .filter(|(_, _, _, f, _)| Some(f.faction) != side)
         .map(|(_, p, ..)| (p.x, p.y))
         .collect();
+    // Returns the walk animation and the stamina it costs (AW fuel)
     let walk = |pos: &GridPosition, unit: &Unit, transform: &Transform, to: (i32, i32)| {
         let (start, goal) = (IVec2::new(pos.x, pos.y), IVec2::from(to));
         let class = game_data.unit_class(unit.unit_type);
-        let route = find_path(start, goal, map, &occupied, class, game_data);
-        UnitAnimation::from_path(route_waypoints(route, start, goal, transform.translation.y, map))
+        let route = find_path(start, goal, map, &occupied, class, flat_cost, game_data);
+        let cost: u32 = route.iter().flatten().skip(1)
+            .filter_map(|p| map.get(p.x, p.y))
+            .map(|t| game_data.step_cost(t, class, flat_cost))
+            .sum();
+        (UnitAnimation::from_path(route_waypoints(route, start, goal, transform.translation.y, map)), cost)
     };
     match action {
         AiAction::Attack { move_to, target } => {
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} ({},{}) -> ({},{}) attacks",
                     unit.unit_type, pos.x, pos.y, move_to.0, move_to.1);
-                commands.entity(entity).insert(walk(&pos, &unit, transform, move_to));
+                let (animation, cost) = walk(&pos, &unit, transform, move_to);
+                commands.entity(entity).insert(animation);
+                unit.stamina = unit.stamina.saturating_sub(cost);
                 pos.x = move_to.0;
                 pos.y = move_to.1;
                 unit.moved = true;
@@ -2085,7 +2020,9 @@ fn execute_action(
         AiAction::Capture { move_to, tile } => {
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} captures at ({},{})", unit.unit_type, move_to.0, move_to.1);
-                commands.entity(entity).insert(walk(&pos, &unit, transform, move_to));
+                let (animation, cost) = walk(&pos, &unit, transform, move_to);
+                commands.entity(entity).insert(animation);
+                unit.stamina = unit.stamina.saturating_sub(cost);
                 pos.x = move_to.0;
                 pos.y = move_to.1;
                 unit.moved = true;
@@ -2098,7 +2035,9 @@ fn execute_action(
             if let Ok((_, mut pos, transform, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} ({},{}) -> ({},{})",
                     unit.unit_type, pos.x, pos.y, move_to.0, move_to.1);
-                commands.entity(entity).insert(walk(&pos, &unit, transform, move_to));
+                let (animation, cost) = walk(&pos, &unit, transform, move_to);
+                commands.entity(entity).insert(animation);
+                unit.stamina = unit.stamina.saturating_sub(cost);
                 pos.x = move_to.0;
                 pos.y = move_to.1;
                 unit.moved = true;

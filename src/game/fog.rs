@@ -76,50 +76,28 @@ impl FogOfWar {
         !self.enabled || self.visibility.contains(&(x, y))
     }
 
-    /// Mark a tile as explored (for CO powers that reveal the map)
-    pub fn mark_explored(&mut self, x: i32, y: i32) {
-        self.explored.insert((x, y));
-        self.visibility.insert((x, y));  // Also make currently visible
-    }
-
     /// Clear current visibility (called at start of turn)
     fn clear_visibility(&mut self) {
         self.visibility.clear();
     }
 
-    /// Add visibility around a position with given range
-    fn add_vision(&mut self, x: i32, y: i32, range: u32, map: &GameMap) {
+    /// Add visibility in a diamond around a position. As in Advance Wars,
+    /// forests and reefs (thickets and lily pads) are only seen into from an
+    /// adjacent tile, unless `see_hidden` (AW Sonja's powers).
+    fn add_vision_seeing(&mut self, x: i32, y: i32, range: u32, map: &GameMap, see_hidden: bool) {
         let range = range as i32;
         for dx in -range..=range {
             for dy in -range..=range {
                 let dist = dx.abs() + dy.abs();
-                if dist <= range {
-                    let tx = x + dx;
-                    let ty = y + dy;
-                    if tx >= 0 && tx < map.width as i32 && ty >= 0 && ty < map.height as i32 {
-                        // Check if vision is blocked by terrain (forests reduce vision)
-                        let can_see = self.check_line_of_sight(x, y, tx, ty, map, range as u32);
-                        if can_see {
-                            self.visibility.insert((tx, ty));
-                            self.explored.insert((tx, ty));
-                        }
-                    }
+                let (tx, ty) = (x + dx, y + dy);
+                let Some(terrain) = map.get(tx, ty) else { continue };
+                if dist > range || (dist > 1 && hides_units(terrain) && !see_hidden) {
+                    continue;
                 }
+                self.visibility.insert((tx, ty));
+                self.explored.insert((tx, ty));
             }
         }
-    }
-
-    /// Simple line of sight check - forests block vision beyond them
-    fn check_line_of_sight(&self, _x1: i32, _y1: i32, x2: i32, y2: i32, map: &GameMap, _range: u32) -> bool {
-        // Simplified: just check if the target tile is within range
-        // In a full implementation, you'd trace a line and check for blocking terrain
-
-        // For now, forests reduce vision by 1 (you can see into a forest but not through it easily)
-        if let Some(_terrain) = map.get(x2, y2) {
-            // Can always see into any terrain directly
-            return true;
-        }
-        true
     }
 
     /// Update map dimensions
@@ -127,6 +105,11 @@ impl FogOfWar {
         self.width = width;
         self.height = height;
     }
+}
+
+/// Terrain that hides units from anyone not right next to them (AW forest and reef)
+pub fn hides_units(terrain: Terrain) -> bool {
+    matches!(terrain, Terrain::Thicket | Terrain::LilyPads)
 }
 
 /// System to update fog of war based on player unit positions
@@ -160,128 +143,66 @@ fn update_fog_of_war(
     // Add vision from all player units
     for (pos, unit, faction) in units.iter() {
         if faction.faction == player {
-            let mut base_vision = game_data.unit_stats(unit.unit_type).vision + co_bonuses.vision;
+            let mut vision = co_bonuses.total_vision(unit.unit_type, &weather, &game_data);
 
-            // Terrain affects vision - boulders provide height advantage
-            if let Some(terrain) = map.get(pos.x, pos.y) {
-                match terrain {
-                    Terrain::Boulder => base_vision += 1, // Height advantage
-                    Terrain::Hollow => base_vision += 1, // Elevated position
-                    _ => {}
-                }
+            // AW: foot soldiers on a mountain see 3 further
+            let on_foot = matches!(game_data.unit_class(unit.unit_type), super::UnitClass::Foot | super::UnitClass::Mech);
+            if on_foot && matches!(map.get(pos.x, pos.y), Some(Terrain::Boulder | Terrain::Brambles)) {
+                vision += 3;
             }
-
-            // Apply weather effects to vision
-            let vision = weather.apply_vision(base_vision);
-            fog.add_vision(pos.x, pos.y, vision, &map);
+            fog.add_vision_seeing(pos.x, pos.y, vision, &map, co_bonuses.mods.see_hidden);
         }
     }
 
-    // Properties we own also provide vision (like in Advance Wars)
+    // AW: properties we own reveal their own tile only
     for tile in tiles.iter() {
-        if tile.owner == Some(player) && game_data.terrain_capturable(tile.terrain) {
-            // Bases and outposts provide 2 vision
-            let base_vision = match tile.terrain {
-                Terrain::Base => 3,
-                Terrain::Workshop | Terrain::Dock | Terrain::Roost => 2,
-                Terrain::Outpost => 2,
-                Terrain::Storehouse => 1,
-                _ => 1,
-            };
-            let vision = weather.apply_vision(base_vision);
-            fog.add_vision(tile.position.x, tile.position.y, vision, &map);
+        if tile.owner == Some(player) {
+            fog.visibility.insert((tile.position.x, tile.position.y));
+            fog.explored.insert((tile.position.x, tile.position.y));
         }
     }
 }
 
-/// Apply fog visual effect to tiles
+/// Brightness of terrain by visibility: what's in sight, what was seen, what never was
+fn fog_shade(visibility: TileVisibility) -> f32 {
+    match visibility {
+        TileVisibility::Visible => 1.0,
+        TileVisibility::Fogged => 0.55,
+        TileVisibility::Unexplored => 0.4,
+    }
+}
+
+/// Darken tiles out of sight (each tile has its own material)
 fn apply_fog_to_tiles(
     fog: Res<FogOfWar>,
-    mut tiles: Query<(&Tile, &mut Sprite)>,
+    tiles: Query<(&Tile, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     game_data: Res<GameData>,
 ) {
-    if !fog.enabled {
-        // Restore full brightness if fog disabled
-        for (_, mut sprite) in tiles.iter_mut() {
-            sprite.color = sprite.color.with_alpha(1.0);
-        }
-        return;
-    }
-
-    for (tile, mut sprite) in tiles.iter_mut() {
-        let visibility = fog.get_visibility(tile.position.x, tile.position.y);
-
-        match visibility {
-            TileVisibility::Visible => {
-                // Full brightness
-                let base_color = game_data.terrain_color(tile.terrain);
-                sprite.color = base_color;
-            }
-            TileVisibility::Fogged => {
-                // Darkened - 40% brightness
-                let base_color = game_data.terrain_color(tile.terrain);
-                let darkened = Color::srgba(
-                    base_color.to_srgba().red * 0.4,
-                    base_color.to_srgba().green * 0.4,
-                    base_color.to_srgba().blue * 0.4,
-                    1.0,
-                );
-                sprite.color = darkened;
-            }
-            TileVisibility::Unexplored => {
-                // Very dark - 20% brightness
-                let base_color = game_data.terrain_color(tile.terrain);
-                let very_dark = Color::srgba(
-                    base_color.to_srgba().red * 0.2,
-                    base_color.to_srgba().green * 0.2,
-                    base_color.to_srgba().blue * 0.2,
-                    1.0,
-                );
-                sprite.color = very_dark;
-            }
+    for (tile, material) in tiles.iter() {
+        let shade = fog_shade(fog.get_visibility(tile.position.x, tile.position.y));
+        let Some(material) = materials.get_mut(&material.0) else { continue };
+        let textured = material.base_color_texture.is_some();
+        let base = super::tile_tint(&game_data, tile.terrain, tile.owner, textured).to_srgba();
+        let color = Color::srgb(base.red * shade, base.green * shade, base.blue * shade);
+        if material.base_color != color {
+            material.base_color = color;
         }
     }
 }
 
-/// Apply fog visual effect to terrain features (trees, rocks, buildings)
+/// Darken terrain features and buildings out of sight
 fn apply_fog_to_features(
     fog: Res<FogOfWar>,
-    mut features: Query<(&TerrainFeature, &mut Sprite, &Children)>,
-    mut child_sprites: Query<&mut Sprite, Without<TerrainFeature>>,
+    features: Query<(&TerrainFeature, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !fog.enabled {
-        return;
-    }
-
-    for (feature, mut sprite, children) in features.iter_mut() {
-        let visibility = fog.get_visibility(feature.grid_position.x, feature.grid_position.y);
-
-        let brightness = match visibility {
-            TileVisibility::Visible => 1.0,
-            TileVisibility::Fogged => 0.4,
-            TileVisibility::Unexplored => 0.2,
-        };
-
-        // Apply brightness to main feature sprite
-        let base = sprite.color.to_srgba();
-        sprite.color = Color::srgba(
-            base.red * brightness,
-            base.green * brightness,
-            base.blue * brightness,
-            1.0,
-        );
-
-        // Apply brightness to child sprites (flags, roofs)
-        for child in children.iter() {
-            if let Ok(mut child_sprite) = child_sprites.get_mut(child) {
-                let child_base = child_sprite.color.to_srgba();
-                child_sprite.color = Color::srgba(
-                    child_base.red * brightness,
-                    child_base.green * brightness,
-                    child_base.blue * brightness,
-                    child_base.alpha,
-                );
-            }
+    for (feature, material) in features.iter() {
+        let shade = fog_shade(fog.get_visibility(feature.grid_position.x, feature.grid_position.y));
+        let Some(material) = materials.get_mut(&material.0) else { continue };
+        let color = Color::srgb(shade, shade, shade);
+        if material.base_color != color {
+            material.base_color = color;
         }
     }
 }
@@ -339,5 +260,24 @@ fn apply_fog_to_units(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forests_hide_units_from_all_but_neighbours() {
+        let map = GameMap {
+            width: 5,
+            height: 1,
+            tiles: vec![vec![Terrain::Grass, Terrain::Thicket, Terrain::Grass, Terrain::Thicket, Terrain::Grass]],
+        };
+        let mut fog = FogOfWar { enabled: true, ..Default::default() };
+        fog.add_vision_seeing(0, 0, 4, &map, false);
+        assert!(fog.is_visible(1, 0), "a forest next to you is seen");
+        assert!(fog.is_visible(2, 0) && fog.is_visible(4, 0));
+        assert!(!fog.is_visible(3, 0), "a forest further away isn't");
     }
 }

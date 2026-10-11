@@ -8,7 +8,6 @@ use crate::game::{
     UnloadEvent, TurnStartEvent, GameMap, Terrain, Tile, UnitType, estimate_damage, GameResult,
     FogOfWar, Commanders, CommanderId, MapId, MapData,
     Weather, screen_to_grid, GameData, CancelMoveEvent, GridCursor, BattleConfig, advance_turn,
-    UnitClass,
 };
 use crate::states::GameState;
 
@@ -28,11 +27,39 @@ pub enum MenuAction {
     Capture,
     Join,
     Resupply,
-    Load((i32, i32)),  // Position of transport
-    Unload((i32, i32)), // Position to unload to
+    Load((i32, i32)),  // Position of the transport the unit moved onto
+    Unload(usize, (i32, i32)), // Which passenger, and where to put it
     Wait,
     Cancel,  // Undo move - return unit to original position
     EndTurn,
+}
+
+/// Drop one passenger. Advance Wars lets a transport unload all its passengers
+/// in one action: while it still carries more, the menu stays open (without
+/// undo); dropping the last one ends its turn.
+fn unload(
+    events: &mut ActionEvents,
+    units: &mut Query<(&mut Unit, Option<&FactionMember>, Option<&GridPosition>)>,
+    pending_action: &mut PendingAction,
+    turn_state: &mut TurnState,
+    transport: Entity,
+    cargo_index: usize,
+    position: (i32, i32),
+) {
+    events.unload.write(UnloadEvent { transport, cargo_index, position });
+    let Ok((mut unit, _, _)) = units.get_mut(transport) else { return };
+    if unit.cargo.len() > 1 {
+        pending_action.original_position = None;
+        return;
+    }
+    unit.exhausted = true;
+    pending_action.unit = None;
+    pending_action.targets.clear();
+    pending_action.can_capture = false;
+    pending_action.capture_tile = None;
+    pending_action.can_join = false;
+    pending_action.join_target = None;
+    turn_state.phase = TurnPhase::Select;
 }
 
 /// Resource to track action menu keyboard navigation
@@ -418,7 +445,9 @@ fn draw_action_menu(
 
                 // Calculate damage estimate range (with CO bonuses and weather)
                 let defender_terrain = map.get(pos_xy.0, pos_xy.1).unwrap_or(Terrain::Grass);
-                let (damage_min, damage_max) = estimate_damage(&attacker_unit, &unit, defender_terrain, &attacker_co, &defender_co, &ctx_res.weather, &ctx_res.game_data);
+                let attacker_terrain = map.get(attacker_pos.0, attacker_pos.1).unwrap_or(Terrain::Grass);
+                let (damage_min, damage_max) = estimate_damage(&attacker_unit, attacker_terrain, &unit, defender_terrain,
+                    &attacker_co, &defender_co, &ctx_res.weather, &ctx_res.game_data);
 
                 // Calculate counter-attack damage range (same rule as combat: the
                 // damage table allows it and the attacker is within the defender's range)
@@ -431,12 +460,13 @@ fn draw_action_menu(
                     let avg_damage = (damage_min + damage_max) / 2;
                     let defender_hp_after = (unit.hp - avg_damage).max(0);
                     if defender_hp_after > 0 {
-                        let attacker_terrain = map.get(attacker_pos.0, attacker_pos.1).unwrap_or(Terrain::Grass);
                         // Create a temporary unit with reduced HP for counter calculation
                         let mut temp_defender = unit.clone();
                         temp_defender.hp = defender_hp_after;
-                        let (counter_min, counter_max) = estimate_damage(&temp_defender, &attacker_unit, attacker_terrain, &defender_co, &attacker_co, &ctx_res.weather, &ctx_res.game_data);
-                        Some((counter_min, counter_max))
+                        let (counter_min, counter_max) = estimate_damage(&temp_defender, defender_terrain, &attacker_unit, attacker_terrain,
+                            &defender_co, &attacker_co, &ctx_res.weather, &ctx_res.game_data);
+                        let counter = defender_co.counter();
+                        Some(((counter_min as f32 * counter) as i32, (counter_max as f32 * counter) as i32))
                     } else {
                         None // Defender will be destroyed, no counter
                     }
@@ -461,7 +491,7 @@ fn draw_action_menu(
     let mut join_clicked = false;
     let mut resupply_clicked = false;
     let mut load_target: Option<(i32, i32)> = None;  // Position of transport to load into
-    let mut unload_position: Option<(i32, i32)> = None;
+    let mut unload_position: Option<(usize, (i32, i32))> = None;
     let mut wait_clicked = false;
     let mut end_turn_clicked = false;
     let mut cancel_clicked = false;
@@ -469,88 +499,49 @@ fn draw_action_menu(
     // Check if this is a Supplier unit that can resupply
     let is_supplier = attacker_unit.unit_type == UnitType::Supplier;
 
-    // Check if this unit can be loaded into a transport
-    let can_be_transported = attacker_unit.can_be_transported();
-
-    // Check if this is a transport with cargo
-    let is_transport_with_cargo = attacker_unit.is_transport() && attacker_unit.has_cargo();
-    let cargo_name = attacker_unit.cargo.as_ref().map(|c| game_data.unit_name(c.unit_type).to_string());
-
-    // Find adjacent transports that can load this unit
-    // We need to find them differently since we can't get Entity from iter()
-    // For now, store position and transport name, and we'll find the entity when loading
-    let adjacent_transport_info: Vec<((i32, i32), String)> = if can_be_transported {
-        let adjacent = [
-            (attacker_pos.0 - 1, attacker_pos.1),
-            (attacker_pos.0 + 1, attacker_pos.1),
-            (attacker_pos.0, attacker_pos.1 - 1),
-            (attacker_pos.0, attacker_pos.1 + 1),
-        ];
-
-        let mut result = vec![];
-        for (unit, faction, pos) in units.iter() {
-            let Some(pos) = pos else { continue };
-            let Some(faction) = faction else { continue };
-
-            // Check same faction
-            if faction.faction != turn_state.current_faction {
-                continue;
-            }
-
-            // Check is empty transport
-            if !unit.is_transport() || unit.has_cargo() {
-                continue;
-            }
-
-            // Check if at one of the adjacent positions
-            if adjacent.contains(&(pos.x, pos.y)) {
-                result.push(((pos.x, pos.y), game_data.unit_name(unit.unit_type).to_string()));
-            }
-        }
-        result
+    // AW boarding: the unit moved onto a friendly transport with room for it.
+    // Then Load (or undo) is the only choice
+    let units_here = units.iter().filter(|(_, _, p)| p.is_some_and(|p| (p.x, p.y) == attacker_pos)).count();
+    let adjacent_transport_info: Vec<((i32, i32), String)> = if units_here >= 2 {
+        units.iter()
+            .filter(|(_, f, p)| p.is_some_and(|p| (p.x, p.y) == attacker_pos) && f.is_some_and(|f| f.faction == turn_state.current_faction))
+            .find(|(u, _, _)| u.can_carry(attacker_unit.unit_type, game_data))
+            .map(|(u, _, _)| vec![(attacker_pos, game_data.unit_name(u.unit_type).to_string())])
+            .unwrap_or_default()
     } else {
         vec![]
     };
+    let boarding = !adjacent_transport_info.is_empty();
+    let is_transport_with_cargo = attacker_unit.is_transport(game_data) && attacker_unit.has_cargo() && !boarding;
+    let is_supplier = is_supplier && !boarding;
 
-    // Find valid unload positions for transports
-    let unload_positions: Vec<(i32, i32)> = if is_transport_with_cargo {
-        let adjacent = [
+    // Unload options: each passenger onto each free, passable neighbouring tile
+    let unload_positions: Vec<(usize, (i32, i32))> = if is_transport_with_cargo {
+        let occupied: std::collections::HashSet<(i32, i32)> = units.iter()
+            .filter_map(|(_, _, pos)| pos.map(|p| (p.x, p.y)))
+            .collect();
+        let neighbours = [
             (attacker_pos.0 - 1, attacker_pos.1),
             (attacker_pos.0 + 1, attacker_pos.1),
             (attacker_pos.0, attacker_pos.1 - 1),
             (attacker_pos.0, attacker_pos.1 + 1),
         ];
-
-        // Get all unit positions
-        let occupied: std::collections::HashSet<(i32, i32)> = units.iter()
-            .filter_map(|(_, _, pos)| pos.map(|p| (p.x, p.y)))
-            .collect();
-
-        adjacent.iter()
-            .filter(|(x, y)| {
-                // Check on map
-                if *x < 0 || *y < 0 || *x >= map.width as i32 || *y >= map.height as i32 {
-                    return false;
-                }
-                // Check passable terrain
-                let terrain = map.get(*x, *y).unwrap_or(Terrain::Grass);
-                let cargo_class = attacker_unit.cargo.as_ref()
-                    .map(|c| game_data.unit_class(c.unit_type))
-                    .unwrap_or(UnitClass::Foot);
-                if !game_data.is_passable(terrain, cargo_class) {
-                    return false;
-                }
-                // Check not occupied
-                !occupied.contains(&(*x, *y))
+        attacker_unit.cargo.iter().enumerate()
+            .flat_map(|(i, cargo)| {
+                let class = game_data.unit_class(cargo.unit_type);
+                neighbours.iter()
+                    .filter(|&&(x, y)| !occupied.contains(&(x, y))
+                        && map.get(x, y).is_some_and(|t| game_data.is_passable(t, class)))
+                    .map(move |&pos| (i, pos))
+                    .collect::<Vec<_>>()
             })
-            .copied()
             .collect()
     } else {
         vec![]
     };
 
     // Get capture info if applicable
-    let capture_info = if pending_action.can_capture {
+    let capture_info = if pending_action.can_capture && !boarding {
         pending_action.capture_tile.and_then(|tile_entity| {
             tiles.get(tile_entity).ok().map(|tile| {
                 let required = game_data.terrain_capture_points(tile.terrain) as i32;
@@ -565,6 +556,10 @@ fn draw_action_menu(
     // Build list of available actions for keyboard navigation
     menu_state.actions.clear();
 
+    // While boarding, the only choices are Load and undo
+    let target_info = if boarding { Vec::new() } else { target_info };
+    let can_join = pending_action.can_join && !boarding;
+
     // Add attack targets
     for (entity, _, _, _, _) in &target_info {
         menu_state.actions.push(MenuAction::Attack(*entity));
@@ -576,7 +571,7 @@ fn draw_action_menu(
     }
 
     // Add join if available
-    if pending_action.can_join {
+    if can_join {
         menu_state.actions.push(MenuAction::Join);
     }
 
@@ -591,20 +586,23 @@ fn draw_action_menu(
     }
 
     // Add unload options
-    for pos in &unload_positions {
-        menu_state.actions.push(MenuAction::Unload(*pos));
+    for &(i, pos) in &unload_positions {
+        menu_state.actions.push(MenuAction::Unload(i, pos));
     }
 
-    // Always add Wait
-    menu_state.actions.push(MenuAction::Wait);
+    if !boarding {
+        menu_state.actions.push(MenuAction::Wait);
+    }
 
     // Cancel (undo move) - only if unit actually moved
     if pending_action.original_position.is_some() {
         menu_state.actions.push(MenuAction::Cancel);
     }
 
-    // End Turn is always the last option
-    menu_state.actions.push(MenuAction::EndTurn);
+    // End Turn is the last option (not mid-boarding, with two units on one tile)
+    if !boarding {
+        menu_state.actions.push(MenuAction::EndTurn);
+    }
 
     let action_count = menu_state.actions.len();
 
@@ -680,42 +678,45 @@ fn draw_action_menu(
                     }
                 }
                 if let Some((terrain_name, progress, required)) = &capture_info {
-                    let detail = format!("{}/{} captured", progress, required);
+                    // Advance Wars counts down the points left to capture
+                    let detail = format!("{} of {} left", required - progress, required);
                     if row(ui, &format!("Capture {terrain_name}"), Some(&detail), theme::Tone::Normal) {
                         capture_clicked = true;
                     }
                 }
-                if pending_action.can_join && row(ui, "Join", Some("Merge HP, stamina and ammo"), theme::Tone::Normal) {
+                if can_join && row(ui, "Join", Some("Merge HP, stamina and ammo"), theme::Tone::Normal) {
                     join_clicked = true;
                 }
                 if is_supplier && row(ui, "Resupply", Some("Refill adjacent allies"), theme::Tone::Normal) {
                     resupply_clicked = true;
                 }
                 for (transport_pos, transport_name) in &adjacent_transport_info {
-                    if row(ui, &format!("Board {transport_name}"), None, theme::Tone::Normal) {
+                    if row(ui, &format!("Load into {transport_name}"), None, theme::Tone::Normal) {
                         load_target = Some(*transport_pos);
                     }
                 }
-                for (ux, uy) in &unload_positions {
-                    let terrain = map.get(*ux, *uy).unwrap_or(Terrain::Grass);
+                for &(i, (ux, uy)) in &unload_positions {
+                    let terrain = map.get(ux, uy).unwrap_or(Terrain::Grass);
                     let dir = match (ux - attacker_pos.0, uy - attacker_pos.1) {
                         (-1, 0) => "west", (1, 0) => "east", (0, -1) => "north", _ => "south",
                     };
-                    let label = format!("Unload {}", cargo_name.as_deref().unwrap_or("cargo"));
+                    let label = format!("Unload {}", game_data.unit_name(attacker_unit.cargo[i].unit_type));
                     let detail = format!("To the {dir} · {}", game_data.terrain_name(terrain));
                     if row(ui, &label, Some(&detail), theme::Tone::Normal) {
-                        unload_position = Some((*ux, *uy));
+                        unload_position = Some((i, (ux, uy)));
                     }
                 }
-                if row(ui, "Wait", None, theme::Tone::Normal) {
+                if !boarding && row(ui, "Wait", None, theme::Tone::Normal) {
                     wait_clicked = true;
                 }
                 if pending_action.original_position.is_some() && row(ui, "Undo move", None, theme::Tone::Normal) {
                     cancel_clicked = true;
                 }
-                ui.separator();
-                if row(ui, "End turn", None, theme::Tone::Danger) {
-                    end_turn_clicked = true;
+                if !boarding {
+                    ui.separator();
+                    if row(ui, "End turn", None, theme::Tone::Danger) {
+                        end_turn_clicked = true;
+                    }
                 }
             });
         });
@@ -816,25 +817,8 @@ fn draw_action_menu(
         pending_action.can_join = false;
         pending_action.join_target = None;
         turn_state.phase = TurnPhase::Select;
-    } else if let Some(pos) = unload_position {
-        // Send unload event
-        events.unload.write(UnloadEvent {
-            transport: acting_entity,
-            position: pos,
-        });
-
-        // Mark transport as exhausted after unloading
-        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-            unit.exhausted = true;
-        }
-
-        pending_action.unit = None;
-        pending_action.targets.clear();
-        pending_action.can_capture = false;
-        pending_action.capture_tile = None;
-        pending_action.can_join = false;
-        pending_action.join_target = None;
-        turn_state.phase = TurnPhase::Select;
+    } else if let Some((cargo_index, pos)) = unload_position {
+        unload(&mut events, &mut units, &mut pending_action, &mut turn_state, acting_entity, cargo_index, pos);
     } else if wait_clicked {
         // Mark unit as exhausted when waiting
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
@@ -935,21 +919,8 @@ fn draw_action_menu(
                 pending_action.join_target = None;
                 turn_state.phase = TurnPhase::Select;
             }
-            MenuAction::Unload(pos) => {
-                events.unload.write(UnloadEvent {
-                    transport: acting_entity,
-                    position: pos,
-                });
-                if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-                    unit.exhausted = true;
-                }
-                pending_action.unit = None;
-                pending_action.targets.clear();
-                pending_action.can_capture = false;
-                pending_action.capture_tile = None;
-                pending_action.can_join = false;
-                pending_action.join_target = None;
-                turn_state.phase = TurnPhase::Select;
+            MenuAction::Unload(cargo_index, pos) => {
+                unload(&mut events, &mut units, &mut pending_action, &mut turn_state, acting_entity, cargo_index, pos);
             }
             MenuAction::Wait => {
                 if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {

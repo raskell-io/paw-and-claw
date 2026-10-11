@@ -2,6 +2,8 @@
 // Base damage percentages for unit vs unit matchups
 // Values are base damage percentages (0-180)
 // Missing entries = unit cannot attack that target type
+// `tables` holds each unit's primary weapon (uses ammo if the unit has ammo);
+// `secondary` holds machine guns and similar, which never use ammo
 //
 // Unit Mappings (Paw & Claw -> AW2):
 //   scout -> Infantry, shocktrooper -> Mech
@@ -32,8 +34,6 @@
         // ========== MECH (Shocktrooper) ==========
         // Bazooka (primary) + Machine gun (secondary)
         "shocktrooper": {
-            "scout": 65,
-            "shocktrooper": 55,
             "recon": 85,
             "ironclad": 55,
             "juggernaut": 15,
@@ -66,8 +66,6 @@
         // ========== TANK (Ironclad) ==========
         // Main cannon + Machine gun
         "ironclad": {
-            "scout": 75,
-            "shocktrooper": 70,
             "recon": 85,
             "ironclad": 55,
             "juggernaut": 15,
@@ -78,16 +76,11 @@
             "stinger": 85,
             "carrier": 75,
             "supplier": 75,
-            // Machine gun vs air (weak)
-            "skywing": 10,
-            "ferrier": 40,
         },
 
         // ========== MD TANK (Juggernaut) ==========
         // Heavy cannon + Machine gun
         "juggernaut": {
-            "scout": 105,
-            "shocktrooper": 95,
             "recon": 105,
             "ironclad": 55,
             "juggernaut": 35,
@@ -99,15 +92,11 @@
             "carrier": 105,
             "supplier": 105,
             // Machine gun vs air
-            "skywing": 12,
-            "ferrier": 45,
         },
 
         // ========== NEOTANK (Behemoth) ==========
         // Advanced cannon + Machine gun
         "behemoth": {
-            "scout": 125,
-            "shocktrooper": 115,
             "recon": 125,
             "ironclad": 105,
             "juggernaut": 75,
@@ -119,8 +108,6 @@
             "carrier": 125,
             "supplier": 125,
             // Machine gun vs air
-            "skywing": 22,
-            "ferrier": 55,
         },
 
         // ========== ANTI-AIR (Flak) ==========
@@ -191,8 +178,6 @@
         // ========== B COPTER (Skywing) ==========
         // Rockets + Machine gun
         "skywing": {
-            "scout": 75,
-            "shocktrooper": 75,
             "recon": 55,
             "ironclad": 55,
             "juggernaut": 25,
@@ -204,8 +189,6 @@
             "carrier": 60,
             "supplier": 60,
             // Air-to-air
-            "skywing": 65,
-            "ferrier": 95,
         },
 
         // ========== FIGHTER (Raptor) ==========
@@ -242,11 +225,6 @@
         // ========== CRUISER (Frigate) ==========
         // Anti-air missiles + Anti-sub torpedoes
         "frigate": {
-            // Anti-air
-            "skywing": 115,
-            "raptor": 55,
-            "talon": 65,
-            "ferrier": 115,
             // Anti-sub
             "lurker": 90,
         },
@@ -283,5 +261,58 @@
         },
 
         // Note: carrier, supplier, ferrier, and barge are transports and cannot attack
-    }
+    },
+
+    // Secondary weapons (machine guns, the cruiser's anti-air gun): used when
+    // the primary weapon can't hit the target or is out of ammo. They never
+    // use ammo. Same format as `tables`.
+    secondary: {
+        // MECH (Shocktrooper): machine gun
+        "shocktrooper": {
+            "scout": 65,
+            "shocktrooper": 55,
+            "skywing": 9,
+            "ferrier": 35,
+        },
+
+        // TANK (Ironclad): machine gun
+        "ironclad": {
+            "scout": 75,
+            "shocktrooper": 70,
+            "skywing": 10,
+            "ferrier": 40,
+        },
+
+        // MD TANK (Juggernaut): machine gun
+        "juggernaut": {
+            "scout": 105,
+            "shocktrooper": 95,
+            "skywing": 12,
+            "ferrier": 45,
+        },
+
+        // NEOTANK (Behemoth): machine gun
+        "behemoth": {
+            "scout": 125,
+            "shocktrooper": 115,
+            "skywing": 22,
+            "ferrier": 55,
+        },
+
+        // B COPTER (Skywing): machine gun
+        "skywing": {
+            "scout": 75,
+            "shocktrooper": 75,
+            "skywing": 65,
+            "ferrier": 95,
+        },
+
+        // CRUISER (Frigate): anti-air gun
+        "frigate": {
+            "skywing": 115,
+            "raptor": 55,
+            "talon": 65,
+            "ferrier": 115,
+        },
+    },
 )

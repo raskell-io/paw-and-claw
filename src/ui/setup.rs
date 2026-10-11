@@ -190,7 +190,7 @@ pub fn draw_battle_setup(
                 column_card(ui, col_w, col_h, "Commander", *column == Column::Commander, |ui| {
                     for &co_id in &commanders {
                         let co = game_data.commander(co_id);
-                        if commander_row(ui, co, theme::faction_color(&game_data, setup.player_faction),
+                        if commander_row(ui, &game_data, co, theme::faction_color(&game_data, setup.player_faction),
                             setup.player_co == Some(co_id), portraits.get(co_id)).clicked()
                         {
                             setup.player_co = Some(co_id);
@@ -300,7 +300,7 @@ fn faction_row(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, select
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, selected: bool, image: Option<egui::TextureId>) -> egui::Response {
+fn commander_row(ui: &mut egui::Ui, game_data: &GameData, co: &CommanderData, color: egui::Color32, selected: bool, image: Option<egui::TextureId>) -> egui::Response {
     let frame = egui::Frame::new()
         .fill(if selected { theme::GOLD_LIGHT } else { theme::PARCHMENT_DEEP })
         .stroke(theme::stroke(if selected { 2.0 } else { 0.0 }, theme::WOOD))
@@ -316,7 +316,7 @@ fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, se
                     ui.label(theme::body(format!("{:?}", co.personality), 13.0).color(theme::INK_SOFT));
                 });
                 ui.horizontal_wrapped(|ui| {
-                    let bonuses = passive_bonuses(co);
+                    let bonuses = passive_bonuses(co, game_data);
                     if bonuses.is_empty() {
                         theme::chip(ui, "Balanced", theme::INK_SOFT);
                     }
@@ -324,12 +324,15 @@ fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, se
                         theme::chip(ui, &text, if positive { theme::LEAF } else { theme::BERRY });
                     }
                 });
-                if selected {
-                    ui.add_space(2.0);
-                    ui.label(theme::bold(format!("★ {}", co.power.name), 15.0).color(theme::WOOD_DARK));
-                    ui.label(theme::body(&co.power.description, 14.0).color(theme::INK_SOFT));
-                } else {
-                    ui.label(theme::body(format!("★ {}", co.power.name), 14.0).color(theme::INK_SOFT));
+                let powers = co.power.iter().map(|p| (p, "★")).chain(std::iter::once((&co.super_power, "★★")));
+                for (power, mark) in powers {
+                    if selected {
+                        ui.add_space(2.0);
+                        ui.label(theme::bold(format!("{mark} {} · {} stars", power.name, power.stars), 15.0).color(theme::WOOD_DARK));
+                        ui.label(theme::body(&power.description, 14.0).color(theme::INK_SOFT));
+                    } else {
+                        ui.label(theme::body(format!("{mark} {} ({}★)", power.name, power.stars), 14.0).color(theme::INK_SOFT));
+                    }
                 }
             });
         });
@@ -338,30 +341,79 @@ fn commander_row(ui: &mut egui::Ui, co: &CommanderData, color: egui::Color32, se
     inner.response.interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// Passive CO modifiers as (label, is_positive)
-pub fn passive_bonuses(co: &CommanderData) -> Vec<(String, bool)> {
+/// A CO's always-on abilities as (label, is_positive) chips
+pub fn passive_bonuses(co: &CommanderData, game_data: &GameData) -> Vec<(String, bool)> {
+    use crate::game::UnitFilter;
+    let who = |filter: &UnitFilter| -> String {
+        match filter {
+            UnitFilter::All => String::new(),
+            UnitFilter::Direct | UnitFilter::DirectNonFoot => "direct ".into(),
+            UnitFilter::Indirect => "indirect ".into(),
+            UnitFilter::Foot => "foot ".into(),
+            UnitFilter::NonFoot => "non-foot ".into(),
+            UnitFilter::Vehicles => "vehicle ".into(),
+            UnitFilter::Ground => "ground ".into(),
+            UnitFilter::Air => "air ".into(),
+            UnitFilter::Naval => "boat ".into(),
+            UnitFilter::Transports => "transport ".into(),
+            UnitFilter::Units(list) => list.iter().map(|&u| game_data.unit_name(u)).collect::<Vec<_>>().join("/") + " ",
+        }
+    };
+    let m = &co.abilities;
     let mut out = Vec::new();
-    let pct = |v: f32| ((v - 1.0) * 100.0).round() as i32;
-    if co.attack_bonus != 1.0 {
-        out.push((format!("{:+}% Attack", pct(co.attack_bonus)), co.attack_bonus > 1.0));
+    for (filter, v) in &m.attack {
+        out.push((format!("{v:+}% {}attack", who(filter)), *v > 0));
     }
-    if co.defense_bonus != 1.0 {
-        out.push((format!("{:+}% Defense", pct(co.defense_bonus)), co.defense_bonus > 1.0));
+    for (filter, v) in &m.defense {
+        out.push((format!("{v:+}% {}defense", who(filter)), *v > 0));
     }
-    if co.movement_bonus != 0 {
-        out.push((format!("{:+} Move", co.movement_bonus), co.movement_bonus > 0));
+    for (filter, v) in &m.movement {
+        out.push((format!("{v:+} {}move", who(filter)), *v > 0));
     }
-    if co.income_bonus != 1.0 {
-        out.push((format!("{:+}% Income", pct(co.income_bonus)), co.income_bonus > 1.0));
+    for (filter, v) in &m.range {
+        out.push((format!("{v:+} {}range", who(filter)), *v > 0));
     }
-    if co.vision_bonus != 0 {
-        out.push((format!("+{} Vision", co.vision_bonus), true));
+    for (filter, v) in &m.vision {
+        out.push((format!("{v:+} {}vision", who(filter)), *v > 0));
     }
-    if co.cost_modifier != 1.0 {
-        out.push((format!("{:+}% Unit cost", pct(co.cost_modifier)), co.cost_modifier < 1.0));
+    for (group, v) in &m.attack_on {
+        out.push((format!("{v:+}% attack on {group:?}"), *v > 0));
     }
-    if co.terrain_cost_reduction > 0 {
-        out.push(("Eases rough terrain".into(), true));
+    for (filter, v) in &m.daily_stamina {
+        out.push((format!("{v:+} {}stamina use", who(filter)), *v < 0));
+    }
+    if m.attack_per_terrain_star != 0 {
+        out.push((format!("{:+}% attack per terrain ★", m.attack_per_terrain_star), true));
+    }
+    if m.capture != 0 {
+        out.push((format!("{:+}% capture", m.capture), m.capture > 0));
+    }
+    if m.cost != 0 {
+        out.push((format!("{:+}% unit cost", m.cost), m.cost < 0));
+    }
+    if m.luck != 0 {
+        out.push((format!("Luck {:+}", m.luck), m.luck > 0));
+    }
+    if m.bad_luck != 0 {
+        out.push((format!("Bad luck {}", m.bad_luck), false));
+    }
+    if m.income != 0 {
+        out.push((format!("{:+} funds per property", m.income), m.income > 0));
+    }
+    if m.defense_vs_indirect != 0 {
+        out.push((format!("{:+}% defense vs indirect", m.defense_vs_indirect), true));
+    }
+    if m.repair != 0 {
+        out.push((format!("Repairs {:+} HP", m.repair), true));
+    }
+    for weather in &m.weather_proof {
+        out.push((format!("Ignores {}", weather.name()), true));
+    }
+    if m.flat_terrain_cost {
+        out.push(("All terrain costs 1".into(), true));
+    }
+    if m.hidden_hp {
+        out.push(("HP hidden from enemy".into(), true));
     }
     out
 }

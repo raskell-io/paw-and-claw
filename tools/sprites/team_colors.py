@@ -86,11 +86,16 @@ def recolor(pixel, target):
         # Neutral: keep the cloth's shading, drained to a light grey
         nr, ng, nb = colorsys.hls_to_rgb(th, min(0.94, l * 0.55 + 0.42), 0.06)
         return (round(nr * 255), round(ng * 255), round(nb * 255), a)
-    # Vivid like an AW army, but shadows stay a little duller than highlights
-    sat = min(0.9, max(ts * 0.9, s * 1.6, 0.45) * (0.8 + 0.2 * l))
-    # Pull the tones toward the team color's own lightness, so yellow reads as
-    # yellow and not olive, while keeping the ramp
-    light = min(0.92, l * 0.7 + tl * 0.45)
+    if tl < 0.35:
+        # A dark army (AW Black Hole): muted and shadowy, keeping the ramp
+        sat = min(0.5, max(ts, 0.18) * (0.8 + 0.4 * l))
+        light = l * 0.5 + tl * 0.3
+    else:
+        # Vivid like an AW army, but shadows stay a little duller than highlights
+        sat = min(0.9, max(ts * 0.9, s * 1.6, 0.45) * (0.8 + 0.2 * l))
+        # Pull the tones toward the team color's own lightness, so yellow reads
+        # as yellow and not olive, while keeping the ramp
+        light = min(0.92, l * 0.7 + tl * 0.45)
     nr, ng, nb = colorsys.hls_to_rgb(th, light, sat)
     return (round(nr * 255), round(ng * 255), round(nb * 255), a)
 

@@ -175,7 +175,7 @@
         // HQ: 4 stars defense
         "base": (
             name: "Base",
-            description: "Headquarters - spawn point, excellent defense",
+            description: "Headquarters - lose it and you lose the battle",
             defense: 4,
             capturable: true,
             capture_points: 20,
@@ -184,8 +184,8 @@
             feature_height: 48.0,
             tile_height: 4.0,
             asset_name: "base",
-            builds: [Foot, Wheels, Treads, Transport],
-            resupplies: [Foot, Wheels, Treads, Transport],
+            builds: [],  // AW HQs don't build; workshops do
+            resupplies: [Foot, Mech, Wheels, Treads, Transport],
         ),
         // Factory: 3 stars defense
         "workshop": (
@@ -199,8 +199,8 @@
             feature_height: 40.0,
             tile_height: 4.0,
             asset_name: "workshop",
-            builds: [Foot, Wheels, Treads, Transport],
-            resupplies: [Foot, Wheels, Treads, Transport],
+            builds: [Foot, Mech, Wheels, Treads, Transport],
+            resupplies: [Foot, Mech, Wheels, Treads, Transport],
         ),
         // City: 3 stars defense
         // Port: 3 stars defense
@@ -244,6 +244,7 @@
             feature_height: 40.0,
             tile_height: 4.0,
             asset_name: "outpost",
+            resupplies: [Foot, Mech, Wheels, Treads, Transport],
         ),
         // City: 3 stars defense
         "storehouse": (
@@ -257,7 +258,7 @@
             feature_height: 32.0,
             tile_height: 4.0,
             asset_name: "storehouse",
-            resupplies: [Foot, Wheels, Treads, Transport],
+            resupplies: [Foot, Mech, Wheels, Treads, Transport],
         ),
     }
 )

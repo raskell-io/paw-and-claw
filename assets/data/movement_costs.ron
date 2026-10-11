@@ -2,7 +2,8 @@
 // Values are movement point costs (99 = impassable)
 //
 // Unit Classes:
-//   foot         - Infantry units (Scout, Shocktrooper)
+//   foot         - Infantry (Scout)
+//   mech         - Heavy infantry (Shocktrooper): 1 on mountains and rivers, as AW Mech
 //   wheels       - Wheeled vehicles (Recon, Stinger, Barrage)
 //   treads       - Tracked vehicles (Ironclad, Juggernaut, Behemoth, Siege, Flak)
 //   air          - Flying units (Skywing, Raptor, Talon)
@@ -19,6 +20,7 @@
         "grass": {
             // Open grassland - easy for everyone
             "foot": 1,
+            "mech": 1,
             "wheels": 2,
             "treads": 1,
             "air": 1,
@@ -31,18 +33,20 @@
         "tall_grass": {
             // Tall grass - slightly slower for vehicles
             "foot": 1,
-            "wheels": 3,
-            "treads": 2,
+            "mech": 1,
+            "wheels": 2,
+            "treads": 1,
             "air": 1,
             "naval": 99,
-            "transport": 2,
+            "transport": 1,
             "air_transport": 1,
             "naval_transport": 99,
         },
 
         "thicket": {
             // Dense shrubs - good cover but slow
-            "foot": 2,
+            "foot": 1,
+            "mech": 1,
             "wheels": 3,
             "treads": 2,
             "air": 1,
@@ -54,9 +58,10 @@
 
         "brambles": {
             // Thorny bushes - very slow but great defense
-            "foot": 3,
+            "foot": 2,
+            "mech": 1,
             "wheels": 99,  // Too dense for wheels
-            "treads": 3,
+            "treads": 99,
             "air": 1,
             "naval": 99,
             "transport": 99,
@@ -67,6 +72,7 @@
         "log": {
             // Fallen log - like a natural road
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,
@@ -78,7 +84,8 @@
 
         "boulder": {
             // Large boulder - impassable for vehicles
-            "foot": 3,
+            "foot": 2,
+            "mech": 1,
             "wheels": 99,
             "treads": 99,
             "air": 1,
@@ -91,11 +98,12 @@
         "hollow": {
             // Hollow log/stump - shelter for infantry
             "foot": 1,
-            "wheels": 99,
-            "treads": 99,
+            "mech": 1,
+            "wheels": 1,
+            "treads": 1,
             "air": 1,
             "naval": 99,
-            "transport": 99,
+            "transport": 1,
             "air_transport": 1,
             "naval_transport": 99,
         },
@@ -105,6 +113,7 @@
         "creek": {
             // Shallow water - slows ground units
             "foot": 2,
+            "mech": 1,
             "wheels": 99,  // Vehicles can't cross
             "treads": 99,
             "air": 1,
@@ -117,6 +126,7 @@
         "pond": {
             // Deep water - only for naval and air
             "foot": 99,
+            "mech": 99,
             "wheels": 99,
             "treads": 99,
             "air": 1,
@@ -129,6 +139,7 @@
         "lily_pads": {
             // Pads on deep water - naval units weave through slowly (AW reef)
             "foot": 99,
+            "mech": 99,
             "wheels": 99,
             "treads": 99,
             "air": 1,
@@ -140,14 +151,15 @@
 
         "shore": {
             // Muddy shore - slow for everyone
-            "foot": 2,
-            "wheels": 3,
-            "treads": 2,
+            "foot": 1,
+            "mech": 1,
+            "wheels": 1,
+            "treads": 1,
             "air": 1,
-            "naval": 2,  // Ships can beach here
-            "transport": 2,
+            "naval": 99,  // Ships can beach here
+            "transport": 1,
             "air_transport": 1,
-            "naval_transport": 2,
+            "naval_transport": 1,
         },
 
         // === SPECIAL TERRAIN ===
@@ -155,6 +167,7 @@
         "base": {
             // Fortified base - easy movement, resupply point
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,
@@ -167,6 +180,7 @@
         "workshop": {
             // Workshop - builds units
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,
@@ -179,6 +193,7 @@
         "dock": {
             // Dock - ground units walk on, boats moor alongside
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,
@@ -191,6 +206,7 @@
         "roost": {
             // Roost - fliers land here
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,
@@ -203,6 +219,7 @@
         "outpost": {
             // Small outpost - can be captured
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,
@@ -215,6 +232,7 @@
         "storehouse": {
             // Supply cache - resupply point
             "foot": 1,
+            "mech": 1,
             "wheels": 1,
             "treads": 1,
             "air": 1,

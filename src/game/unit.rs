@@ -298,6 +298,7 @@ fn update_moved_unit_visuals(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UnitClass {
     Foot,       // Infantry-type, can capture
+    Mech,       // Heavy infantry (AW Mech, "boots"): crosses mountains and rivers easily
     Wheels,     // Fast on roads, slow off-road (Recon, Missiles)
     Treads,     // Armored ground vehicles
     Air,        // Flying units (copters and planes)
@@ -310,7 +311,7 @@ pub enum UnitClass {
 impl UnitClass {
     pub fn all() -> &'static [UnitClass] {
         &[
-            UnitClass::Foot, UnitClass::Wheels, UnitClass::Treads, UnitClass::Air,
+            UnitClass::Foot, UnitClass::Mech, UnitClass::Wheels, UnitClass::Treads, UnitClass::Air,
             UnitClass::Naval, UnitClass::Transport, UnitClass::AirTransport, UnitClass::NavalTransport,
         ]
     }
@@ -417,7 +418,9 @@ pub struct Unit {
     pub exhausted: bool,
     /// Cargo - for transport units, stores the type and HP of the loaded unit
     /// We store unit info rather than Entity to avoid complex entity relationships
-    pub cargo: Option<CargoUnit>,
+    pub cargo: Vec<CargoUnit>,
+    /// Hit by a paralyzing power (AW Von Bolt): skips its army's next turn
+    pub paralyzed: bool,
 }
 
 /// Represents a unit being carried by a transport
@@ -449,12 +452,19 @@ impl CargoUnit {
             moved: true,
             attacked: false,
             exhausted: true,
-            cargo: None,
+            cargo: Vec::new(),
+            paralyzed: false,
         }
     }
 }
 
 impl Unit {
+    /// Advance Wars displayed HP, 1-10 (0 once destroyed): what shows on the
+    /// unit's badge and what capture and damage scale with
+    pub fn display_hp(&self) -> i32 {
+        ((self.hp as f32) / 10.0).ceil().clamp(0.0, 10.0) as i32
+    }
+
     pub fn new(unit_type: UnitType, game_data: &GameData) -> Self {
         let stats = game_data.unit_stats(unit_type);
         Self {
@@ -465,23 +475,25 @@ impl Unit {
             moved: false,
             attacked: false,
             exhausted: false,
-            cargo: None,
+            cargo: Vec::new(),
+            paralyzed: false,
         }
     }
 
-    /// Check if this unit can carry other units
-    pub fn is_transport(&self) -> bool {
-        matches!(self.unit_type, UnitType::Carrier | UnitType::Ferrier | UnitType::Barge)
+    /// Check if this unit can carry other units (`capacity` in units.ron)
+    pub fn is_transport(&self, game_data: &GameData) -> bool {
+        game_data.unit_stats(self.unit_type).capacity > 0
     }
 
-    /// Check if this unit can be loaded into a transport
-    pub fn can_be_transported(&self) -> bool {
-        matches!(self.unit_type, UnitType::Scout | UnitType::Shocktrooper)
+    /// Whether this transport has room for a unit of this type
+    pub fn can_carry(&self, passenger: UnitType, game_data: &GameData) -> bool {
+        let stats = game_data.unit_stats(self.unit_type);
+        stats.carries.contains(&game_data.unit_class(passenger)) && (self.cargo.len() as u32) < stats.capacity
     }
 
     /// Check if this transport has cargo
     pub fn has_cargo(&self) -> bool {
-        self.cargo.is_some()
+        !self.cargo.is_empty()
     }
 
     pub fn hp_percentage(&self, game_data: &GameData) -> f32 {

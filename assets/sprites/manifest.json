@@ -1160,6 +1160,97 @@
       "faction": "nether",
       "subject": "Dredge, a massive battle-scarred stag beetle warlord with huge mandibles and bone armor, menacing glare",
       "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Dredge, a massive battle-scarred stag beetle warlord with huge mandibles and bone armor, menacing glare. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "goro",
+      "name": "Goro",
+      "faction": "eastern",
+      "subject": "Goro, a scarred macaque brawler with bandaged fists and a ragged red sash, wild grin",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Goro, a scarred macaque brawler with bandaged fists and a ragged red sash, wild grin. Eastern Empire faction: samurai-inspired lacquered armor with cherry blossom and paper lantern motifs. Colors: warm red #E85D4C and dark wood #4A2C2A, with gold #F4D03F accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "sable",
+      "name": "Sable",
+      "faction": "northern",
+      "subject": "Sable, an elegant stoat heiress in a fur-trimmed blue cloak and pearl brooch, calculating smile",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Sable, an elegant stoat heiress in a fur-trimmed blue cloak and pearl brooch, calculating smile. Northern Realm faction: Norse-inspired fur-lined chainmail and iron with pine and snowflake motifs. Colors: ice blue #5B8DBE and dark slate #2C3E50, with silver #C0C0C0 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "clover",
+      "name": "Clover",
+      "faction": "western",
+      "subject": "Clover, a cheerful opossum captain with a four-leaf clover in her hat band and a ranger's coat",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Clover, a cheerful opossum captain with a four-leaf clover in her hat band and a ranger's coat. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "shell",
+      "name": "Shell",
+      "faction": "western",
+      "subject": "Shell, an old armadillo trader with spectacles, a pack of wares and a kindly squint",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Shell, an old armadillo trader with spectacles, a pack of wares and a kindly squint. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "ridge",
+      "name": "Ridge",
+      "faction": "western",
+      "subject": "Ridge, a young coyote ranger with a bandana and a sun-bleached hat, eager and restless",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Ridge, a young coyote ranger with a bandana and a sun-bleached hat, eager and restless. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "hollis",
+      "name": "Hollis",
+      "faction": "western",
+      "subject": "Hollis, a hawk field medic with a satchel of herbs and a calm, steady gaze",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Hollis, a hawk field medic with a satchel of herbs and a calm, steady gaze. Western Frontier faction: frontier ranger leather and woven cloth with feather and canyon-rock motifs. Colors: sage green #8B9556 and weathered brown #5D4E37, with tan gold #D4A857 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "rumble",
+      "name": "Rumble",
+      "faction": "southern",
+      "subject": "Rumble, a stocky rhino commander in riveted plate armour, stern and determined",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Rumble, a stocky rhino commander in riveted plate armour, stern and determined. Southern Pride faction: regal bronze armor with gold trim, sun emblems and savanna motifs. Colors: golden amber #E6B84D and warm brown #8B5A2B, with sunset orange #E07B39 accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "wriggle",
+      "name": "Wriggle",
+      "faction": "nether",
+      "subject": "Wriggle, a sly earthworm schemer in a hooded dark cloak, smirking",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Wriggle, a sly earthworm schemer in a hooded dark cloak, smirking. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "carapace",
+      "name": "Carapace",
+      "faction": "nether",
+      "subject": "Carapace, a cold stag beetle general with a gleaming black shell and a dark cape",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Carapace, a cold stag beetle general with a gleaming black shell and a dark cape. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "clank",
+      "name": "Clank",
+      "faction": "nether",
+      "subject": "Clank, a beetle in clattering clockwork armour with glowing lenses for eyes",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Clank, a beetle in clattering clockwork armour with glowing lenses for eyes. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "cinder",
+      "name": "Cinder",
+      "faction": "nether",
+      "subject": "Cinder, a soot-streaked mole marshal with a smouldering torch and a heavy greatcoat",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Cinder, a soot-streaked mole marshal with a smouldering torch and a heavy greatcoat. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "velvet",
+      "name": "Velvet",
+      "faction": "nether",
+      "subject": "Velvet, a haughty naked mole rat socialite in jewels and a velvet gown, fan in hand",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Velvet, a haughty naked mole rat socialite in jewels and a velvet gown, fan in hand. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
+    },
+    {
+      "id": "vesper",
+      "name": "Vesper",
+      "faction": "nether",
+      "subject": "Vesper, an ancient pale cave creature on a root throne, eyes glowing faintly, wrapped in roots",
+      "prompt": "Pixel art character portrait, head and shoulders, facing slightly right. Vesper, an ancient pale cave creature on a root throne, eyes glowing faintly, wrapped in roots. Nether Dominion faction: ominous dark chitin and bone armor with fungus and tunnel motifs. Colors: violet #7E3A9A and deep purple #3B1F4A, with fungal glow green #B5E34A accents. Storybook medieval woodland fantasy with anthropomorphic animals, expressive face. Crisp 1px dark outline, 3-4 tone shading, light from the upper left. Plain dark brown background #4E321C, no text, no border."
     }
   ]
 }

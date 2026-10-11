@@ -11,7 +11,7 @@ hardcoded fallbacks in Rust; game logic, AI, rendering and UI all read `GameData
 - `factions.ron` - 5 factions (Eastern, Northern, Western, Southern, Nether)
 - `units.ron` - 20 unit types with full stats
 - `terrain.ron` - 17 terrain types with properties (`builds` and `resupplies` list the unit classes a property makes and serves)
-- `commanders.ron` - 15 commanders with CO powers
+- `commanders.ron` - 28 commanders, one per Advance Wars 2 / Dual Strike CO, each with always-on abilities, a CO Power and a Super CO Power
 - `damage_tables.ron` - base damage % per attacker/defender pair
 - `movement_costs.ron` - movement cost per terrain/unit class
 
@@ -104,27 +104,31 @@ RON (Rusty Object Notation) - Rust-native, readable, supports comments.
 ```
 
 ### commanders.ron
+Each commander copies an Advance Wars CO's abilities (`based_on`). See the
+header of the file for every modifier and effect.
 ```ron
 (
     commanders: {
-        "kira": (
-            name: "Kira",
-            faction: Eastern,
+        "talon_co": (
+            name: "Talon",
+            faction: Western,
             personality: Aggressive,
-            description: "A bold commander who leads from the front.",
-            attack_bonus: 1.1,
-            defense_bonus: 1.0,
-            movement_bonus: 0,
-            income_bonus: 1.0,
-            vision_bonus: 0,
-            cost_modifier: 1.0,
-            terrain_cost_reduction: 0,
-            power: (
-                name: "Blitz",
-                description: "All units gain +1 movement and +20% attack",
-                effect: StatBoost(attack: 1.2, defense: 1.0, movement: 1),
+            description: "Direct combat units are strong; indirect ones weak.",
+            based_on: "Max",
+            abilities: (attack: [(DirectNonFoot, 20), (Indirect, -10)], range: [(Indirect, -1)]),
+            power: Some((
+                name: "Dive",
+                description: "Direct units +10% attack, +1 movement.",
+                stars: 3,
+                modifiers: (attack: [(DirectNonFoot, 10)], movement: [(DirectNonFoot, 1)]),
+            )),
+            super_power: (
+                name: "Talon Strike",
+                description: "Direct units +30% attack, +2 movement.",
+                stars: 6,
+                modifiers: (attack: [(DirectNonFoot, 30)], movement: [(DirectNonFoot, 2)]),
+                effects: [],
             ),
-            power_cost: 100,
         ),
     }
 )

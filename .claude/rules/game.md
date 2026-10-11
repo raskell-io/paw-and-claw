@@ -41,6 +41,20 @@ src/
 - `Terrain` - Grass, Thicket, Base, Outpost, etc.
 - `CommanderId` - Kira, Tanuki, Grimjaw, etc.
 
+## Mechanics
+Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
+- Capture removes the unit's displayed HP (1-10) from 20 points; leaving resets it
+- Damage: AW2 formula, rounded down; fliers get no terrain stars; weather never changes damage
+- Primary weapons (`tables` in damage_tables.ron) use ammo; `secondary` (machine guns) never does
+- HQs don't build; workshops/docks/roosts build what `builds` lists in terrain.ron
+- Repair 2 HP for 10% of cost per HP at turn start, after income; fliers and boats burn
+  `daily_stamina` and are lost at 0
+- Units pass through friends, join only if one is wounded, board transports by moving onto them
+- Indirect units can't move and fire; CO meter charges by funds value of HP lost
+- COs copy AW2/DS COs: always-on abilities + CO Power + Super CO Power (stars, +20% per use);
+  either power also gives every unit +10 attack and defense
+- Fog: forests and lily pads hide units except from neighbours; hidden enemies spring traps
+
 ## Rendering
 - 3D perspective camera looking down at board
 - Tiles are flat quads on XZ plane

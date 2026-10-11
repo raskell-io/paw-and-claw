@@ -78,12 +78,6 @@ pub struct WeatherEffects {
     pub vision_modifier: i32,
     /// Movement modifier (added to base movement, can be negative)
     pub movement_modifier: i32,
-    /// Attack multiplier (1.0 = no change)
-    pub attack_multiplier: f32,
-    /// Defense multiplier (1.0 = no change)
-    pub defense_multiplier: f32,
-    /// Whether forests provide their defense bonus
-    pub forests_provide_cover: bool,
     /// Maximum vision (hard cap, 0 = no cap)
     pub vision_cap: u32,
 }
@@ -94,41 +88,26 @@ impl WeatherEffects {
             WeatherType::Clear => Self {
                 vision_modifier: 0,
                 movement_modifier: 0,
-                attack_multiplier: 1.0,
-                defense_multiplier: 1.0,
-                forests_provide_cover: true,
                 vision_cap: 0,
             },
             WeatherType::Rain => Self {
                 vision_modifier: -1,
                 movement_modifier: 0,
-                attack_multiplier: 1.0,
-                defense_multiplier: 1.0,
-                forests_provide_cover: false, // Rain negates forest cover
                 vision_cap: 0,
             },
             WeatherType::Snow => Self {
                 vision_modifier: 0,
                 movement_modifier: -1,
-                attack_multiplier: 1.0,
-                defense_multiplier: 1.1, // +10% defense
-                forests_provide_cover: true,
                 vision_cap: 0,
             },
             WeatherType::Sandstorm => Self {
                 vision_modifier: -2,
                 movement_modifier: 0,
-                attack_multiplier: 0.85, // -15% attack
-                defense_multiplier: 1.0,
-                forests_provide_cover: true,
                 vision_cap: 0,
             },
             WeatherType::Fog => Self {
                 vision_modifier: 0,
                 movement_modifier: 0,
-                attack_multiplier: 1.0,
-                defense_multiplier: 1.0,
-                forests_provide_cover: true,
                 vision_cap: 1, // Vision capped at 1
             },
         }
@@ -184,11 +163,6 @@ impl Weather {
         self.effects = WeatherEffects::from_weather(weather_type);
     }
 
-    /// Get current weather effects
-    pub fn effects(&self) -> &WeatherEffects {
-        &self.effects
-    }
-
     /// Apply vision modifier (returns modified vision, minimum 1)
     pub fn apply_vision(&self, base_vision: u32) -> u32 {
         let modified = (base_vision as i32 + self.effects.vision_modifier).max(1) as u32;
@@ -202,11 +176,6 @@ impl Weather {
     /// Apply movement modifier (returns modified movement, minimum 1)
     pub fn apply_movement(&self, base_movement: u32) -> u32 {
         (base_movement as i32 + self.effects.movement_modifier).max(1) as u32
-    }
-
-    /// Check if forests provide cover in current weather
-    pub fn forests_provide_cover(&self) -> bool {
-        self.effects.forests_provide_cover
     }
 
     /// Randomly select a new weather type

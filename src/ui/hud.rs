@@ -8,7 +8,7 @@ use super::theme;
 use super::{BattleSetupState, HoveredUnit, InGameMenuState, PortraitTextures, SelectedTile};
 use crate::game::{
     advance_turn, AiState, BattleConfig, Commanders, FactionFunds, FactionMember, FogOfWar, GameData, GameMap,
-    GameResult, GridCursor, GridPosition, MovementHighlights, PowerActivatedEvent, Terrain, Tile,
+    GameResult, GridCursor, GridPosition, MovementHighlights, PowerActivatedEvent, PowerLevel, Terrain, Tile,
     TileVisibility, TurnPhase, TurnStartEvent, TurnState, Unit, UnitClass, Weather, IMPASSABLE,
 };
 
@@ -121,13 +121,23 @@ pub fn draw_hud(
         });
 
     // --- Commander card (top right) ---
+    // Advance Wars star meter: small stars up to the CO Power, big ones up to
+    // the Super CO Power. C fires the CO Power, V the Super.
     let co_id = commanders.get_active(player);
     let co = game_data.commander(co_id);
     let charge = commanders.get_charge(player);
-    let power_cost = commanders.get_power_cost(player, game_data);
-    let can_activate = commanders.can_activate(player, game_data) && !is_ai_turn;
-    let power_active = commanders.is_power_active(player);
-    let mut activate = can_activate && keyboard.just_pressed(KeyCode::KeyC) && !hud.menu.open;
+    let power_stars = co.power.as_ref().map_or(0, |p| p.stars);
+    let super_cost = commanders.power_cost(player, PowerLevel::Super, game_data).unwrap_or(1).max(1);
+    let per_star = super_cost as f32 / co.super_power.stars.max(1) as f32;
+    let active = commanders.active_power(player);
+    let ready = |level| commanders.can_activate(player, level, game_data) && !is_ai_turn && !hud.menu.open;
+    let mut activate = None;
+    if ready(PowerLevel::Power) && keyboard.just_pressed(KeyCode::KeyC) {
+        activate = Some(PowerLevel::Power);
+    }
+    if ready(PowerLevel::Super) && keyboard.just_pressed(KeyCode::KeyV) {
+        activate = Some(PowerLevel::Super);
+    }
 
     egui::Area::new(egui::Id::new("hud_commander"))
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0))
@@ -138,32 +148,37 @@ pub fn draw_hud(
                     theme::portrait(ui, 54.0, theme::faction_color(game_data, player), &co.name, portraits.get(co_id));
                     ui.vertical(|ui| {
                         ui.label(theme::display(&co.name, 22.0).color(theme::WOOD_DARK));
-                        let fill = if power_active || can_activate { theme::GOLD } else { theme::SKY };
-                        theme::meter(ui, 190.0, 12.0, charge as f32 / power_cost.max(1) as f32, fill, 5)
-                            .on_hover_text(format!("{charge}/{power_cost} — charges as your units deal and take damage"));
-                        if power_active {
-                            ui.label(theme::bold(format!("★ {} active!", co.power.name), 15.0).color(theme::WOOD));
-                        } else if can_activate {
+                        star_meter(ui, charge as f32 / per_star, power_stars, co.super_power.stars, active != PowerLevel::None)
+                            .on_hover_text(format!("{} — plays like AW's {}. Charges as your units deal and take damage.",
+                                co.description, co.based_on));
+                        let powers = co.power.as_ref().map(|p| (PowerLevel::Power, p, "C"))
+                            .into_iter()
+                            .chain(std::iter::once((PowerLevel::Super, &co.super_power, "V")));
+                        for (level, power, key) in powers {
                             ui.horizontal(|ui| {
-                                if ui.button(theme::bold(format!("★ {}", co.power.name), 15.0))
-                                    .on_hover_text(&co.power.description).clicked()
-                                {
-                                    activate = true;
+                                if active == level {
+                                    ui.label(theme::bold(format!("★ {} active!", power.name), 15.0).color(theme::WOOD));
+                                } else if ready(level) {
+                                    if ui.button(theme::bold(format!("★ {}", power.name), 14.0))
+                                        .on_hover_text(&power.description).clicked()
+                                    {
+                                        activate = Some(level);
+                                    }
+                                    theme::key_hint(ui, key, "", false);
+                                } else {
+                                    ui.label(theme::body(format!("☆ {} ({}★)", power.name, power.stars), 13.0).color(theme::INK_SOFT))
+                                        .on_hover_text(&power.description);
                                 }
-                                theme::key_hint(ui, "C", "", false);
                             });
-                        } else {
-                            ui.label(theme::body(format!("★ {}", co.power.name), 14.0).color(theme::INK_SOFT))
-                                .on_hover_text(&co.power.description);
                         }
                     });
                 });
             });
         });
 
-    if activate {
-        if let Some(effect) = commanders.activate_power(player, game_data) {
-            power_events.write(PowerActivatedEvent { faction: player, effect });
+    if let Some(level) = activate {
+        if let Some(effects) = commanders.activate_power(player, level, game_data) {
+            power_events.write(PowerActivatedEvent { faction: player, level, effects });
         }
     }
 
@@ -194,7 +209,7 @@ pub fn draw_hud(
             }
             TurnPhase::Select => &[
                 ("Arrows", "Cursor"), ("Space", "Select / build"), ("Tab", "Next unit"),
-                ("C", "CO power"), ("Q/E", "Zoom"), ("Esc", "Menu"),
+                ("C/V", "Powers"), ("Q/E", "Zoom"), ("Esc", "Menu"),
             ],
             TurnPhase::Move => &[("Arrows", "Plan route"), ("Space", "Move here"), ("Esc", "Cancel")],
             TurnPhase::Action => &[("↑↓", "Choose action"), ("Enter", "Confirm"), ("Esc", "Wait")],
@@ -283,7 +298,13 @@ pub fn draw_inspect_card(
                     });
                     ui.add_space(2.0);
                     let hp_frac = unit.hp as f32 / stats.max_hp as f32;
-                    labelled_meter(ui, "HP", &format!("{}/10", display_hp(unit.hp)), hp_frac, theme::health_color(hp_frac));
+                    // AW Sonja: the enemy can't read her units' HP
+                    let hidden = faction != hud.battle_config.player_faction && bonuses.mods.hidden_hp;
+                    if hidden {
+                        labelled_meter(ui, "HP", "?/10", 1.0, theme::INK_SOFT);
+                    } else {
+                        labelled_meter(ui, "HP", &format!("{}/10", display_hp(unit.hp)), hp_frac, theme::health_color(hp_frac));
+                    }
                     if stats.max_stamina > 0 {
                         let f = unit.stamina as f32 / stats.max_stamina as f32;
                         labelled_meter(ui, "Stamina", &format!("{}/{}", unit.stamina, stats.max_stamina), f, theme::SKY);
@@ -293,12 +314,15 @@ pub fn draw_inspect_card(
                         labelled_meter(ui, "Ammo", &format!("{}/{}", unit.ammo, stats.max_ammo), f, theme::GOLD);
                     }
                     ui.horizontal_wrapped(|ui| {
-                        let movement = hud.weather.apply_movement((stats.movement as i32 + bonuses.movement).max(1) as u32);
-                        let (min_r, max_r) = stats.attack_range;
+                        let movement = bonuses.total_movement(unit.unit_type, &hud.weather, game_data);
+                        let (min_r, mut max_r) = stats.attack_range;
+                        if min_r > 1 {
+                            max_r = (max_r as i32 + bonuses.range(unit.unit_type, game_data)).max(min_r as i32) as u32;
+                        }
                         let range = if min_r == max_r { format!("{min_r}") } else { format!("{min_r}–{max_r}") };
                         stat(ui, "Move", &movement.to_string());
                         stat(ui, "Range", &range);
-                        stat(ui, "Vision", &hud.weather.apply_vision(stats.vision + bonuses.vision).to_string());
+                        stat(ui, "Vision", &bonuses.total_vision(unit.unit_type, &hud.weather, game_data).to_string());
                     });
                     ui.horizontal_wrapped(|ui| {
                         if unit.exhausted {
@@ -312,7 +336,7 @@ pub fn draw_inspect_card(
                         } else if stats.max_stamina > 0 && unit.stamina <= stats.max_stamina / 3 {
                             theme::chip(ui, "Low stamina", theme::GOLD);
                         }
-                        if let Some(cargo) = &unit.cargo {
+                        for cargo in &unit.cargo {
                             theme::chip(ui, &format!("Carrying {}", game_data.unit_name(cargo.unit_type)), theme::SKY);
                         }
                     });
@@ -357,6 +381,7 @@ pub fn draw_unit_tokens(
     units: Query<(Entity, &Unit, &GlobalTransform, &FactionMember, &GridPosition, Has<crate::game::UnitSprite>)>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     tiles: Query<&crate::game::Tile>,
+    commanders: Res<Commanders>,
     mut screen_positions: ResMut<UnitScreenPositions>,
 ) {
     screen_positions.0.clear();
@@ -402,10 +427,13 @@ pub fn draw_unit_tokens(
                 let sprite_px = ((bottom_right.x - bottom_left.x) / 32.0).max(0.5);
                 let cell = (sprite_px * 1.5).round().max(2.0);
 
-                // HP 1-9 bottom right, like Advance Wars; full health shows nothing
+                // HP 1-9 bottom right, like Advance Wars; full health shows nothing.
+                // AW Sonja's units show the enemy a "?" instead
                 let hp = display_hp(unit.hp);
+                let hidden = faction.faction != player
+                    && commanders.get_bonuses(faction.faction, &hud.game_data).mods.hidden_hp;
                 if (1..10).contains(&hp) {
-                    let glyph = &DIGITS[hp as usize];
+                    let glyph = if hidden { &ICON_HIDDEN } else { &DIGITS[hp as usize] };
                     pixel_badge(painter, egui::pos2(bottom_right.x, bottom_right.y), cell, glyph, egui::Color32::WHITE, true);
                 }
                 // Status bottom left, cycling when there's more than one
@@ -438,6 +466,9 @@ const DIGITS: [Glyph; 10] = [
     ["###", "#.#", "###", "..#", "###"],
 ];
 
+/// HP hidden from the enemy (AW Sonja)
+const ICON_HIDDEN: Glyph = [".##.", "#..#", "..#.", "....", "..#."];
+
 /// Running low on arrows, stones and bolts
 const ICON_AMMO: Glyph = ["..#..", ".###.", "..#..", "..#..", ".#.#."];
 /// Running low on stamina (Advance Wars fuel): an acorn
@@ -455,7 +486,7 @@ fn unit_statuses(unit: &Unit, game_data: &GameData, capturing: bool) -> Vec<(&'s
     if capturing {
         statuses.push((&ICON_CAPTURE, egui::Color32::from_rgb(255, 214, 90)));
     }
-    if unit.cargo.is_some() {
+    if unit.has_cargo() {
         statuses.push((&ICON_CARGO, egui::Color32::from_rgb(232, 208, 160)));
     }
     if stats.max_ammo > 0 && unit.ammo * 3 <= stats.max_ammo {
@@ -484,6 +515,31 @@ fn pixel_badge(painter: &egui::Painter, corner: egui::Pos2, cell: f32, glyph: &G
             }
         }
     }
+}
+
+/// AW power meter: `filled` stars of charge out of `total`; the first
+/// `power_stars` are small (the CO Power), the rest big (the Super CO Power)
+fn star_meter(ui: &mut egui::Ui, filled: f32, power_stars: u32, total: u32, glowing: bool) -> egui::Response {
+    let (small, big) = (12.0, 17.0);
+    let width = power_stars as f32 * (small + 2.0) + (total - power_stars.min(total)) as f32 * (big + 2.0);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width.max(20.0), big + 2.0), egui::Sense::hover());
+    let painter = ui.painter();
+    let mut x = rect.left();
+    for i in 0..total {
+        let size = if i < power_stars { small } else { big };
+        let fill = (filled - i as f32).clamp(0.0, 1.0);
+        let center = egui::pos2(x + size / 2.0, rect.center().y + (big - size) / 2.0);
+        let empty = theme::shade(theme::PARCHMENT, 0.75);
+        painter.text(center, egui::Align2::CENTER_CENTER, "★", egui::FontId::proportional(size), empty);
+        if fill > 0.0 {
+            // Fill from the left as the star charges
+            let clip = egui::Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(x + size * fill, rect.bottom()));
+            let color = if glowing || fill >= 1.0 { theme::GOLD } else { theme::SKY };
+            painter.with_clip_rect(clip).text(center, egui::Align2::CENTER_CENTER, "★", egui::FontId::proportional(size), color);
+        }
+        x += size + 2.0;
+    }
+    response
 }
 
 /// Round token with the unit's type letter

@@ -1,7 +1,9 @@
 // Paw & Claw - Faction Definitions
 // Modify this file to customize faction names, colors, and properties
 //
-// Factions are cosmetic: name, color, animals and sprites. As in Advance Wars,
+// Factions are cosmetic: name, color, animals and sprites. Colors follow
+// their Advance Wars counterparts: Western = Orange Star, Northern = Blue Moon,
+// Southern = Green Earth, Eastern = Yellow Comet, Nether = Black Hole. As in Advance Wars,
 // every gameplay effect (prices, stats, powers) comes from the commander
 // (commanders.ron).
 
@@ -10,7 +12,7 @@
         "eastern": (
             name: "Eastern Empire",
             description: "Disciplined armies of the rising sun. Strength in numbers.",
-            color: (0.9, 0.3, 0.3),
+            color: (0.95, 0.8, 0.15),
             animals: ["Tanuki", "Red Panda", "Crane", "Kitsune", "Macaque"],
             asset_folder: "eastern",
         ),
@@ -24,21 +26,21 @@
         "western": (
             name: "Western Frontier",
             description: "Cunning survivalists of the wild frontier. Strike and fade.",
-            color: (0.4, 0.7, 0.3),
+            color: (0.92, 0.33, 0.12),
             animals: ["Raccoon", "Opossum", "Coyote", "Hawk", "Armadillo"],
             asset_folder: "western",
         ),
         "southern": (
             name: "Southern Pride",
             description: "Mighty beasts of the savanna. Power and endurance.",
-            color: (0.9, 0.7, 0.2),
+            color: (0.3, 0.7, 0.3),
             animals: ["Lion", "Elephant", "Rhino", "Hyena", "Cheetah"],
             asset_folder: "southern",
         ),
         "nether": (
             name: "Nether Dominion",
             description: "Relentless swarm from below. They emerge without warning.",
-            color: (0.5, 0.2, 0.6),
+            color: (0.3, 0.22, 0.36),
             animals: ["Mole", "Naked Mole Rat", "Beetle", "Worm", "Ant"],
             asset_folder: "nether",
         ),
