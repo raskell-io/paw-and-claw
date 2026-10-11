@@ -64,8 +64,6 @@ pub struct FactionData {
     pub description: String,
     /// RGB color values (0.0-1.0)
     pub color: [f32; 3],
-    /// Unit cost multiplier (1.0 = normal)
-    pub unit_cost_modifier: f32,
     /// Representative animals for flavor
     pub animals: Vec<String>,
     /// Asset folder name for sprites
@@ -393,9 +391,6 @@ impl GameData {
         Color::srgb(r, g, b)
     }
 
-    pub fn faction_cost_modifier(&self, faction: Faction) -> f32 {
-        self.faction(faction).unit_cost_modifier
-    }
 
     pub fn unit_name(&self, unit_type: UnitType) -> &str {
         &self.unit(unit_type).name
@@ -405,10 +400,11 @@ impl GameData {
         self.unit_stats(unit_type).class
     }
 
-    /// What a faction pays to build a unit, after faction and CO cost modifiers
-    pub fn production_cost(&self, unit_type: UnitType, faction: Faction, co_cost_modifier: f32) -> u32 {
+    /// What it costs to build a unit under a commander's cost modifier. Every
+    /// army pays the same base price; only commanders change it.
+    pub fn production_cost(&self, unit_type: UnitType, co_cost_modifier: f32) -> u32 {
         let base = self.unit_stats(unit_type).cost as f32;
-        (base * self.faction_cost_modifier(faction) * co_cost_modifier).round() as u32
+        (base * co_cost_modifier).round() as u32
     }
 
     pub fn terrain_name(&self, terrain: Terrain) -> &str {
@@ -661,15 +657,11 @@ mod tests {
     }
 
     #[test]
-    fn production_cost_applies_faction_and_co_modifiers() {
+    fn prices_are_advance_wars_prices_changed_only_by_commanders() {
         let data = GameData::load_defaults();
-        let base = data.unit_stats(UnitType::Ironclad).cost as f32;
-        let eastern = data.faction_cost_modifier(Faction::Eastern);
-        assert_eq!(data.production_cost(UnitType::Ironclad, Faction::Northern, 1.0), base as u32);
-        assert_eq!(
-            data.production_cost(UnitType::Ironclad, Faction::Eastern, 0.9),
-            (base * eastern * 0.9).round() as u32
-        );
+        assert_eq!(data.production_cost(UnitType::Scout, 1.0), 1000);
+        assert_eq!(data.production_cost(UnitType::Ironclad, 1.0), 7000);
+        assert_eq!(data.production_cost(UnitType::Ironclad, 0.9), 6300);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::game::{
 use crate::states::GameState;
 
 /// Factions offered to the player (Nether is the antagonist, not playable)
-const PLAYABLE: [Faction; 4] = [Faction::Eastern, Faction::Northern, Faction::Western, Faction::Southern];
+const PLAYABLE: [Faction; 4] = [Faction::Western, Faction::Northern, Faction::Southern, Faction::Eastern];
 
 /// Which column keyboard/gamepad input is driving
 #[derive(Default, Clone, Copy, PartialEq)]

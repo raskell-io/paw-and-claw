@@ -15,6 +15,8 @@ paths: src/**/*.rs, assets/data/**/*.ron
   (`unit_stats`, `terrain`, `faction`, `commander`, `movement_cost`, ...)
 - Never add hardcoded stats or names to `UnitType`/`Terrain`/`Faction`/`CommanderId`;
   pass `&GameData` into functions that need data
+- Factions are cosmetic only (name, color, animals, sprites). Gameplay effects
+  (prices, stats, powers) belong to commanders, as in Advance Wars
 
 ## Guidelines
 

@@ -95,6 +95,22 @@ generated now so each unit's two sprites match.
 Each style in the manifest has a `pixellab` block with the settings that
 worked, and `prompts` prints them with every prompt.
 
+**Team colors (palette swap).** As in Advance Wars, armies are told apart by
+color. `python3 tools/sprites/team_colors.py` builds every army's map units
+from the raw Western roster in `originals/units/western/`: the green team cloth
+is repainted in the army's color (`factions.ron`), the unit is stood on the
+ground and given its idle sheet. Western is recolored too, so all five read the
+same way. Re-run it after adding or regenerating a Western unit.
+
+For the swap to read well, the Western roster is drawn with **large, flat team
+cloth in one bright pure green**: tabards and cloaks for walkers, saddle
+blankets and caparisons for mounts, canvas tops, banners and sails for wagons,
+siege engines and boats. Put that in every unit prompt ("wearing a large bright
+pure green tabard; the bright green cloth covers most of the body"). Any other
+green in a design would be recolored too, so avoid it. When an army
+gets its own generated roster (its own animals), drop it from `--factions` so
+its sprites aren't overwritten.
+
 **Unit map sprites** use **Create image → Pro → Pro Flash** at 32×32 with the
 faction's anchor (`anchors/{faction}-map.png`) as the **style image**, one unit
 per call (5 generations, about 40 seconds). Start each description with the

@@ -69,7 +69,6 @@ RON (Rusty Object Notation) - Rust-native, readable, supports comments.
             name: "Eastern Empire",
             description: "Disciplined armies of the rising sun.",
             color: [0.9, 0.3, 0.3],  // RGB
-            unit_cost_modifier: 0.85,
             animals: ["Tanuki", "Red Panda", "Crane"],
             asset_folder: "eastern",
         ),

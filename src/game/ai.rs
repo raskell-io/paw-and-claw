@@ -1685,7 +1685,7 @@ fn smart_production(
 
     for (x, y) in empty_bases {
         for (unit_type, _) in &build_list {
-            let cost = game_data.production_cost(*unit_type, faction, co_cost_modifier);
+            let cost = game_data.production_cost(*unit_type, co_cost_modifier);
             if funds.spend(faction, cost) {
                 spawn_unit(commands, map, &mut sprite_param.meshes, &mut sprite_param.materials, &sprite_param.assets, &sprite_param.images, game_data, faction, *unit_type, x, y);
                 info!("AI ({:?}/{:?}) built {:?} at ({}, {})",

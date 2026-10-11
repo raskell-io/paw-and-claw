@@ -48,6 +48,8 @@ pub fn draw_production_menu(
     mut funds: ResMut<FactionFunds>,
     turn_state: Res<TurnState>,
     commanders: Res<Commanders>,
+    unit_textures: Res<super::UnitTextures>,
+    time: Res<Time>,
     mut spawner: UnitSpawner,
     input: MenuInput,
     mut selected: Local<usize>,
@@ -72,7 +74,7 @@ pub fn draw_production_menu(
     let co_cost = commanders.get_bonuses(faction, game_data).cost;
     let available = funds.get(faction);
     let roster: Vec<(UnitType, u32)> = BASE_ROSTER.iter()
-        .map(|&unit_type| (unit_type, game_data.production_cost(unit_type, faction, co_cost)))
+        .map(|&unit_type| (unit_type, game_data.production_cost(unit_type, co_cost)))
         .collect();
 
     let mut build: Option<usize> = None;
@@ -109,9 +111,13 @@ pub fn draw_production_menu(
                 ui.add_space(6.0);
 
                 let color = theme::faction_color(game_data, faction);
+                // The highlighted unit marches in place, at the board's selected-unit pace
+                let tick = (time.elapsed_secs() * 8.0) as u32;
                 for (i, (unit_type, cost)) in roster.iter().enumerate() {
                     let affordable = available >= *cost;
-                    let response = roster_row(ui, game_data, *unit_type, *cost, color, affordable, i == *selected);
+                    let sprite = unit_textures.get(faction, *unit_type)
+                        .map(|(texture, frames)| (texture, if i == *selected { tick % frames } else { 0 }, frames));
+                    let response = roster_row(ui, game_data, *unit_type, *cost, color, sprite, affordable, i == *selected);
                     if theme::pointer_selects(ui, &response) {
                         *selected = i;
                     }
@@ -161,6 +167,7 @@ fn roster_row(
     unit_type: UnitType,
     cost: u32,
     faction_color: egui::Color32,
+    sprite: Option<(egui::TextureId, u32, u32)>,
     affordable: bool,
     selected: bool,
 ) -> egui::Response {
@@ -174,9 +181,19 @@ fn roster_row(
     let stats = &data.stats;
     let token = egui::pos2(rect.left() + 28.0, rect.center().y);
     let token_color = if affordable { faction_color } else { theme::shade(faction_color, 0.5) };
-    painter.circle(token, 18.0, token_color, theme::stroke(2.0, theme::shade(token_color, 0.5)));
-    painter.text(token + egui::vec2(0.0, 1.0), egui::Align2::CENTER_CENTER, data.symbol.to_string(),
-        egui::FontId::new(20.0, theme::title_family()), theme::PARCHMENT);
+    if let Some((texture, frame, frames)) = sprite {
+        // The unit's own map sprite (one frame of its strip) on a soft faction-colored disc
+        painter.circle_filled(token + egui::vec2(0.0, 8.0), 16.0, token_color.gamma_multiply(0.25));
+        let size = 48.0; // 1.5x the 32px sprite
+        let uv_width = 1.0 / frames.max(1) as f32;
+        let uv = egui::Rect::from_min_max(egui::pos2(frame as f32 * uv_width, 0.0), egui::pos2((frame + 1) as f32 * uv_width, 1.0));
+        let tint = if affordable { egui::Color32::WHITE } else { egui::Color32::from_gray(120) };
+        painter.image(texture, egui::Rect::from_center_size(token, egui::vec2(size, size)), uv, tint);
+    } else {
+        painter.circle(token, 18.0, token_color, theme::stroke(2.0, theme::shade(token_color, 0.5)));
+        painter.text(token + egui::vec2(0.0, 1.0), egui::Align2::CENTER_CENTER, data.symbol.to_string(),
+            egui::FontId::new(20.0, theme::title_family()), theme::PARCHMENT);
+    }
 
     let ink = if affordable { theme::INK } else { theme::INK_SOFT };
     let x = rect.left() + 56.0;

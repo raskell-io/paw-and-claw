@@ -81,7 +81,7 @@ impl Default for BattleSetupState {
     fn default() -> Self {
         Self {
             needs_setup: false,
-            player_faction: Faction::Eastern,
+            player_faction: Faction::Western,
             player_co: Some(CommanderId::Kira),  // Pre-select first CO
             selected_map: MapId::default(),
         }
@@ -184,9 +184,10 @@ impl Plugin for UiPlugin {
             .init_resource::<EguiReady>()
             .init_resource::<hud::UnitScreenPositions>()
             .init_resource::<PortraitTextures>()
+            .init_resource::<UnitTextures>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(PreUpdate, update_modal_state)
-            .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits))
+            .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits, register_unit_textures))
             .add_systems(EguiPrimaryContextPass, (
                 menu::draw_main_menu.run_if(in_state(GameState::Menu)),
                 setup::draw_battle_setup.run_if(in_state(GameState::Battle)),
@@ -245,6 +246,41 @@ fn register_portraits(
         }
     }
     portraits.registered = true;
+}
+
+/// Unit map sprites handed to egui, for menus like the build list
+#[derive(Resource, Default)]
+pub struct UnitTextures {
+    /// Texture and number of animation frames in its strip
+    textures: std::collections::HashMap<(crate::game::Faction, crate::game::UnitType), (egui::TextureId, u32)>,
+    registered: bool,
+}
+
+impl UnitTextures {
+    pub fn get(&self, faction: crate::game::Faction, unit_type: crate::game::UnitType) -> Option<(egui::TextureId, u32)> {
+        self.textures.get(&(faction, unit_type)).copied()
+    }
+}
+
+/// Hand loaded unit sprites to egui once sprite loading has finished
+fn register_unit_textures(
+    mut contexts: EguiContexts,
+    sprites: Res<crate::game::SpriteAssets>,
+    images: Res<Assets<Image>>,
+    mut units: ResMut<UnitTextures>,
+) {
+    if units.registered || !sprites.loading_complete {
+        return;
+    }
+    for &faction in crate::game::Faction::all() {
+        for &unit_type in crate::game::UnitType::all() {
+            let Some(handle) = sprites.unit_sprite(&images, faction, unit_type) else { continue };
+            let frames = images.get(&handle).map_or(1, crate::game::frame_count);
+            let texture = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle));
+            units.textures.insert((faction, unit_type), (texture, frames));
+        }
+    }
+    units.registered = true;
 }
 
 /// Tell the board whether a modal screen currently owns input

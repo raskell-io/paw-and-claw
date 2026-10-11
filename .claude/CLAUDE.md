@@ -28,7 +28,7 @@ Turn-based tactics game inspired by **Advance Wars**, built with Bevy 0.17 (Rust
 The game uses RON files for moddable content. For WASM builds, data is embedded at compile time. For native builds, mods can override data from `mods/` directory.
 
 ### Data Files (assets/data/)
-- `factions.ron` - 5 factions with names, colors, cost modifiers
+- `factions.ron` - 5 factions: names, colors, animals, sprite folders. Factions are cosmetic; every gameplay effect comes from commanders
 - `units.ron` - 20 unit types with full stats
 - `terrain.ron` - 15 terrain types with properties (`produces: true` marks terrain that builds units)
 - `commanders.ron` - 15 commanders with CO powers

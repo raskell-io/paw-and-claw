@@ -14,6 +14,7 @@ impl Plugin for UnitPlugin {
             orient_unit_sprites,
             place_units_on_ground,
             animate_unit_sprites,
+            keep_unit_bodies_true_to_size,
         ));
     }
 }
@@ -45,6 +46,37 @@ fn orient_unit_sprites(
 pub struct SpriteFrames {
     pub count: u32,
     shown: u32,
+}
+
+/// How far a unit's visible body sits in front of its tile, toward the camera.
+/// As in Advance Wars, units always draw over terrain features and buildings,
+/// even a tall one standing on the tile in front.
+const UNIT_DRAW_NUDGE: f32 = TILE_SIZE;
+
+/// The visible sprite (or card) of a unit: a child of the unit entity, which
+/// stays on its tile so game logic and animation use the real position
+#[derive(Component)]
+pub struct UnitBody;
+
+/// Moving the body toward the camera makes it look bigger; shrink it back by the
+/// same ratio so units keep their size on screen at any zoom
+fn keep_unit_bodies_true_to_size(
+    camera: Query<&GlobalTransform, With<Camera3d>>,
+    units: Query<(&GlobalTransform, &Children), With<Unit>>,
+    mut bodies: Query<&mut Transform, With<UnitBody>>,
+) {
+    let Ok(camera) = camera.single() else { return };
+    for (unit, children) in units.iter() {
+        let distance = camera.translation().distance(unit.translation()).max(UNIT_DRAW_NUDGE * 2.0);
+        let ratio = (distance - UNIT_DRAW_NUDGE) / distance;
+        for child in children.iter() {
+            if let Ok(mut body) = bodies.get_mut(child) {
+                if (body.scale.y - ratio).abs() > 0.001 {
+                    body.scale = Vec3::new(ratio, ratio, 1.0);
+                }
+            }
+        }
+    }
 }
 
 /// Number of square frames in a sprite image laid out as a horizontal strip
@@ -244,7 +276,7 @@ fn update_moved_unit_visuals(
             if unit.exhausted {
                 // Darken the unit while preserving hue
                 let base = visuals.base_color.to_srgba();
-                let darken_factor = 0.5; // 50% darker
+                let darken_factor = 0.68; // dimmed but still readable
                 material.base_color = Color::srgba(
                     base.red * darken_factor,
                     base.green * darken_factor,
@@ -564,10 +596,9 @@ pub fn spawn_unit_with_state(
 
     let ground = map.get(x, y).map_or(0.0, |t| game_data.terrain(t).tile_height);
     let mut entity = commands.spawn((
-        Mesh3d(unit_mesh.clone()),
-        MeshMaterial3d(unit_material.clone()),
-        // Tile center; terrain features sit slightly behind, so units draw in front
+        // Tile center; the visible body is a child nudged toward the camera
         Transform::from_xyz(world_pos.x, ground + unit_height, world_pos.z),
+        Visibility::default(),
         GroundOffset(unit_height),
         unit,  // Use provided unit with existing state
         GridPosition::new(x, y),
@@ -575,7 +606,7 @@ pub fn spawn_unit_with_state(
         Billboard,
         UnitVisuals {
             base_color: unit_color,
-            material_handle: unit_material,
+            material_handle: unit_material.clone(),
         },
     ));
     if sprite.is_some() {
@@ -585,6 +616,12 @@ pub fn spawn_unit_with_state(
         entity.insert(SpriteFrames { count: frames, shown: 0 });
     }
     entity.with_children(|parent| {
+        parent.spawn((
+            Mesh3d(unit_mesh.clone()),
+            MeshMaterial3d(unit_material.clone()),
+            Transform::from_xyz(0.0, 0.0, UNIT_DRAW_NUDGE),
+            UnitBody,
+        ));
         // Colored cards get a dark frame for contrast; sprites have their own outline
         if sprite.is_none() {
             let border_mesh = meshes.add(Rectangle::new(unit_size.x + 6.0, unit_size.y + 6.0));
@@ -598,7 +635,7 @@ pub fn spawn_unit_with_state(
                     cull_mode: None,
                     ..default()
                 })),
-                Transform::from_xyz(0.0, 0.0, -1.0),
+                Transform::from_xyz(0.0, 0.0, UNIT_DRAW_NUDGE - 1.0),
             ));
         }
 
