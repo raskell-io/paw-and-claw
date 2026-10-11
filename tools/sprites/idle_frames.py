@@ -29,7 +29,9 @@ def bob_frame(width, height, pixels, feet_rows):
     if not opaque:
         return list(pixels)
     bottom = opaque[-1]
-    split = bottom - feet_rows + 1  # rows from here down are the planted feet
+    # Rows from here down are the planted feet; a sprite touching the bottom
+    # edge keeps at least its last row, so nothing is pushed off the canvas
+    split = min(bottom - feet_rows + 1, height - 1)
     out = [list(r) for r in rows]
     for y in range(split - 1, -1, -1):
         out[y + 1] = list(rows[y]) if y + 1 < split else merge(rows[y], rows[y + 1])

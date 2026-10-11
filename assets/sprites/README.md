@@ -92,11 +92,21 @@ generated now so each unit's two sprites match.
 
 ### PixelLab settings
 
-Use **Create image → Pixen** (1 generation per image). Each style in the
-manifest has a `pixellab` block with the settings that worked, and `prompts`
-prints them with every prompt. For unit map sprites: transparent background,
-direction East (facing right), view Low top-down, Low detail, Black outline,
-32×32.
+Each style in the manifest has a `pixellab` block with the settings that
+worked, and `prompts` prints them with every prompt.
+
+**Unit map sprites** use **Create image → Pro → Pro Flash** at 32×32 with the
+faction's anchor (`anchors/{faction}-map.png`) as the **style image**, one unit
+per call (5 generations, about 40 seconds). Start each description with the
+unit's name ("Recon unit. …") so the downloaded files can be told apart, then
+"A single tiny map unit sprite … facing right: {subject}. {faction look}. Match
+the style image exactly …". Keep the raw download in
+`originals/units/{faction}/`, stand ground and naval units on row 30 (fliers
+stay as drawn), and make the idle sheet with `idle_frames.py` (`--feet 3` for
+walkers, `--feet 0` for boats and fliers, which bob whole). The first sprite,
+the Western Scout, was made with Pixen (1 generation, no style image), with:
+transparent background, direction East, view Low top-down, Low detail, Black
+outline.
 
 Lessons from the first tests:
 - **16×16 doesn't work.** The model can't draw a readable creature at that size.

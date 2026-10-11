@@ -10,13 +10,18 @@
       "prefix": "Tiny map unit sprite in the style of Advance Wars Dual Strike",
       "suffix": "Very simple chunky shapes, bold silhouette, few colors, readable at a glance",
       "pixellab": {
-        "model": "Pixen",
-        "transparent_background": true,
-        "direction": "East (facing right)",
-        "view": "Low top-down",
-        "detail": "Low detail",
-        "outline": "Black outline"
-      }
+        "model": "Pro Flash",
+        "style_image": "assets/sprites/anchors/{faction}-map.png",
+        "copy_from_style": [
+          "Color palette",
+          "Outline",
+          "Detail",
+          "Shading"
+        ],
+        "remove_background": true,
+        "size": "32x32, one unit per call (5 generations)"
+      },
+      "post": "Raw download to assets/sprites/originals/units/{faction}/; stand ground and naval units on row 30 (fliers stay as drawn), then python3 tools/sprites/idle_frames.py OUT.png --feet 3 (walkers) or --feet 0 (boats and fliers bob whole)"
     },
     "battle": {
       "size": [
