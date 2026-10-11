@@ -583,7 +583,11 @@ fn apply_power_effects(
     mut materials: ResMut<Assets<StandardMaterial>>,
     battle_config: Res<BattleConfig>,
     game_data: Res<GameData>,
+    mut play: MessageWriter<super::PlayEffect>,
 ) {
+    use super::{EffectKind, PlayEffect};
+    // Effects land as the cut-in banner leaves the screen
+    const AFTER_CUT_IN: f32 = 2.0;
     for event in events.read() {
         let faction = event.faction;
         let enemy = battle_config.next_faction(faction);
@@ -591,15 +595,16 @@ fn apply_power_effects(
         for effect in &event.effects {
             match effect {
                 PowerEffect::Heal(hp) => {
-                    for (mut unit, f, _) in units.iter_mut().filter(|(_, f, _)| f.faction == faction) {
+                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction == faction) {
                         let max = game_data.unit_stats(unit.unit_type).max_hp;
                         unit.hp = (unit.hp + hp * 10).min(max);
-                        let _ = f;
+                        play.write(PlayEffect { kind: EffectKind::Heal, position: *pos, delay: AFTER_CUT_IN });
                     }
                 }
                 PowerEffect::DamageEnemies(hp) => {
-                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
                         power_damage(&mut unit, *hp);
+                        play.write(PlayEffect { kind: EffectKind::Blast, position: *pos, delay: AFTER_CUT_IN });
                     }
                 }
                 PowerEffect::DamageEnemiesOnProperties(hp) => {
@@ -610,6 +615,7 @@ fn apply_power_effects(
                     for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
                         if properties.contains(&(pos.x, pos.y)) {
                             power_damage(&mut unit, *hp);
+                            play.write(PlayEffect { kind: EffectKind::Blast, position: *pos, delay: AFTER_CUT_IN });
                         }
                     }
                 }
@@ -669,7 +675,9 @@ fn apply_power_effects(
                     }
                 }
                 PowerEffect::Meteor { damage, radius, strikes, paralyze } => {
-                    for _ in 0..*strikes {
+                    for strike in 0..*strikes {
+                        // Strikes land one after another; the rock hits the ground on its 4th frame
+                        let delay = AFTER_CUT_IN + strike as f32 * 0.8;
                         // Aim where the most enemy value would be lost
                         let targets: Vec<(i32, i32, i32, u32)> = units.iter()
                             .filter(|(_, f, _)| f.faction != faction)
@@ -682,9 +690,11 @@ fn apply_power_effects(
                                 .sum()
                         };
                         let Some((cx, cy)) = targets.iter().map(|(x, y, ..)| (*x, *y)).max_by_key(|&(x, y)| value_at(x, y)) else { break };
+                        play.write(PlayEffect { kind: EffectKind::Rockfall, position: GridPosition::new(cx, cy), delay });
                         for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
                             if (pos.x - cx).abs() + (pos.y - cy).abs() <= *radius {
                                 power_damage(&mut unit, *damage);
+                                play.write(PlayEffect { kind: EffectKind::Blast, position: *pos, delay: delay + 0.3 });
                                 if *paralyze {
                                     unit.paralyzed = true;
                                 }
@@ -732,6 +742,7 @@ mod tests {
         commanders.set_commander(Faction::Western, co);
         commanders.set_commander(Faction::Northern, CommanderId::Frost);
         app.add_message::<PowerActivatedEvent>()
+            .add_message::<super::super::PlayEffect>()
             .insert_resource(commanders)
             .insert_resource(super::super::BattleConfig::new(Faction::Western, Faction::Northern))
             .insert_resource(FactionFunds::default())

@@ -58,6 +58,8 @@ enum Step {
     SetUnit(i32, i32, String, i32),
     Charge,
     GameOver(bool),
+    /// Give the player's army this commander (by data key, e.g. `dusty`)
+    Commander(String),
     Quit,
 }
 
@@ -97,6 +99,7 @@ fn parse(script: &str) -> VecDeque<Step> {
                 "shot" => Step::Shot(parts[1].to_string()),
                 "unit" => Step::SetUnit(num(1) as i32, num(2) as i32, parts[3].to_string(), num(4) as i32),
                 "charge" => Step::Charge,
+                "co" => Step::Commander(parts[1].to_string()),
                 "gameover" => Step::GameOver(parts.get(1) == Some(&"win")),
                 "quit" => Step::Quit,
                 other => panic!("unknown dev script step '{other}'"),
@@ -223,6 +226,12 @@ fn run_script(
         }
         Step::Charge => {
             commanders.power_meter.insert(battle_config.player_faction, 1_000_000);
+        }
+        Step::Commander(key) => {
+            let id = *crate::game::CommanderId::all().iter()
+                .find(|&&id| crate::game::commander_to_key(id) == key)
+                .unwrap_or_else(|| panic!("unknown commander '{key}' in dev script"));
+            commanders.set_commander(battle_config.player_faction, id);
         }
         Step::SetUnit(x, y, field, value) => {
             for (pos, mut unit) in units.iter_mut().filter(|(p, _)| p.x == x && p.y == y) {

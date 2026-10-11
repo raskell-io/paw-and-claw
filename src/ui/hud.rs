@@ -650,6 +650,81 @@ fn power_sparkles(painter: &egui::Painter, center: egui::Pos2, now: f64, seed: f
     }
 }
 
+/// Weather drawn over the board, under the HUD: falling snow, slanting rain,
+/// drifting sand, or a pale haze for fog. Particles are placed from time alone,
+/// so nothing is stored between frames.
+pub fn draw_weather_overlay(
+    mut contexts: EguiContexts,
+    weather: Res<Weather>,
+    setup: Res<BattleSetupState>,
+    time: Res<Time>,
+) {
+    use crate::game::WeatherType;
+    if setup.needs_setup || weather.current == WeatherType::Clear {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    let screen = ctx.content_rect();
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let t = time.elapsed_secs();
+    // A cheap stable pseudo-random number per particle and channel
+    let hash = |i: u32, k: u32| ((i.wrapping_mul(2654435761) ^ k.wrapping_mul(40503)).wrapping_mul(2246822519) >> 8) as f32 / (1u32 << 24) as f32;
+    let px = 3.0; // chunky pixels, like the sprites
+    let snap = |v: f32| (v / px).round() * px;
+    let (w, h) = (screen.width(), screen.height());
+    match weather.current {
+        WeatherType::Snow => {
+            painter.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(220, 230, 255, 18));
+            for i in 0..140 {
+                let speed = 30.0 + hash(i, 1) * 40.0;
+                let y = (hash(i, 2) * h + t * speed) % (h + 20.0) - 10.0;
+                let sway = (t * (0.8 + hash(i, 3)) + hash(i, 4) * 6.28).sin() * 10.0;
+                let x = (hash(i, 5) * w + sway + t * 8.0) % w;
+                let size = if hash(i, 6) > 0.7 { px * 2.0 } else { px };
+                let pos = egui::pos2(screen.min.x + snap(x), screen.min.y + snap(y));
+                painter.rect_filled(egui::Rect::from_min_size(pos, egui::vec2(size, size)), 0.0,
+                    egui::Color32::from_rgba_unmultiplied(250, 252, 255, 220));
+            }
+        }
+        WeatherType::Rain => {
+            painter.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(30, 50, 90, 40));
+            for i in 0..120 {
+                let speed = 520.0 + hash(i, 1) * 200.0;
+                let y = (hash(i, 2) * h + t * speed) % (h + 40.0) - 20.0;
+                let x = (hash(i, 5) * w + t * speed * 0.25) % w;
+                let len = 14.0 + hash(i, 6) * 10.0;
+                let top = egui::pos2(screen.min.x + x, screen.min.y + y);
+                painter.line_segment([top, top + egui::vec2(len * 0.25, len)],
+                    egui::Stroke::new(2.0_f32, egui::Color32::from_rgba_unmultiplied(180, 205, 240, 150)));
+            }
+        }
+        WeatherType::Sandstorm => {
+            painter.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(200, 150, 80, 55));
+            for i in 0..90 {
+                let speed = 260.0 + hash(i, 1) * 180.0;
+                let x = (hash(i, 2) * w + t * speed) % (w + 60.0) - 30.0;
+                let y = (hash(i, 5) * h + (t * 2.0 + hash(i, 3) * 6.28).sin() * 12.0) % h;
+                let len = 12.0 + hash(i, 6) * 24.0;
+                let pos = egui::pos2(screen.min.x + snap(x), screen.min.y + snap(y));
+                painter.rect_filled(egui::Rect::from_min_size(pos, egui::vec2(snap(len), px)), 0.0,
+                    egui::Color32::from_rgba_unmultiplied(235, 195, 130, 140));
+            }
+        }
+        WeatherType::Fog => {
+            painter.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(225, 228, 235, 40));
+            // Slow bands of mist drifting sideways
+            for i in 0..6 {
+                let y = screen.min.y + h * (0.1 + 0.16 * i as f32);
+                let x = (hash(i, 1) * w + t * (10.0 + 6.0 * hash(i, 2))) % (w * 1.5) - w * 0.5;
+                let band = egui::Rect::from_min_size(egui::pos2(screen.min.x + x, y), egui::vec2(w * 0.7, h * 0.08));
+                painter.rect_filled(band, h * 0.04, egui::Color32::from_rgba_unmultiplied(235, 238, 242, 34));
+            }
+        }
+        WeatherType::Clear => {}
+    }
+    ctx.request_repaint();
+}
+
 /// How long the power cut-in plays, in seconds
 const CUT_IN_SECS: f64 = 2.2;
 

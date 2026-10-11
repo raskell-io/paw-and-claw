@@ -83,6 +83,6 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 ## Screenshots
 Drive the real game and capture screens with the dev script, e.g.:
 `PAW_SCRIPT="wait 90; key Enter; wait 30; shot setup; quit" cargo run`
-(steps: wait N, until menu|setup|board, key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, move X Y, shot NAME, gameover win|lose, quit;
+(steps: wait N, until menu|setup|board, key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, co KEY, move X Y, shot NAME, gameover win|lose, quit;
 output goes to `screenshots/`, which is gitignored). Captures land a few frames after
 `shot`, so wait before sending the next input.

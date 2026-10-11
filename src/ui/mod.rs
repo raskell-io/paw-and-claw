@@ -218,6 +218,7 @@ impl Plugin for UiPlugin {
             .add_systems(EguiPrimaryContextPass, (
                 menu::draw_main_menu.run_if(in_state(GameState::Menu)),
                 setup::draw_battle_setup.run_if(in_state(GameState::Battle)),
+                hud::draw_weather_overlay.run_if(in_state(GameState::Battle)),
                 hud::draw_unit_tokens.run_if(in_state(GameState::Battle)),
                 hud::draw_hud.run_if(in_state(GameState::Battle)),
                 hud::draw_power_cut_in.run_if(in_state(GameState::Battle)),
