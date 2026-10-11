@@ -27,7 +27,7 @@ fn main() {
         }).set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Paw & Claw".into(),
-                resolution: (1280, 720).into(),
+                resolution: window_size().into(),
                 canvas: Some("#game-canvas".into()),
                 // On the web, fill the page and keep the browser from scrolling,
                 // zooming or acting on the game's keys and touches
@@ -46,6 +46,19 @@ fn main() {
     app.add_plugins(dev::DevScriptPlugin);
 
     app.run();
+}
+
+/// The window's size: 1280x720, or PAW_WINDOW=WIDTHxHEIGHT on desktop to try
+/// other screens (844x390 is an iPhone in landscape)
+fn window_size() -> (u32, u32) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some((w, h)) = std::env::var("PAW_WINDOW").ok().and_then(|v| {
+        let (w, h) = v.split_once('x')?;
+        Some((w.parse().ok()?, h.parse().ok()?))
+    }) {
+        return (w, h);
+    }
+    (1280, 720)
 }
 
 fn setup_camera(mut commands: Commands) {

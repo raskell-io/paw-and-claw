@@ -374,6 +374,7 @@ pub fn draw_unit_tokens(
     tiles: Query<&crate::game::Tile>,
     commanders: Res<Commanders>,
     mut screen_positions: ResMut<UnitScreenPositions>,
+    ui_scale: Res<super::UiScale>,
 ) {
     screen_positions.0.clear();
     if !hud.battle_active() {
@@ -402,7 +403,7 @@ pub fn draw_unit_tokens(
                     continue;
                 }
                 let Ok(screen) = camera.world_to_viewport(camera_transform, transform.translation()) else { continue };
-                let center = egui::pos2(screen.x, screen.y);
+                let center = egui::pos2(screen.x, screen.y) / ui_scale.0;
                 screen_positions.0.insert(entity, center);
                 // A running power makes the army's units twinkle, as in Advance Wars
                 if commanders.active_power(faction.faction) != PowerLevel::None {
@@ -417,7 +418,7 @@ pub fn draw_unit_tokens(
                 // Badges hang off the sprite's bottom corners, sized to its pixels
                 let half = crate::game::SPRITE_WORLD_SIZE / 2.0;
                 let corner = |side: f32| camera.world_to_viewport(camera_transform,
-                    transform.translation() + right * half * side - up * half).ok();
+                    transform.translation() + right * half * side - up * half).ok().map(|v| v / ui_scale.0);
                 let (Some(bottom_left), Some(bottom_right)) = (corner(-1.0), corner(1.0)) else { continue };
                 let sprite_px = ((bottom_right.x - bottom_left.x) / 32.0).max(0.5);
                 let cell = (sprite_px * 1.5).round().max(2.0);

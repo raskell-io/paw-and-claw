@@ -90,6 +90,10 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   the top corner away from the cursor; the tile/unit box below uses the see-through `glass_card`
 - Icons come from `ui/icons.rs` (`menu_item_icon`, `heading_icon`, `icons::icon`); the UI font
   lacks most symbol glyphs, so don't use Unicode symbols as icons
+- The UI scales with the window (`ui::UiScale`, down to 0.72 on a phone in landscape), so
+  layouts are designed for 1280x720 points and must still fit ~1100x540. Screen positions
+  from the 3D camera (logical pixels) divide by `UiScale` before drawing in egui.
+  Try other screens with `PAW_WINDOW=844x390 cargo run` (desktop only)
 - Build every screen from `ui/theme.rs` (parchment cards, `menu_item`, `key_hint`, `meter`);
   don't hardcode colors or use stock egui windows
 - Menus must work with `MenuInput` (keyboard + gamepad), not just the mouse; use

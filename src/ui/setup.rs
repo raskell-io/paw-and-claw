@@ -170,7 +170,7 @@ pub fn draw_battle_setup(
         // columns take whatever height is left and scroll inside
         let content = screen.shrink2(egui::vec2((screen.width() - 1180.0).max(48.0) / 2.0, 20.0));
         let compact = content.height() < 640.0;
-        let header_h = if compact { 64.0 } else { 92.0 };
+        let header_h = if compact { 50.0 } else { 92.0 };
         let footer_h = 104.0;
         let header = egui::Rect::from_min_size(content.min, egui::vec2(content.width(), header_h));
         let footer = egui::Rect::from_min_max(egui::pos2(content.left(), content.bottom() - footer_h), content.max);
@@ -179,7 +179,10 @@ pub fn draw_battle_setup(
         ui.scope_builder(egui::UiBuilder::new().max_rect(header), |ui| {
             ui.vertical_centered(|ui| {
                 ui.label(theme::display("Skirmish", if compact { 34.0 } else { 44.0 }).color(theme::PARCHMENT));
-                ui.label(theme::body("Choose your army, your commander and the field of battle", 18.0).color(theme::GOLD_LIGHT));
+                // Short screens (phones) keep the title only
+                if !compact {
+                    ui.label(theme::body("Choose your army, your commander and the field of battle", 18.0).color(theme::GOLD_LIGHT));
+                }
             });
         });
 

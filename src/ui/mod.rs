@@ -204,10 +204,12 @@ impl Plugin for UiPlugin {
             .init_resource::<ActionMenuState>()
             .init_resource::<EguiReady>()
             .init_resource::<hud::UnitScreenPositions>()
+            .init_resource::<UiScale>()
             .init_resource::<PortraitTextures>()
             .init_resource::<UnitTextures>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(PreUpdate, update_modal_state)
+            .add_systems(Update, scale_ui_to_window)
             .add_systems(Update, menu_key_sounds)
             .add_systems(EguiPrimaryContextPass, ui_sounds)
             .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits, register_unit_textures))
@@ -328,6 +330,39 @@ fn update_modal_state(
         || game_result.game_over;
     if modal.0 != open {
         modal.0 = open;
+    }
+}
+
+/// The UI's size relative to its 1280x720 design. Small windows (a phone in
+/// landscape) shrink it, never below `MIN_UI_SCALE` so text and tap targets
+/// stay usable; big windows keep it at full size. Positions from the 3D
+/// camera (logical pixels) divide by this to land in UI points.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct UiScale(pub f32);
+
+impl Default for UiScale {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+const MIN_UI_SCALE: f32 = 0.72;
+
+fn scale_ui_to_window(
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut contexts: Query<&mut bevy_egui::EguiContextSettings>,
+    mut scale: ResMut<UiScale>,
+) {
+    let Ok(window) = windows.single() else { return };
+    let fit = (window.height() / 720.0).min(window.width() / 1280.0);
+    let wanted = fit.clamp(MIN_UI_SCALE, 1.0);
+    if (scale.0 - wanted).abs() > 1e-3 || scale.is_added() {
+        scale.0 = wanted;
+    }
+    for mut settings in &mut contexts {
+        if (settings.scale_factor - scale.0).abs() > 1e-3 {
+            settings.scale_factor = scale.0;
+        }
     }
 }
 

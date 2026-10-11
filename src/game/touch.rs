@@ -61,6 +61,7 @@ fn touch_gestures(
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut angle: ResMut<CameraAngle>,
     mut zoom: ResMut<CameraZoom>,
+    ui_scale: Query<&bevy_egui::EguiContextSettings>,
 ) {
     pointer.tapped = false;
     let now = time.elapsed_secs_f64();
@@ -71,8 +72,9 @@ fn touch_gestures(
                     // A gesture starting over an interactive panel or under a
                     // modal menu is for the UI
                     let over_ui = contexts.ctx_mut().ok().is_some_and(|ctx| {
-                        // egui works in logical pixels here (no extra UI scale)
-                        let pos = egui::pos2(touch.position.x, touch.position.y);
+                        // egui points are logical pixels divided by the UI scale
+                        let scale = ui_scale.iter().next().map_or(1.0, |s| s.scale_factor);
+                        let pos = egui::pos2(touch.position.x, touch.position.y) / scale;
                         ctx.layer_id_at(pos).is_some_and(|layer| layer.order != egui::Order::Background)
                     });
                     *gesture = TouchGesture { on_ui: over_ui || modal.0, ..default() };
