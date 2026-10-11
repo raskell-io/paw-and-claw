@@ -157,6 +157,7 @@ pub fn draw_battle_setup(
     }
     }
 
+    let mut back_to_title = false;
     let sprites_ready = spawner.sprite_assets.loading_complete;
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let opponent = opponent_for(setup.player_faction);
@@ -270,10 +271,17 @@ pub fn draw_battle_setup(
                 theme::key_hint(ui, "←→", "Column", true);
                 theme::key_hint(ui, "↑↓", "Choose", true);
                 theme::key_hint(ui, "Enter", "Begin battle", true);
-                theme::key_hint(ui, "Esc", "Back", true);
+                if theme::key_hint_button(ui, "Esc", "Back", true) {
+                    back_to_title = true;
+                }
             });
         });
     });
+
+    if back_to_title {
+        next_state.set(GameState::Menu);
+        return;
+    }
 
     // Wait for sprites so every unit and tile spawns with its art
     if start && sprites_ready {

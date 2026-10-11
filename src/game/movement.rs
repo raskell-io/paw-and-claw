@@ -37,6 +37,7 @@ pub struct GameStateContext<'w> {
 #[derive(SystemParam)]
 pub struct InputState<'w> {
     pub mouse_button: Res<'w, ButtonInput<MouseButton>>,
+    pub pointer: Res<'w, BoardPointer>,
     pub egui_wants_input: Res<'w, EguiWantsInput>,
     pub movement_path: ResMut<'w, MovementPath>,
     pub cursor: ResMut<'w, GridCursor>,
@@ -191,15 +192,34 @@ impl MovementPath {
 
 }
 
-/// Convert screen position to grid coordinates using ray-plane intersection
+/// Where the player is pointing on screen, from the mouse or a finger. The
+/// board's hover, picking and clicks read this rather than the window's
+/// cursor, because browsers report touches separately from the mouse.
+#[derive(Resource, Default, Debug)]
+pub struct BoardPointer {
+    pub position: Option<Vec2>,
+    /// A tap (a touch lifted without dragging) landed this frame; it acts
+    /// like a left click at `position`
+    pub tapped: bool,
+}
+
+/// Follow the mouse: every cursor move (real, or written by the touch
+/// handler for a finger) puts the pointer there
+pub(crate) fn update_pointer(mut moved: MessageReader<CursorMoved>, mut pointer: ResMut<BoardPointer>) {
+    if let Some(event) = moved.read().last() {
+        pointer.position = Some(event.position);
+    }
+}
+
+/// Convert a screen position to grid coordinates using ray-plane intersection.
 /// Returns None if the ray doesn't hit the ground plane or is outside the map
 pub fn screen_to_grid(
-    window: &Window,
+    cursor_pos: Option<Vec2>,
     camera: &Camera,
     camera_transform: &GlobalTransform,
     map: &GameMap,
 ) -> Option<IVec2> {
-    let cursor_pos = window.cursor_position()?;
+    let cursor_pos = cursor_pos?;
     let ray = camera.viewport_to_world(camera_transform, cursor_pos).ok()?;
 
     // Intersect with the plane of the tile tops (land tiles stand 4 units tall),
@@ -246,6 +266,8 @@ impl Plugin for MovementPlugin {
             // Camera systems can run independently
             .init_resource::<ModalOpen>()
             .init_resource::<MapMenu>()
+            .init_resource::<BoardPointer>()
+            .add_systems(PreUpdate, update_pointer.after(bevy::input::InputSystems))
             .add_systems(Update, (fit_camera_to_map, update_camera_angle).run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 handle_camera_movement,
@@ -1499,7 +1521,6 @@ fn update_camera_angle(
 /// the cursor: a resting pointer never overrides keyboard or gamepad moves.
 /// When a movement path is being drawn, cursor follows the path endpoint instead
 fn update_cursor_from_mouse(
-    windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     map: Res<GameMap>,
     mut input: InputState,
@@ -1522,10 +1543,9 @@ fn update_cursor_from_mouse(
         return;
     }
 
-    let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
-    if let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) {
+    if let Some(grid_pos) = screen_to_grid(input.pointer.position, camera, camera_transform, &map) {
         let attack_positions = || unit_positions.iter()
             .filter(|(e, ..)| highlights.attack_targets.contains(e))
             .map(|(_, p, _)| (p.x, p.y));
@@ -1613,7 +1633,6 @@ fn keep_cursor_in_view(
 /// Handle mouse click for selection and movement
 fn handle_click_input(
     mut commands: Commands,
-    windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut units: Query<(Entity, &mut GridPosition, &Transform, &FactionMember, &mut Unit)>,
     tiles: Query<(Entity, &Tile)>,
@@ -1646,14 +1665,13 @@ fn handle_click_input(
 
     // In Action phase, clicks on targets are handled here
     if turn_state.phase == TurnPhase::Action {
-        if !input.mouse_button.just_pressed(MouseButton::Left) {
+        if !(input.mouse_button.just_pressed(MouseButton::Left) || input.pointer.tapped) {
             return;
         }
 
-        let Ok(window) = windows.single() else { return };
         let Ok((camera, camera_transform)) = cameras.single() else { return };
 
-        let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+        let Some(grid_pos) = screen_to_grid(input.pointer.position, camera, camera_transform, &map) else {
             return;
         };
         let grid_x = grid_pos.x;
@@ -1685,14 +1703,13 @@ fn handle_click_input(
         return;
     }
 
-    if !input.mouse_button.just_pressed(MouseButton::Left) {
+    if !(input.mouse_button.just_pressed(MouseButton::Left) || input.pointer.tapped) {
         return;
     }
 
-    let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
-    let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+    let Some(grid_pos) = screen_to_grid(input.pointer.position, camera, camera_transform, &map) else {
         return;
     };
     let grid_x = grid_pos.x;
@@ -2162,7 +2179,6 @@ fn animate_highlight_gloss(
 /// Only actual pointer movement counts, so a resting mouse never overrides a
 /// route drawn with the keys.
 fn handle_path_drawing(
-    windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     map: Res<GameMap>,
     highlights: Res<MovementHighlights>,
@@ -2171,6 +2187,7 @@ fn handle_path_drawing(
     egui_wants_input: Res<EguiWantsInput>,
     game_data: Res<GameData>,
     mut pointer_moved: MessageReader<CursorMoved>,
+    pointer: Res<BoardPointer>,
     unit_positions: Query<(Entity, &GridPosition, &FactionMember), With<Unit>>,
 ) {
     let moved = pointer_moved.read().count() > 0;
@@ -2186,9 +2203,8 @@ fn handle_path_drawing(
     if !moved {
         return;
     }
-    let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = camera_query.single() else { return };
-    let Some(hover) = screen_to_grid(window, camera, camera_transform, &map) else { return };
+    let Some(hover) = screen_to_grid(pointer.position, camera, camera_transform, &map) else { return };
     if !highlights.tiles.contains(&(hover.x, hover.y)) || movement_path.path.last() == Some(&hover) {
         return;
     }

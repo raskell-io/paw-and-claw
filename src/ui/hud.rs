@@ -176,6 +176,34 @@ pub fn draw_hud(
     }
 }
 
+/// A menu button in the bottom-right corner: the way into the map menu
+/// without Esc or a right click (touch screens)
+pub fn draw_menu_button(
+    mut contexts: EguiContexts,
+    hud: HudContext,
+    modal: Res<crate::game::ModalOpen>,
+    mut map_menu: ResMut<crate::game::MapMenu>,
+) {
+    if !hud.battle_active() || modal.0 {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    egui::Area::new(egui::Id::new("hud_menu_button"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(52.0, 52.0), egui::Sense::click());
+            let painter = ui.painter();
+            let fill = if response.hovered() { theme::GOLD_LIGHT } else { theme::PARCHMENT };
+            painter.rect(rect, 10, fill.gamma_multiply(0.92), theme::stroke(2.0, theme::WOOD), egui::StrokeKind::Inside);
+            icons::paint(painter, rect.shrink(12.0), Icon::Menu, theme::WOOD);
+            if response.on_hover_text("Menu (Esc)").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                theme::queue_sound(ui.ctx(), "menu_confirm");
+                map_menu.open = true;
+            }
+        });
+}
+
 /// Inspect card (bottom left) for whatever the mouse or the grid cursor points at
 pub fn draw_inspect_card(
     mut contexts: EguiContexts,

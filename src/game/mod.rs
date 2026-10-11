@@ -17,6 +17,7 @@ mod save;
 mod modding;
 mod effects;
 mod audio;
+mod touch;
 
 pub use map::*;
 pub use maps::*;
@@ -35,6 +36,7 @@ pub use save::*;
 pub use modding::*;
 pub use effects::*;
 pub use audio::*;
+pub use touch::*;
 
 // Future: use crate::states::GameState;
 
@@ -51,6 +53,7 @@ impl Plugin for GamePlugin {
             .add_plugins(CombatPlugin)
             .add_plugins(EffectsPlugin)
             .add_plugins(GameAudioPlugin)
+            .add_plugins(TouchControlsPlugin)
             .add_plugins(AiPlugin)
             .add_plugins(FogPlugin)
             .add_plugins(CommanderPlugin)

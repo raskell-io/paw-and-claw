@@ -79,6 +79,10 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 - Zoom (Q/E, wheel) is limited per map and window by `fit_camera_to_map`: fully out frames
   the whole board with some canvas around it, fully in shows ~`ZOOM_IN_TILES` across; the
   view can pan further the closer the zoom, never past the board
+- Touch (`game/touch.rs`): a finger down hovers, lifting it without dragging is a tap (a left
+  click), one-finger drag pans, pinch zooms; touches starting on egui panels belong to egui.
+  Board picking reads `BoardPointer` (mouse or finger), never the window cursor directly.
+  The bottom-right menu button and tappable key hints (`theme::key_hint_button`) replace Esc
 - All gameplay should work with gamepad (portability goal)
 
 ## UI Guidelines
@@ -98,6 +102,6 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 ## Screenshots
 Drive the real game and capture screens with the dev script, e.g.:
 `PAW_SCRIPT="wait 90; key Enter; wait 30; shot setup; quit" cargo run`
-(steps: wait N, until menu|setup|board|turn (turn = banner done, input live), key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, co KEY, move X Y, shot NAME, gameover win|lose, quit;
+(steps: wait N, until menu|setup|board|turn (turn = banner done, input live), touch down|move|up X Y, key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, co KEY, move X Y, shot NAME, gameover win|lose, quit;
 output goes to `screenshots/`, which is gitignored). Captures land a few frames after
 `shot`, so wait before sending the next input.

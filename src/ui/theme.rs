@@ -379,6 +379,15 @@ pub fn key_hint(ui: &mut egui::Ui, key: &str, action: &str, on_dark: bool) {
     ui.add_space(8.0);
 }
 
+/// A key hint that can also be tapped or clicked, for players without that
+/// key (touch, mouse). Returns whether it was pressed.
+pub fn key_hint_button(ui: &mut egui::Ui, key: &str, action: &str, on_dark: bool) -> bool {
+    let response = ui.scope(|ui| {
+        ui.horizontal(|ui| key_hint(ui, key, action, on_dark));
+    }).response.interact(egui::Sense::click());
+    response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
 /// Horizontal meter (HP, power, capture progress). `segments` > 1 draws notches.
 #[allow(dead_code)] // shared widget, currently unused
 pub fn meter(ui: &mut egui::Ui, width: f32, height: f32, fraction: f32, fill: Color32, segments: u32) -> egui::Response {

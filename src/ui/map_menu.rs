@@ -199,6 +199,7 @@ pub fn draw_map_menu(
     nav.selected = nav.selected.min(count.max(if nav.page == Page::Commanders { 2 } else { 1 }) - 1);
 
     let Ok(ctx) = contexts.ctx_mut() else { return };
+    let mut hint: Option<&'static str> = None;
     theme::backdrop(ctx, "map_menu_backdrop", 110);
     egui::Area::new(egui::Id::new("map_menu"))
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -243,7 +244,7 @@ pub fn draw_map_menu(
                             confirmed = Some(i);
                         }
                     }
-                    hints(ui, &[("↑↓", "Choose"), ("Enter", "Select"), ("Esc", "Close")]);
+                    hint = hint.or(hints(ui, &[("↑↓", "Choose"), ("Enter", "Select"), ("Esc", "Close")]));
                 }
                 Page::Units => {
                     ui.set_width(380.0);
@@ -276,20 +277,20 @@ pub fn draw_map_menu(
                             }
                         }
                     });
-                    hints(ui, &[("↑↓", "Choose"), ("Enter", "Go to unit"), ("Esc", "Back")]);
+                    hint = hint.or(hints(ui, &[("↑↓", "Choose"), ("Enter", "Go to unit"), ("Esc", "Back")]));
                 }
                 Page::Intel => {
                     ui.set_width(460.0);
                     heading(ui, "Intel", &format!("Day {} · {} {}", info.turn_state.turn_number,
                         info.weather.current.icon(), info.weather.current.name()));
                     intel(ui, &info, &actions.commanders);
-                    hints(ui, &[("Esc", "Back")]);
+                    hint = hint.or(hints(ui, &[("Esc", "Back")]));
                 }
                 Page::Commanders => {
                     ui.set_width(460.0);
                     let army = if nav.selected == 0 { player } else { info.enemy() };
                     commander_page(ui, &info, &actions.commanders, army);
-                    hints(ui, &[("←→", "Other commander"), ("Esc", "Back")]);
+                    hint = hint.or(hints(ui, &[("←→", "Other commander"), ("Esc", "Back")]));
                 }
                 Page::Options => {
                     ui.set_width(320.0);
@@ -324,11 +325,18 @@ pub fn draw_map_menu(
                             confirmed = Some(i);
                         }
                     }
-                    hints(ui, &[("↑↓", "Choose"), ("Enter", "Select"), ("Esc", "Back")]);
+                    hint = hint.or(hints(ui, &[("↑↓", "Choose"), ("Enter", "Select"), ("Esc", "Back")]));
                 }
             });
         });
 
+    // Tapped hints: Esc backs out, Enter confirms, the arrows step
+    match hint {
+        Some("Esc") => back = true,
+        Some("Enter") if count > 0 => confirmed = Some(nav.selected),
+        Some("←→") => nav.selected = (nav.selected + 1) % 2,
+        _ => {}
+    }
     if back {
         if nav.page == Page::Main {
             menu.open = false;
@@ -418,13 +426,19 @@ fn heading(ui: &mut egui::Ui, title: &str, detail: &str) {
     ui.add_space(4.0);
 }
 
-fn hints(ui: &mut egui::Ui, keys: &[(&str, &str)]) {
+/// The key hints under a page, tappable for touch and mouse players; returns
+/// the key whose hint was pressed
+fn hints(ui: &mut egui::Ui, keys: &[(&'static str, &str)]) -> Option<&'static str> {
     ui.add_space(6.0);
+    let mut pressed = None;
     ui.horizontal(|ui| {
         for (key, action) in keys {
-            theme::key_hint(ui, key, action, false);
+            if theme::key_hint_button(ui, key, action, false) {
+                pressed = Some(*key);
+            }
         }
     });
+    pressed
 }
 
 /// Side by side numbers for both armies, like AW's Intel screen

@@ -16,6 +16,7 @@
 //! - `hold NAME N` - hold a key down for N frames (zoom, key repeat)
 //! - `click X Y`  - left-click at logical window coordinates (reaches egui and cursor-based picking)
 //! - `move X Y`   - move the cursor without clicking (hover)
+//! - `touch down|move|up X Y` - a finger on the screen (tap = down then up)
 //! - `shot NAME`  - save `NAME.png` into `PAW_SHOT_DIR` (default `screenshots/`)
 //! - `unit X Y FIELD VALUE` - set the unit on tile (X, Y)'s `hp` (0-100), `ammo` or `stamina`
 //! - `charge`     - fill the player's CO power meter
@@ -60,6 +61,8 @@ enum Step {
     GameOver(bool),
     /// Give the player's army this commander (by data key, e.g. `dusty`)
     Commander(String),
+    /// A finger: `touch down|move|up X Y`
+    Touch(bevy::input::touch::TouchPhase, f32, f32),
     Quit,
 }
 
@@ -96,6 +99,16 @@ fn parse(script: &str) -> VecDeque<Step> {
                 "hold" => Step::Hold(key_code(parts[1]), num(2) as u32),
                 "click" => Step::Click(num(1), num(2)),
                 "move" => Step::Move(num(1), num(2)),
+                "touch" => {
+                    use bevy::input::touch::TouchPhase;
+                    let phase = match parts.get(1).copied() {
+                        Some("down") => TouchPhase::Started,
+                        Some("move") => TouchPhase::Moved,
+                        Some("up") => TouchPhase::Ended,
+                        _ => panic!("bad step: {step} (touch down|move|up X Y)"),
+                    };
+                    Step::Touch(phase, num(2), num(3))
+                }
                 "shot" => Step::Shot(parts[1].to_string()),
                 "unit" => Step::SetUnit(num(1) as i32, num(2) as i32, parts[3].to_string(), num(4) as i32),
                 "charge" => Step::Charge,
@@ -143,7 +156,7 @@ fn run_script(
     mut keys: MessageWriter<KeyboardInput>,
     mut buttons: MessageWriter<MouseButtonInput>,
     mut cursor: MessageWriter<CursorMoved>,
-    mut exit: MessageWriter<AppExit>,
+    mut touches: MessageWriter<bevy::input::touch::TouchInput>,
     mut game_result: ResMut<crate::game::GameResult>,
     battle_config: Res<crate::game::BattleConfig>,
     mut units: Query<(&crate::game::GridPosition, &mut crate::game::Unit)>,
@@ -210,6 +223,9 @@ fn run_script(
             script.wait = frames;
         }
         // Board picking reads the window's cursor position, so set that too
+        Step::Touch(phase, x, y) => {
+            touches.write(bevy::input::touch::TouchInput { phase, position: Vec2::new(x, y), window, force: None, id: 1 });
+        }
         Step::Move(x, y) => {
             window_state.set_cursor_position(Some(Vec2::new(x, y)));
             cursor.write(CursorMoved { window, position: Vec2::new(x, y), delta: None });
@@ -254,7 +270,7 @@ fn run_script(
             game_result.victory_type = crate::game::VictoryType::Elimination;
         }
         Step::Quit => {
-            exit.write(AppExit::Success);
+            commands.write_message(AppExit::Success);
         }
     }
 }

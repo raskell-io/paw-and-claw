@@ -217,6 +217,7 @@ impl Plugin for UiPlugin {
                 hud::draw_weather_overlay.run_if(in_state(GameState::Battle)),
                 hud::draw_unit_tokens.run_if(in_state(GameState::Battle)),
                 hud::draw_hud.run_if(in_state(GameState::Battle)),
+                hud::draw_menu_button.run_if(in_state(GameState::Battle)),
                 hud::draw_power_cut_in.run_if(in_state(GameState::Battle)),
                 hud::draw_turn_banner.run_if(in_state(GameState::Battle)),
                 map_menu::draw_map_menu.run_if(in_state(GameState::Battle)),
@@ -1038,7 +1039,7 @@ fn handle_fog_toggle(
 
 /// Track which unit is under the mouse cursor
 fn track_hovered_unit(
-    windows: Query<&Window>,
+    pointer: Res<crate::game::BoardPointer>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     units: Query<(Entity, &GridPosition, &Unit, &FactionMember)>,
     map: Res<GameMap>,
@@ -1046,16 +1047,15 @@ fn track_hovered_unit(
     fog: Res<FogOfWar>,
     battle_config: Res<BattleConfig>,
 ) {
-    let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
-    let Some(cursor_pos) = window.cursor_position() else {
+    let Some(cursor_pos) = pointer.position else {
         hovered.entity = None;
         return;
     };
 
     // Convert screen position to grid coordinates using ray-plane intersection
-    let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+    let Some(grid_pos) = screen_to_grid(Some(cursor_pos), camera, camera_transform, &map) else {
         hovered.entity = None;
         return;
     };
@@ -1079,7 +1079,7 @@ fn track_hovered_unit(
 
 /// Track hovered tile for terrain info panel (only when not hovering a unit)
 fn track_hovered_tile(
-    windows: Query<&Window>,
+    pointer: Res<crate::game::BoardPointer>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     map: Res<GameMap>,
     hovered_unit: Res<HoveredUnit>,
@@ -1092,16 +1092,15 @@ fn track_hovered_tile(
         return;
     }
 
-    let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
-    let Some(cursor_pos) = window.cursor_position() else {
+    let Some(cursor_pos) = pointer.position else {
         selected_tile.position = None;
         return;
     };
 
     // Convert screen position to grid coordinates
-    let Some(grid_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+    let Some(grid_pos) = screen_to_grid(Some(cursor_pos), camera, camera_transform, &map) else {
         selected_tile.position = None;
         return;
     };
