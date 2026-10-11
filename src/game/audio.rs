@@ -305,11 +305,19 @@ fn choose_music(
     commanders: Res<super::Commanders>,
     game_result: Res<super::GameResult>,
     game_data: Res<GameData>,
+    boot: Res<crate::states::BootSequence>,
     mut cue: ResMut<MusicCue>,
 ) {
     use crate::states::GameState;
+    use crate::states::BootStage;
     let wanted = match state.get() {
-        GameState::Menu => Some("title".to_string()),
+        GameState::Menu => match boot.stage {
+            BootStage::Disclaimer | BootStage::Studio => None,
+            BootStage::Intro => Some("intro".to_string()),
+            // Let the intro song's last hit ring before the title theme
+            BootStage::Title if boot.elapsed < 2.5 && !boot.intro_skipped() => Some("intro".to_string()),
+            _ => Some("title".to_string()),
+        },
         // No map yet means the skirmish setup screen
         GameState::Battle if map.width == 0 => Some("title".to_string()),
         GameState::Battle if game_result.game_over => None,

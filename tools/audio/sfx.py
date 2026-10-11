@@ -281,6 +281,14 @@ def sounds():
                               place(kick(0.4, 100, 40, 0.8), 0.55),
                               place(chime([C6, E6, G6, C6 * 2], 0.05, length=0.5, volume=0.25), 0.55)),
                           delay=0.12, feedback=0.35, mix_level=0.3), gain=0.95),
+        # Boot sequence: the stamp's wind-up whoosh and its heavy THUNK, and
+        # the snap as the title slams in
+        "whoosh": gba(svf(noise(0.35, 0.8, attack=0.25, curve=0.6), sweep(400, 4000, 0.35), 0.4, "band"), gain=0.6),
+        "stamp": gba(echo(mix(kick(0.35, 140, 40, 1.0, curve=2.2), svf(noise(0.12, 0.9, curve=2.5), 900, 0.3, "low"),
+                              fm(180, 0.25, ratio=1.4, index=3, index_decay=0.6, volume=0.3)), delay=0.07, feedback=0.25, mix_level=0.2), gain=1.0),
+        "snap": gba(mix(svf(noise(0.05, 1.0, curve=3), 5000, 0.2, "high"), kick(0.4, 160, 45, 0.9, curve=2.0),
+                        place(brass([note("E4"), note("B4"), note("E5")], 0.7, volume=0.5, attack=0.005, cutoff=(800, 5000)), 0.01)), gain=1.0),
+        "letter": gba(mix(pluck(note("G5"), 0.06, volume=0.5, brightness=0.6)), gain=0.4),
         "day": gba(echo(mix(place(brass([G4], 0.15, volume=0.45, attack=0.01), 0.0),
                             place(brass([C5, E5, G5], 0.55, volume=0.5, attack=0.02), 0.13),
                             place(kick(0.25, 110, 50, 0.4), 0.13)), delay=0.1, feedback=0.3, mix_level=0.25), gain=0.8),

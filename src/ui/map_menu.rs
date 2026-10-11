@@ -498,7 +498,7 @@ fn commander_page(ui: &mut egui::Ui, info: &MenuInfo, commanders: &Commanders, a
     let co = game_data.commander(co_id);
     let color = theme::faction_color(game_data, army);
     ui.horizontal(|ui| {
-        theme::portrait(ui, 84.0, color, &co.name, info.portraits.get(co_id));
+        theme::portrait_facing(ui, 84.0, color, &co.name, info.portraits.get(co_id), army != info.player());
         ui.vertical(|ui| {
             ui.label(theme::display(&co.name, 28.0).color(theme::WOOD_DARK));
             ui.label(theme::bold(game_data.faction_name(army), 15.0).color(theme::shade(color, 0.75)));

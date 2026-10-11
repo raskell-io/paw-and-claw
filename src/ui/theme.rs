@@ -410,12 +410,28 @@ pub fn meter(ui: &mut egui::Ui, width: f32, height: f32, fraction: f32, fill: Co
 
 /// Round portrait in a faction-colored frame. Uses the commander's portrait
 /// sprite when there is one, otherwise their initial on a medallion.
+/// Texture coordinates for a commander portrait: art faces right, and the
+/// second army's commanders are mirrored to face left, like their units
+pub fn portrait_uv(facing_left: bool) -> egui::Rect {
+    if facing_left {
+        egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
+    } else {
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
+    }
+}
+
 pub fn portrait(ui: &mut egui::Ui, size: f32, color: Color32, name: &str, image: Option<egui::TextureId>) -> egui::Response {
+    portrait_facing(ui, size, color, name, image, false)
+}
+
+/// A round portrait medallion; `facing_left` mirrors the art (second army)
+pub fn portrait_facing(ui: &mut egui::Ui, size: f32, color: Color32, name: &str, image: Option<egui::TextureId>, facing_left: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let c = rect.center();
     if let Some(texture) = image {
         let inner = rect.shrink(3.0);
         egui::Image::new((texture, inner.size()))
+            .uv(portrait_uv(facing_left))
             .corner_radius(CornerRadius::same((inner.width() / 2.0) as u8))
             .paint_at(ui, inner);
         let painter = ui.painter();
@@ -458,6 +474,28 @@ pub fn backdrop(ctx: &egui::Context, id: &str, alpha: u8) {
 }
 
 /// Paint the full-screen forest backdrop used by the title and setup screens
+/// The title screen's frame around the live diorama behind it: a dark sky
+/// band at the top so the title reads, the nearer pine silhouettes along the
+/// bottom, and the middle left open onto the battle
+pub fn forest_frame(painter: &egui::Painter, rect: egui::Rect, time: f32) {
+    // A soft darkening over everything, deepest at the top
+    let steps = 24;
+    for i in 0..steps {
+        let t0 = i as f32 / steps as f32;
+        let t1 = (i + 1) as f32 / steps as f32;
+        let band = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), egui::lerp(rect.top()..=rect.bottom(), t0)),
+            egui::pos2(rect.right(), egui::lerp(rect.top()..=rect.bottom(), t1) + 1.0),
+        );
+        let alpha = (200.0 * (1.0 - t0 / 0.42).max(0.0) + 40.0) as u8;
+        painter.rect_filled(band, 0.0, Color32::from_rgba_unmultiplied(0x16, 0x1F, 0x17, alpha));
+    }
+    pine_layers(painter, rect, time, &[
+        (0.84, 105.0, Color32::from_rgb(0x24, 0x34, 0x26), 37.0),
+        (0.94, 140.0, Color32::from_rgb(0x17, 0x21, 0x18), 71.0),
+    ]);
+}
+
 pub fn forest_backdrop(painter: &egui::Painter, rect: egui::Rect, time: f32) {
     // Sky-to-forest vertical gradient
     let steps = 24;
@@ -472,12 +510,16 @@ pub fn forest_backdrop(painter: &egui::Painter, rect: egui::Rect, time: f32) {
     }
 
     // Three layers of pine silhouettes, nearer layers darker and larger
-    let layers = [
+    pine_layers(painter, rect, time, &[
         (0.62, 70.0, Color32::from_rgb(0x2F, 0x42, 0x31), 0.0),
         (0.74, 95.0, Color32::from_rgb(0x24, 0x34, 0x26), 37.0),
         (0.88, 130.0, Color32::from_rgb(0x17, 0x21, 0x18), 71.0),
-    ];
-    for (horizon, tree_h, color, seed) in layers {
+    ]);
+}
+
+/// Rows of swaying pine silhouettes: (horizon 0..1, tree height, colour, seed)
+fn pine_layers(painter: &egui::Painter, rect: egui::Rect, time: f32, layers: &[(f32, f32, Color32, f32)]) {
+    for &(horizon, tree_h, color, seed) in layers {
         let base_y = egui::lerp(rect.top()..=rect.bottom(), horizon);
         painter.rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), base_y), rect.max), 0.0, color);
         let spacing = tree_h * 0.55;

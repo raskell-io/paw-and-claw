@@ -28,7 +28,8 @@ src/
 │   ├── theme.rs     # Palette, fonts, shared widgets (cards, menu rows, meters)
 │   ├── icons.rs     # Pixel-art UI icons (9x9 masks, auto outline)
 │   ├── input.rs     # MenuInput: keyboard + gamepad menu navigation
-│   ├── menu.rs      # Title screen
+│   ├── boot.rs      # Opening: disclaimers, studio stamp, intro, "Press any button"
+│   ├── menu.rs      # Main menu
 │   ├── setup.rs     # Skirmish setup (faction, commander, map)
 │   ├── hud.rs       # Battle HUD, inspect card, unit tokens
 │   ├── production.rs# Build menu
@@ -94,6 +95,13 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   layouts are designed for 1280x720 points and must still fit ~1100x540. Screen positions
   from the 3D camera (logical pixels) divide by `UiScale` before drawing in egui.
   Try other screens with `PAW_WINDOW=844x390 cargo run` (desktop only)
+- Commander art: portraits (`sprites/portraits`) everywhere, full-body figures (`sprites/figures`,
+  `PortraitTextures::figure`) in the intro; both face right and are mirrored for the second army
+- The title/menu backdrop is a live skirmish diorama (`game/diorama.rs`) on Spann Island under a
+  circling camera; it borrows the battle resources while the menu is up and clears them on exit
+- The game opens with `BootSequence` (states/mod.rs): disclaimers, the raskell.io stamp, the
+  animated intro (synced to the `intro` song's beats), the title slam, "Press any button", then
+  the main menu. Any button skips a stage. Dev scripts start at the menu; `PAW_BOOT=1` keeps it
 - Build every screen from `ui/theme.rs` (parchment cards, `menu_item`, `key_hint`, `meter`);
   don't hardcode colors or use stock egui windows
 - Menus must work with `MenuInput` (keyboard + gamepad), not just the mouse; use

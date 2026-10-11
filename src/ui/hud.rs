@@ -118,7 +118,8 @@ pub fn draw_hud(
                     let corners = egui::CornerRadius { nw: 7, sw: 7, ne: 0, se: 0 };
                     match portraits.get(co_id) {
                         Some(texture) => {
-                            egui::Image::new((texture, rect.size())).corner_radius(corners).paint_at(ui, rect);
+                            egui::Image::new((texture, rect.size())).uv(theme::portrait_uv(current != player))
+                                .corner_radius(corners).paint_at(ui, rect);
                         }
                         None => {
                             ui.painter().rect_filled(rect, corners, color);
@@ -699,13 +700,14 @@ fn cursor_screen_fraction(
 }
 
 /// A commander's portrait in a framed square, or their initial when there's no
-/// art yet, faded to `alpha` (0 = gone, 1 = solid)
-fn portrait_square(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, name: &str, texture: Option<egui::TextureId>, alpha: f32) {
+/// art yet, faded to `alpha` (0 = gone, 1 = solid). Portraits are drawn facing
+/// right; `facing_left` mirrors them for the second army, like its units.
+fn portrait_square(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, name: &str, texture: Option<egui::TextureId>,
+                   alpha: f32, facing_left: bool) {
     painter.rect_filled(rect.expand(5.0), 6, theme::shade(color, 0.4).gamma_multiply(alpha));
     match texture {
         Some(texture) => {
-            painter.image(texture, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                egui::Color32::WHITE.gamma_multiply(alpha));
+            painter.image(texture, rect, theme::portrait_uv(facing_left), egui::Color32::WHITE.gamma_multiply(alpha));
         }
         None => {
             painter.rect_filled(rect, 4, theme::PARCHMENT_DEEP.gamma_multiply(alpha));
@@ -781,7 +783,7 @@ pub fn draw_turn_banner(
                     painter.rect_filled(card, 10, theme::shade(color, 0.8).gamma_multiply(alpha));
                     painter.rect_stroke(card, 10, theme::stroke(4.0, theme::shade(color, 0.45).gamma_multiply(alpha)), egui::StrokeKind::Inside);
                     let portrait = egui::Rect::from_min_size(egui::pos2(card.left() + 20.0, card.top() + 20.0), egui::vec2(size, size));
-                    portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), alpha);
+                    portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), alpha, side > 0.0);
                     shadowed(painter, egui::pos2(card.center().x, portrait.bottom() + 36.0), egui::Align2::CENTER_CENTER,
                         &co.name, egui::FontId::new(34.0, theme::title_family()), theme::PARCHMENT.gamma_multiply(alpha));
                     painter.text(egui::pos2(card.center().x, portrait.bottom() + 74.0), egui::Align2::CENTER_CENTER,
@@ -817,14 +819,18 @@ pub fn draw_turn_banner(
             let co_id = commanders.get_active(faction);
             let co = game_data.commander(co_id);
             // A big portrait breaking out of the band above and below, as in Advance Wars
+            // The first army's commander on the left facing right, the second's on
+            // the right facing left, like their units
+            let second = faction != battle_config.player_faction;
+            let side = if second { 1.0 } else { -1.0 };
             let size = (band.height() * 1.6).min(screen.height() * 0.4);
-            let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x - 150.0 - size / 2.0 + slide, band.center().y), egui::vec2(size, size));
+            let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x + side * (150.0 + size / 2.0) + slide, band.center().y), egui::vec2(size, size));
             painter.rect_filled(portrait.expand(9.0).translate(egui::vec2(6.0, 6.0)), 8, egui::Color32::from_black_alpha(90));
-            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0);
-            let text_x = portrait.right() + 36.0;
-            shadowed(painter, egui::pos2(text_x, band.center().y - 10.0), egui::Align2::LEFT_CENTER, &format!("Day {}", banner.day),
+            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0, second);
+            let (text_x, align) = if second { (portrait.left() - 36.0, egui::Align2::RIGHT_CENTER) } else { (portrait.right() + 36.0, egui::Align2::LEFT_CENTER) };
+            shadowed(painter, egui::pos2(text_x, band.center().y - 10.0), align, &format!("Day {}", banner.day),
                 egui::FontId::new(72.0, theme::title_family()), theme::PARCHMENT);
-            painter.text(egui::pos2(text_x, band.center().y + 46.0), egui::Align2::LEFT_CENTER,
+            painter.text(egui::pos2(text_x, band.center().y + 46.0), align,
                 format!("{} · {}", game_data.faction_name(faction), co.name),
                 egui::FontId::new(18.0, theme::bold_family()), theme::shade(theme::PARCHMENT, 0.85));
         });
@@ -843,6 +849,7 @@ pub fn draw_power_cut_in(
     game_data: Res<GameData>,
     portraits: Res<PortraitTextures>,
     time: Res<Time>,
+    battle_config: Res<BattleConfig>,
     mut playing: Local<Option<(crate::game::Faction, PowerLevel, f64)>>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -892,22 +899,25 @@ pub fn draw_power_cut_in(
             let stripe = egui::Rect::from_min_max(egui::pos2(band.left(), band.top() + 10.0), egui::pos2(band.right(), band.top() + 16.0));
             painter.rect_filled(stripe, 0, egui::Color32::from_white_alpha(70));
 
-            // Portrait in a framed square on the left of the band
-            let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x - 260.0 + slide, band.center().y), egui::vec2(136.0, 136.0));
-            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0);
+            // Portrait in a framed square: on the left facing right for the first
+            // army, on the right facing left for the second
+            let second = faction != battle_config.player_faction;
+            let side = if second { 1.0 } else { -1.0 };
+            let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x + side * 260.0 + slide, band.center().y), egui::vec2(136.0, 136.0));
+            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0, second);
 
             // "SUPER CO POWER!" and the power's name
-            let text_x = portrait.right() + 34.0;
+            let (text_x, align) = if second { (portrait.left() - 34.0, egui::Align2::RIGHT_CENTER) } else { (portrait.right() + 34.0, egui::Align2::LEFT_CENTER) };
             let kind = if level == PowerLevel::Super { "SUPER CO POWER!" } else { "CO POWER!" };
-            painter.text(egui::pos2(text_x + 2.0, band.center().y - 26.0), egui::Align2::LEFT_CENTER, kind,
+            painter.text(egui::pos2(text_x + 2.0, band.center().y - 26.0), align, kind,
                 egui::FontId::new(26.0, theme::title_family()), egui::Color32::from_black_alpha(120));
-            painter.text(egui::pos2(text_x, band.center().y - 28.0), egui::Align2::LEFT_CENTER, kind,
+            painter.text(egui::pos2(text_x, band.center().y - 28.0), align, kind,
                 egui::FontId::new(26.0, theme::title_family()), theme::GOLD_LIGHT);
-            painter.text(egui::pos2(text_x + 3.0, band.center().y + 23.0), egui::Align2::LEFT_CENTER, &power.name,
+            painter.text(egui::pos2(text_x + 3.0, band.center().y + 23.0), align, &power.name,
                 egui::FontId::new(52.0, theme::title_family()), egui::Color32::from_black_alpha(140));
-            painter.text(egui::pos2(text_x, band.center().y + 20.0), egui::Align2::LEFT_CENTER, &power.name,
+            painter.text(egui::pos2(text_x, band.center().y + 20.0), align, &power.name,
                 egui::FontId::new(52.0, theme::title_family()), theme::PARCHMENT);
-            painter.text(egui::pos2(text_x, band.center().y + 60.0), egui::Align2::LEFT_CENTER, &co.name,
+            painter.text(egui::pos2(text_x, band.center().y + 60.0), align, &co.name,
                 egui::FontId::new(18.0, theme::bold_family()), theme::shade(theme::PARCHMENT, 0.85));
         });
     ctx.request_repaint();

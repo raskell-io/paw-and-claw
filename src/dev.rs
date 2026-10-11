@@ -17,6 +17,7 @@
 //! - `click X Y`  - left-click at logical window coordinates (reaches egui and cursor-based picking)
 //! - `move X Y`   - move the cursor without clicking (hover)
 //! - `touch down|move|up X Y` - a finger on the screen (tap = down then up)
+//! - `boot STAGE SECS` - jump the opening sequence (disclaimer|studio|intro|title|menu)
 //! - `shot NAME`  - save `NAME.png` into `PAW_SHOT_DIR` (default `screenshots/`)
 //! - `unit X Y FIELD VALUE` - set the unit on tile (X, Y)'s `hp` (0-100), `ammo` or `stamina`
 //! - `charge`     - fill the player's CO power meter
@@ -42,6 +43,10 @@ impl Plugin for DevScriptPlugin {
         let steps = parse(&script);
         let out_dir = PathBuf::from(std::env::var("PAW_SHOT_DIR").unwrap_or_else(|_| "screenshots".into()));
         std::fs::create_dir_all(&out_dir).expect("create screenshot dir");
+        // Scripts start at the main menu; PAW_BOOT=1 keeps the opening sequence
+        if std::env::var("PAW_BOOT").is_err() {
+            app.insert_resource(crate::states::BootSequence { stage: crate::states::BootStage::Menu, ..default() });
+        }
         app.insert_resource(DevScript { steps, wait: 0, release: None, held: None, out_dir })
             .add_systems(First, run_script);
     }
@@ -61,6 +66,8 @@ enum Step {
     GameOver(bool),
     /// Give the player's army this commander (by data key, e.g. `dusty`)
     Commander(String),
+    /// Jump the opening sequence to a stage and time: `boot intro 19.5`
+    Boot(crate::states::BootStage, f32),
     /// A finger: `touch down|move|up X Y`
     Touch(bevy::input::touch::TouchPhase, f32, f32),
     Quit,
@@ -99,6 +106,17 @@ fn parse(script: &str) -> VecDeque<Step> {
                 "hold" => Step::Hold(key_code(parts[1]), num(2) as u32),
                 "click" => Step::Click(num(1), num(2)),
                 "move" => Step::Move(num(1), num(2)),
+                "boot" => {
+                    use crate::states::BootStage;
+                    let stage = match parts.get(1).copied() {
+                        Some("disclaimer") => BootStage::Disclaimer,
+                        Some("studio") => BootStage::Studio,
+                        Some("intro") => BootStage::Intro,
+                        Some("title") => BootStage::Title,
+                        _ => BootStage::Menu,
+                    };
+                    Step::Boot(stage, parts.get(2).and_then(|v| v.parse().ok()).unwrap_or(0.0))
+                }
                 "touch" => {
                     use bevy::input::touch::TouchPhase;
                     let phase = match parts.get(1).copied() {
@@ -223,6 +241,9 @@ fn run_script(
             script.wait = frames;
         }
         // Board picking reads the window's cursor position, so set that too
+        Step::Boot(stage, secs) => {
+            commands.insert_resource(crate::states::BootSequence { stage, elapsed: secs, skipped_intro: false });
+        }
         Step::Touch(phase, x, y) => {
             touches.write(bevy::input::touch::TouchInput { phase, position: Vec2::new(x, y), window, force: None, id: 1 });
         }

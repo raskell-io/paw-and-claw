@@ -71,6 +71,9 @@ See `modding.md` for detailed documentation.
 - `tools/sprites/manifest.py render|check|status|prompts` builds prompts, checks them
   against the game data, and tracks which PNGs exist
 - Full workflow: `assets/sprites/README.md`. Art is medieval woodland (no guns/engines)
+- `tools/sprites/brand.py MASCOT_PNG` draws the boot art in `assets/sprites/brand/` (the raskell.io
+  mascot as a red stamp seal, the cartoon hand and stamp, washi paper); the mascot comes from
+  www.raskell.io (`static/raskell-mascot.avif`, converted to PNG)
 
 ---
 

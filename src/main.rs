@@ -38,6 +38,7 @@ fn main() {
             ..default()
         }))
         .init_state::<GameState>()
+        .init_resource::<states::BootSequence>()
         .add_plugins(GamePlugin)
         .add_plugins(UiPlugin)
         .add_systems(Startup, (setup_camera, setup_lighting));

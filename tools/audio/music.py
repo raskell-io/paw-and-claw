@@ -677,7 +677,121 @@ def all_pieces():
         pieces[f"power_{army}"] = lambda lead=lead: render(commander_spec(lead, COMMANDERS[lead], power=True))
     pieces["battle_start"] = lambda: jingle(battle_start_spec())
     pieces["title"] = lambda: render(title_spec())
+    pieces["intro"] = lambda: intro_song()
     return pieces
+
+
+def intro_song():
+    """The animated intro's song: an anime-opening style J-rock rush at 168
+    BPM in E minor, not looped. A drum fill count-in, a driving verse over
+    power-chord eighths, a soaring chorus a step up the scale, and a big final
+    hit for the title (about 28 s)."""
+    bpm = 168
+    beat = 60.0 / bpm
+    key = note_midi("E5")
+    scale = "minor"
+    buf = []
+
+    def add(sound, pos):
+        start = samples(pos * beat)
+        if start + len(sound) > len(buf):
+            buf.extend([0.0] * (start + len(sound) - len(buf)))
+        for i, x in enumerate(sound):
+            buf[start + i] += x
+
+    def melody(phrase, at, fn=bright_brass, volume=0.34, octave=0):
+        pos = at
+        for d, length in phrase:
+            if d is not None:
+                add(fn(midi_freq(key + degree_semis(scale, d) + 12 * octave), length * beat * 0.92, volume), pos)
+            pos += length
+        return pos
+
+    def power_chords(degrees, at, bars):
+        # Distorted-ish guitar: detuned saws root + fifth, chugging eighths
+        for b in range(bars):
+            d = degrees[b % len(degrees)]
+            root = key - 24 + degree_semis(scale, d)
+            for k in range(8):
+                v = 0.11 if k % 2 == 0 else 0.08
+                add(brass_chord([midi_freq(root), midi_freq(root + 7), midi_freq(root + 12)], beat * 0.45, v), at + b * 4 + k * 0.5)
+            for k in range(8):
+                add(slap_bass(midi_freq(root - 12), beat * 0.45, 0.4), at + b * 4 + k * 0.5)
+
+    def rock_beat(at, bars, fill_last=True):
+        for b in range(bars):
+            o = at + b * 4
+            for k in (0, 1.5, 2, 2.5):
+                add(kick(0.18, 150, 50, 0.6, curve=3), o + k)
+            add(snare(0.45), o + 1)
+            add(snare(0.45), o + 3)
+            for k in range(8):
+                add(hat(0.12 if k % 2 else 0.08, seed=b * 8 + k), o + k * 0.5)
+            if b % 4 == 0:
+                add(crash(0.12, 1.0), o)
+            if fill_last and b == bars - 1:
+                for k in range(8):
+                    add(tom(200 - 15 * k, 0.32), o + 2 + k * 0.25)
+
+    t = 0
+    # Count-in: a snare roll building to a crash
+    for k in range(16):
+        add(snare(0.12 + 0.02 * k), t + k * 0.25)
+    t += 4
+    # Intro riff (4 bars): the hook on brass over power chords
+    riff = [(0, .5), (2, .5), (4, .5), (7, 1), (6, .5), (4, .5), (2, .5)]
+    power_chords([0, 0, 5, 6], t, 4)
+    rock_beat(t, 4)
+    for b in range(4):
+        melody(riff if b % 2 == 0 else [(4, .5), (6, .5), (7, .5), (9, 1), (8, .5), (7, .5), (4, .5)], t + b * 4)
+    t += 16
+    # Verse (8 bars): a driving line, lower and tighter
+    power_chords([0, 5, 3, 6, 0, 5, 3, 4], t, 8)
+    rock_beat(t, 8)
+    verse = [
+        [(4, .5), (4, .5), (3, .5), (4, 1), (2, .5), (0, 1)],
+        [(2, .5), (3, .5), (4, .5), (5, 1), (4, .5), (3, 1)],
+        [(4, .5), (4, .5), (3, .5), (4, 1), (7, .5), (6, 1)],
+        [(5, .5), (4, .5), (3, .5), (2, 1.5), (None, 1)],
+    ]
+    for b, bar in enumerate(verse * 2):
+        melody(bar, t + b * 4, fn=horn_brass, volume=0.32)
+    t += 32
+    # Chorus (8 bars): soaring, an octave up, over brighter chords
+    power_chords([5, 6, 0, 4, 5, 6, 2, 4], t, 8)
+    rock_beat(t, 8)
+    chorus = [
+        [(7, 1.5), (6, .5), (7, 1), (9, 1)],
+        [(8, 1), (7, 1), (6, 1), (4, 1)],
+        [(5, 1.5), (6, .5), (7, 1), (9, 1)],
+        [(11, 2), (9, 1), (8, 1)],
+        [(7, 1.5), (6, .5), (7, 1), (9, 1)],
+        [(8, 1), (7, 1), (6, 1), (8, 1)],
+        [(9, 1.5), (8, .5), (7, 1), (6, 1)],
+        [(7, 4)],
+    ]
+    for b, bar in enumerate(chorus):
+        melody(bar, t + b * 4, volume=0.36)
+        melody(bar, t + b * 4, fn=strings_note, volume=0.12, octave=-1)
+    t += 32
+    # Final hit: a big chord and crash for the title
+    for f in (0, 4, 7):
+        add(brass(midi_freq(key - 12 + degree_semis(scale, 0) + (3 if f == 4 else f)), beat * 6, 0.22), t)
+    add(kick(0.6, 120, 35, 1.0, curve=1.6), t)
+    add(crash(0.3, 3.0), t)
+    return gba(buf, gain=0.92)
+
+
+def brass_chord(freqs, length, volume):
+    out = None
+    for f in freqs:
+        v = fm_voice(f, length, volume, 1.0, 3.2, attack=0.003, decay=0.06, sustain=0.6, release=0.02, index_hold=0.9)
+        out = v if out is None else [a + b for a, b in zip(out, v)]
+    return out
+
+
+def strings_note(freq, length, volume):
+    return strings([freq], length, volume)
 
 
 def title_spec():

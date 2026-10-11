@@ -35,6 +35,8 @@ pub struct SpriteAssets {
     /// the plain feature sprite is the neutral one
     pub owned_features: HashMap<(Terrain, Faction), Handle<Image>>,
     pub portraits: HashMap<CommanderId, Handle<Image>>,
+    /// Full-body commander art (`figures/{id}.png`, 80x144, transparent)
+    pub figures: HashMap<CommanderId, Handle<Image>>,
     /// Every requested sprite has finished loading (or failed)
     pub loading_complete: bool,
 }
@@ -62,6 +64,10 @@ impl SpriteAssets {
 
     pub fn portrait_path(id: CommanderId) -> String {
         format!("sprites/portraits/{}.png", super::modding::commander_to_key(id))
+    }
+
+    pub fn figure_path(id: CommanderId) -> String {
+        format!("sprites/figures/{}.png", super::modding::commander_to_key(id))
     }
 
     /// A handle is usable once its image has actually loaded
@@ -97,12 +103,17 @@ impl SpriteAssets {
         Self::ready(images, self.portraits.get(&id))
     }
 
+    pub fn figure(&self, images: &Assets<Image>, id: CommanderId) -> Option<Handle<Image>> {
+        Self::ready(images, self.figures.get(&id))
+    }
+
     fn all_handles(&self) -> impl Iterator<Item = &Handle<Image>> {
         self.unit_sprites.values()
             .chain(self.terrain_tiles.values())
             .chain(self.terrain_features.values())
             .chain(self.owned_features.values())
             .chain(self.portraits.values())
+            .chain(self.figures.values())
     }
 }
 
@@ -152,6 +163,9 @@ fn start_asset_loading(asset_server: Res<AssetServer>, mut sprites: ResMut<Sprit
     for &id in CommanderId::all() {
         if let Some(handle) = load(SpriteAssets::portrait_path(id)) {
             sprites.portraits.insert(id, handle);
+        }
+        if let Some(handle) = load(SpriteAssets::figure_path(id)) {
+            sprites.figures.insert(id, handle);
         }
     }
 

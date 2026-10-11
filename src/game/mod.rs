@@ -18,6 +18,7 @@ mod modding;
 mod effects;
 mod audio;
 mod touch;
+mod diorama;
 
 pub use map::*;
 pub use maps::*;
@@ -54,6 +55,7 @@ impl Plugin for GamePlugin {
             .add_plugins(EffectsPlugin)
             .add_plugins(GameAudioPlugin)
             .add_plugins(TouchControlsPlugin)
+            .add_plugins(diorama::DioramaPlugin)
             .add_plugins(AiPlugin)
             .add_plugins(FogPlugin)
             .add_plugins(CommanderPlugin)

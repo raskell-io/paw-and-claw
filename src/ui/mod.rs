@@ -12,6 +12,7 @@ use crate::game::{
 use crate::states::GameState;
 
 mod editor;
+mod boot;
 mod hud;
 mod icons;
 mod input;
@@ -212,8 +213,10 @@ impl Plugin for UiPlugin {
             .add_systems(Update, scale_ui_to_window)
             .add_systems(Update, menu_key_sounds)
             .add_systems(EguiPrimaryContextPass, ui_sounds)
-            .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits, register_unit_textures))
+            .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits, register_unit_textures, boot::register_brand_textures))
+            .add_systems(Startup, boot::load_brand_textures)
             .add_systems(EguiPrimaryContextPass, (
+                boot::draw_boot.run_if(in_state(GameState::Menu)),
                 menu::draw_main_menu.run_if(in_state(GameState::Menu)),
                 setup::draw_battle_setup.run_if(in_state(GameState::Battle)),
                 hud::draw_weather_overlay.run_if(in_state(GameState::Battle)),
@@ -249,12 +252,18 @@ impl Plugin for UiPlugin {
 #[derive(Resource, Default)]
 pub struct PortraitTextures {
     textures: std::collections::HashMap<CommanderId, egui::TextureId>,
+    figures: std::collections::HashMap<CommanderId, egui::TextureId>,
     registered: bool,
 }
 
 impl PortraitTextures {
     pub fn get(&self, id: CommanderId) -> Option<egui::TextureId> {
         self.textures.get(&id).copied()
+    }
+
+    /// The commander's full-body art (80x144), where it exists
+    pub fn figure(&self, id: CommanderId) -> Option<egui::TextureId> {
+        self.figures.get(&id).copied()
     }
 }
 
@@ -272,6 +281,10 @@ fn register_portraits(
         if let Some(handle) = sprites.portrait(&images, id) {
             let texture = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle));
             portraits.textures.insert(id, texture);
+        }
+        if let Some(handle) = sprites.figure(&images, id) {
+            let texture = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle));
+            portraits.figures.insert(id, texture);
         }
     }
     portraits.registered = true;

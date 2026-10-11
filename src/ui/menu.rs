@@ -41,21 +41,32 @@ pub fn draw_main_menu(
     mut exit: MessageWriter<AppExit>,
     input: MenuInput,
     time: Res<Time>,
+    boot: Res<crate::states::BootSequence>,
     mut selected: Local<usize>,
+    mut shown: Local<bool>,
 ) {
+    // The opening sequence comes first (ui/boot.rs)
+    if boot.stage != crate::states::BootStage::Menu {
+        *shown = false;
+        return;
+    }
+    // The button that left the title screen must not also pick an entry
+    let accept_input = std::mem::replace(&mut *shown, true);
     let entries = entries();
     let enabled: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].target.is_some()).collect();
     // Keyboard/gamepad navigation skips disabled entries
     let mut pos = enabled.iter().position(|&i| i == *selected).unwrap_or(0);
-    input.step_vertical(&mut pos, enabled.len());
+    if accept_input {
+        input.step_vertical(&mut pos, enabled.len());
+    }
     *selected = enabled[pos];
 
-    let mut activate = input.confirm().then_some(*selected);
+    let mut activate = (accept_input && input.confirm()).then_some(*selected);
 
     let Ok(ctx) = contexts.ctx_mut() else { return };
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
         let screen = ui.max_rect();
-        theme::forest_backdrop(ui.painter(), screen, time.elapsed_secs());
+        theme::forest_frame(ui.painter(), screen, time.elapsed_secs());
 
         // Title with a soft drop shadow
         let title_pos = egui::pos2(screen.center().x, screen.top() + screen.height() * 0.2);

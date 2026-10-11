@@ -130,6 +130,15 @@ outline, shading and plain dark brown background". Start the description with
 "{Name} portrait." so downloads can be told apart. Changing the output size
 re-renders the form and clears the description, so pick the size first.
 
+**Commander figures** (`figures/{id}.png`) are the full-body art shown in the
+intro, like Advance Wars' standing CO art: 80x144, **Remove background on**,
+facing right, made with Pro Flash using the commander's own portrait as the
+style image (all "Copy from style image" boxes on, so face and colours match).
+Describe the whole outfit and a pose that shows the character, and end with
+"Same character as the style image: same face, colours and outfit … No text,
+no ground, no shadow". The game mirrors them for the second army. So far:
+the Western Frontier and Northern Realm commanders.
+
 Keep every design grounded, like Root or Redwall: practical medieval clothing,
 leather, iron and cloth, no magic, glowing effects or bone armour. The Nether
 Dominion are burrowing and nocturnal mammals (moles, anteaters, skunks, shrews,

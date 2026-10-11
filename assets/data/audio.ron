@@ -35,11 +35,18 @@
         "power":        (file: "audio/sfx/power.wav", volume: 0.8),
         "day":          (file: "audio/sfx/day.wav", volume: 0.8),
         "turn_end":     (file: "audio/sfx/turn_end.wav", volume: 0.8),
+        // Boot sequence: the studio stamp, its letters, and the title's snap
+        "whoosh":       (file: "audio/sfx/whoosh.wav", volume: 0.7),
+        "stamp":        (file: "audio/sfx/stamp.wav", volume: 0.9),
+        "letter":       (file: "audio/sfx/letter.wav", volume: 0.6, pitch_variance: 0.06),
+        "snap":         (file: "audio/sfx/snap.wav", volume: 0.9),
     },
     // Music, made by tools/audio/music.py. Still to come: the other commanders'
     // themes and a power theme per army
     music: {
         "title": (file: "audio/music/title.ogg", volume: 0.8),
+        // The opening sequence's animated intro (plays once)
+        "intro": (file: "audio/music/intro.ogg", volume: 0.85, looped: false),
         // Plays once over the match intro
         "battle_start": (file: "audio/music/battle_start.ogg", volume: 0.85, looped: false),
         // Commander themes, `co_<commander key>`: played on that commander's turns
