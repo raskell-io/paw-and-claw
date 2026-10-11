@@ -45,5 +45,9 @@
         // Commander themes, `co_<commander key>`: played on that commander's turns
         "co_dusty": (file: "audio/music/co_dusty.ogg", volume: 0.8),
         "co_frost": (file: "audio/music/co_frost.ogg", volume: 0.8),
+        "co_talon_co": (file: "audio/music/co_talon_co.ogg", volume: 0.8),
+        "co_bandit": (file: "audio/music/co_bandit.ogg", volume: 0.8),
+        "co_prowler": (file: "audio/music/co_prowler.ogg", volume: 0.8),
+        "co_hivemind": (file: "audio/music/co_hivemind.ogg", volume: 0.8),
     },
 )

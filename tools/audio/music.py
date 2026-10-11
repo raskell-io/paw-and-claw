@@ -199,6 +199,15 @@ def crash(volume, length=1.2):
     return [s * volume for s in svf(noise(length, 1.0, curve=1.6, seed=21), 5000, 0.0, "high")]
 
 
+def sax(freq, length, volume, seed=0):
+    """Breathy FM reed: a growly attack, a round held tone and a little air."""
+    tone = fm_voice(freq, length, volume, 1.0, 3.0, attack=0.025, decay=0.2, sustain=0.75, vibrato=0.01, index_hold=0.8)
+    rng = random.Random(seed)
+    air = svf([rng.uniform(-1, 1) for _ in range(len(tone))], freq * 3, 0.5, "band")
+    n = len(tone)
+    return [t + a * 0.05 * volume * sustain_env(i, n, 0.02, 0.1, 0.6, 0.05) for i, (t, a) in enumerate(zip(tone, air))]
+
+
 def bright_brass(freq, length, volume):
     """Brighter, punchier synth-brass lead for upbeat themes."""
     return fm_voice(freq, length, volume, 1.0, 2.2, attack=0.006, decay=0.08, sustain=0.7, vibrato=0.005)
@@ -211,7 +220,7 @@ def horn_brass(freq, length, volume):
     return [x + y for x, y in zip(a, b)]
 
 
-LEADS = {"bright_brass": bright_brass, "horn_brass": horn_brass, "brass": brass, "horn": horn, "low_brass": low_brass, "marimba": marimba, "flute": flute}
+LEADS = {"sax": sax, "bright_brass": bright_brass, "horn_brass": horn_brass, "brass": brass, "horn": horn, "low_brass": low_brass, "marimba": marimba, "flute": flute}
 
 
 # --- Scales, chords and arrangement ----------------------------------------------
@@ -232,9 +241,10 @@ def degree_semis(scale, degree):
     return 12 * octave + steps[idx]
 
 
-def chord(harmony, degree, major_five=False):
-    """Triad stacked in thirds on a scale degree, as semitones from the key."""
-    tones = [degree_semis(harmony, degree + k) for k in (0, 2, 4)]
+def chord(harmony, degree, major_five=False, sevenths=False):
+    """Triad (or seventh chord) stacked in thirds on a scale degree, as
+    semitones from the key."""
+    tones = [degree_semis(harmony, degree + k) for k in ((0, 2, 4, 6) if sevenths else (0, 2, 4))]
     if major_five and degree % 7 == 4:
         tones[1] = tones[0] + 4
     return tones
@@ -304,8 +314,8 @@ def render(spec):
         if d is not None:
             m = key + degree_semis(style["scale"], d) + 12 * style["lead_octave"]
             f = midi_freq(m)
-            if lead_fn is flute:
-                add(flute(f, length * beat * 0.95, lead_volume, seed=k), pos)
+            if lead_fn in (flute, sax):
+                add(lead_fn(f, length * beat * 0.95, lead_volume, seed=k), pos)
             else:
                 add(lead_fn(f, length * beat * 0.95, lead_volume), pos)
                 # The marimba gets a soft horn an octave down to carry long notes
@@ -322,16 +332,24 @@ def render(spec):
 
     key_root = key - 12  # chords and pads sit an octave below the melody
     for b, degree in enumerate(spec["progression"]):
-        tones = chord(style["harmony"], degree, style.get("major_five", False))
+        tones = chord(style["harmony"], degree, style.get("major_five", False), spec.get("sevenths", False))
         root = key_root + tones[0]
         pad_freqs = [midi_freq(key_root + t) for t in tones]
+        next_tones = chord(style["harmony"], spec["progression"][(b + 1) % bars], style.get("major_five", False))
         if style["pad"] == "organ":
             add(organ(pad_freqs, 4 * beat, 0.13), b * 4)
         else:
             add(strings(pad_freqs, 4 * beat, 0.15), b * 4)
-        for k, semis in enumerate(spec.get("bass", style["bass"])):
-            if semis is not None:
-                add(slap_bass(midi_freq(root - 24 + semis), beat * 0.45, 0.42), b * 4 + k * 0.5)
+        bass = spec.get("bass", style["bass"])
+        if bass == "walk":
+            # Walking bass: root, third, fifth, then a half step into the next chord
+            next_root = key_root + next_tones[0]
+            for k, m in enumerate((root, key_root + tones[1], key_root + tones[2], next_root - 1)):
+                add(slap_bass(midi_freq(m - 24), beat * 0.9, 0.4), b * 4 + k)
+        else:
+            for k, semis in enumerate(bass):
+                if semis is not None:
+                    add(slap_bass(midi_freq(root - 24 + semis), beat * 0.45, 0.42), b * 4 + k * 0.5)
         counter = spec.get("counter", style["counter"])
         up = [midi_freq(key_root + 12 + t) for t in tones]
         if counter == "lute":
@@ -398,6 +416,16 @@ def drum_bar(add, kind, b, bars):
         if phrase_end:
             for k in range(4):
                 add(tom(160 - 20 * k, 0.32), o + 3 + k * 0.25)
+    elif kind == "swing":
+        # Ride on 1, 2, the and of 2, 3, 4, the and of 4; soft kick; brushed backbeat
+        for k in (0, 1, 1.5, 2, 3, 3.5):
+            add(hat(0.1 if k % 1 else 0.13, length=0.14, seed=b * 8 + int(k * 2)), o + k)
+        for k in (0, 2):
+            add(kick(0.18, 100, 50, 0.35, curve=3), o + k)
+        for k in (1, 3):
+            add([x * 0.7 for x in svf(noise(0.18, 0.35, attack=0.01, curve=1.5, seed=b + k), 3000, 0.1, "band")], o + k)
+        if phrase_end:
+            add(snare(0.3), o + 3.5)
     elif kind == "toms":
         add(kick(0.2, 120, 50, 0.6, curve=3), o)
         add(kick(0.2, 120, 50, 0.45, curve=3), o + 1.5)
@@ -452,6 +480,39 @@ COMMANDERS = {
         [(2, .75), (2, .25), (5, 1), (5, .75), (4, .25), (3, .75), (2, .25), (3, 1), (1, 1), (4, 2)],
         [(7, 1.5), (6, .5), (5, .75), (4, .25), (5, 1), (3, 1.5), (2, .5), (3, .75), (4, .25), (2, 1)],
         [(4, .75), (4, .25), (3, .75), (2, .25), (1, 1), (2, .75), (1, .25), (0, 1), (-3, 2), (None, 1)])),
+    # Talon plays like Max: brash, swaggering bluesy rock with a heavy bounce
+    "talon_co": dict(army="western", personality="Aggressive", key="G4", bpm=142, swing=0.1, scale="mixolydian",
+                     lead="bright_brass", drums="rock", bass=[0, 12, 10, 12, 0, 12, 7, 10],
+                     prog=[0, 6, 3, 0, 0, 6, 3, 4, 3, 3, 0, 0, 6, 6, 4, 4], motif=(
+        [(0, .5), (2, .5), (4, 1), (6, .5), (4, 1), (2, .5), (4, 1), (0, 1), (None, 2)],
+        [(4, .5), (4, .5), (6, 1), (7, .5), (6, 1), (4, .5), (3, 1), (2, 1), (None, 2)],
+        [(7, 1), (7, .5), (6, .5), (4, 1), (6, 1.5), (7, .5), (9, 1), (7, 2)],
+        [(6, .5), (4, .5), (3, .5), (2, .5), (0, 1), (1, 1), (2, 1), (4, 2), (None, 1)])),
+    # Bandit plays like Sami: cool, swinging jazz with a sax lead, walking
+    # bass, seventh chords and brushes
+    "bandit": dict(army="western", personality="Reckless", key="F4", bpm=150, swing=0.22, lead="sax",
+                   drums="swing", bass="walk", sevenths=True, counter="none",
+                   prog=[1, 4, 0, 5, 1, 4, 0, 0, 3, 3, 2, 5, 1, 4, 0, 4], motif=(
+        [(4, .5), (None, .5), (4, .5), (3, .5), (2, 1), (0, .5), (2, 1.5), (None, .5), (4, .5), (6, 1), (5, 1)],
+        [(4, .5), (None, .5), (4, .5), (5, .5), (7, 1), (5, .5), (4, 1.5), (3, 1), (2, 2)],
+        [(9, 1), (7, .5), (6, .5), (5, 1), (4, .5), (2, 1.5), (3, 1), (1, 2)],
+        [(2, .5), (4, .5), (3, .5), (2, .5), (0, 1), (1, 1.5), (None, 3.5)])),
+    # Prowler plays like Eagle: heroic, soaring and fast, in a minor key over
+    # driving drums
+    "prowler": dict(army="southern", personality="Aggressive", key="E5", bpm=154, scale="minor",
+                    lead="bright_brass", drums="drive", counter="arp", bass=[0, 0, 12, 0, 0, 12, 0, 7],
+                    prog=[0, 5, 6, 0, 0, 5, 6, 4, 5, 6, 0, 0, 3, 4, 5, 4], motif=(
+        [(0, .5), (4, .5), (7, 1.5), (6, .5), (7, .5), (9, .5), (7, 1), (4, 1), (5, 1), (4, 1)],
+        [(5, .5), (6, .5), (7, 1.5), (5, .5), (4, 1), (3, .5), (2, .5), (3, 1), (4, 2)],
+        [(9, 1.5), (8, .5), (7, 1), (6, 1), (7, 1.5), (5, .5), (4, 2)],
+        [(6, 1), (7, .5), (6, .5), (4, 1), (3, 1), (1, 1), (4, 3)])),
+    # Hivemind plays like Sturm: menacing and slow, low brass and organ,
+    # creeping half steps, heavy drums
+    "hivemind": dict(army="nether", personality="Methodical", key="D5", bpm=112, motif=(
+        [(0, 1.5), (0, .5), (1, 1), (0, 1), (-1, 1.5), (0, .5), (4, 2)],
+        [(5, 1.5), (4, .5), (3, 1), (2, 1), (1, 1.5), (2, .5), (-1, 2)],
+        [(7, 1.5), (6, .5), (5, 1), (4, 1), (5, 1.5), (3, .5), (4, 2)],
+        [(3, 1), (2, 1), (1, 1), (0, 1), (-1, 3), (None, 1)])),
 }
 
 # Each army's power theme: its first commander's motif, faster, a step
@@ -466,8 +527,11 @@ def commander_spec(name, co, power=False):
                 melody=develop(co["motif"]), progression=style["prog_a"] + style["prog_b"])
     if "scale" in co:
         spec["style"] = co["army"] + "_" + co["scale"]
-        STYLES.setdefault(spec["style"], dict(style, scale=co["scale"], harmony=co["scale"]))
-    for field in ("drums", "lead", "bpm", "bass", "counter"):
+        STYLES.setdefault(spec["style"], dict(style, scale=co["scale"], harmony=co["scale"],
+                                              major_five=co["scale"] in ("minor", "harmonic_minor")))
+    if "prog" in co:
+        spec["progression"] = co["prog"]
+    for field in ("drums", "lead", "bpm", "bass", "counter", "sevenths"):
         if field in co:
             spec[field] = co[field]
     if power:
