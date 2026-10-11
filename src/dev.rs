@@ -149,6 +149,7 @@ fn run_script(
     mut units: Query<(&crate::game::GridPosition, &mut crate::game::Unit)>,
     state: Res<State<crate::states::GameState>>,
     setup: Res<crate::ui::BattleSetupState>,
+    banner: Res<crate::game::TurnBanner>,
     map: Res<crate::game::GameMap>,
     sprites: Res<crate::game::SpriteAssets>,
     mut commanders: ResMut<crate::game::Commanders>,
@@ -184,7 +185,9 @@ fn run_script(
             "menu" => *state.get() == GameState::Menu && sprites.loading_complete,
             "setup" => *state.get() == GameState::Battle && setup.needs_setup,
             "board" => *state.get() == GameState::Battle && !setup.needs_setup && map.width > 0,
-            other => panic!("unknown screen '{other}' for `until` (menu, setup, board)"),
+            // The board, once the match intro or "Day N" banner has played and input is live
+            "turn" => *state.get() == GameState::Battle && !setup.needs_setup && map.width > 0 && !banner.playing(),
+            other => panic!("unknown screen '{other}' for `until` (menu, setup, board, turn)"),
         };
         if ready {
             script.steps.pop_front();

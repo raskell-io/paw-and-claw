@@ -11,8 +11,15 @@ impl Plugin for TurnPlugin {
             .init_resource::<FactionFunds>()
             .init_resource::<GameResult>()
             .init_resource::<BattleConfig>()
+            .init_resource::<TurnBanner>()
             .add_message::<TurnStartEvent>()
-            .add_systems(Update, (check_victory_condition, (generate_income, resupply_units).chain()));
+            .add_message::<EndTurnRequest>()
+            .add_systems(Update, (
+                check_victory_condition,
+                pass_turn,
+                (generate_income, resupply_units).chain(),
+                (start_turn_banner, tick_turn_banner).chain(),
+            ));
     }
 }
 
@@ -51,13 +58,13 @@ impl BattleConfig {
     }
 }
 
-/// Switch to the next faction's turn. Callers should reset units before calling this.
+/// Switch to the next faction's turn: the day advances when it comes back to
+/// the army that moves first. Callers should reset units before calling this.
 pub fn advance_turn(
     turn_state: &mut TurnState,
     battle_config: &BattleConfig,
     highlights: &mut MovementHighlights,
 ) {
-    // Switch to next faction
     let next = battle_config.next_faction(turn_state.current_faction);
     if next == battle_config.player_faction {
         turn_state.turn_number += 1;
@@ -69,6 +76,96 @@ pub fn advance_turn(
     highlights.selected_unit = None;
     highlights.tiles.clear();
     highlights.attack_targets.clear();
+}
+
+/// Ask to end the current army's turn (from the map menu, the HUD button or the AI)
+#[derive(Message)]
+pub struct EndTurnRequest;
+
+/// The one place a turn ends: the army's units are ready again for its next
+/// turn, play passes to the other army, and its turn starts
+pub fn pass_turn(
+    mut requests: MessageReader<EndTurnRequest>,
+    mut turn_state: ResMut<TurnState>,
+    mut highlights: ResMut<MovementHighlights>,
+    battle_config: Res<BattleConfig>,
+    game_result: Res<GameResult>,
+    mut units: Query<(&mut Unit, &FactionMember)>,
+    mut turn_start: MessageWriter<TurnStartEvent>,
+) {
+    // Several requests in one frame still end only one turn
+    if requests.read().count() == 0 || game_result.game_over {
+        return;
+    }
+    for (mut unit, faction) in units.iter_mut() {
+        if faction.faction == turn_state.current_faction {
+            unit.moved = false;
+            unit.attacked = false;
+            unit.exhausted = false;
+        }
+    }
+    let ended = turn_state.current_faction;
+    advance_turn(&mut turn_state, &battle_config, &mut highlights);
+    info!("{:?} ended its turn; day {}, {:?} to move", ended, turn_state.turn_number, turn_state.current_faction);
+    turn_start.write(TurnStartEvent { faction: turn_state.current_faction });
+}
+
+/// How long the match intro (map name and the two commanders) plays, in seconds
+pub const MATCH_INTRO_SECS: f32 = 2.8;
+/// How long the "Day N" banner plays at the start of every turn, in seconds
+pub const DAY_BANNER_SECS: f32 = 1.6;
+
+/// Advance Wars style turn presentation: the match opens with the map and the
+/// two commanders, and every turn opens with a "Day N" banner in the army's
+/// colour. While it plays, the board ignores input and the AI waits.
+#[derive(Resource, Default)]
+pub struct TurnBanner {
+    pub faction: Option<Faction>,
+    pub day: u32,
+    /// Seconds since the banner started
+    pub elapsed: f32,
+    /// Whether the match intro plays before the day banner (the battle's first turn)
+    pub intro: bool,
+}
+
+impl TurnBanner {
+    pub fn total(&self) -> f32 {
+        if self.intro { MATCH_INTRO_SECS + DAY_BANNER_SECS } else { DAY_BANNER_SECS }
+    }
+
+    pub fn playing(&self) -> bool {
+        self.faction.is_some() && self.elapsed < self.total()
+    }
+}
+
+fn start_turn_banner(
+    mut events: MessageReader<TurnStartEvent>,
+    mut banner: ResMut<TurnBanner>,
+    turn_state: Res<TurnState>,
+    battle_config: Res<BattleConfig>,
+    tiles: Query<&Tile>,
+    units: Query<(&GridPosition, &FactionMember), With<Unit>>,
+    mut cursor: ResMut<super::GridCursor>,
+) {
+    let Some(event) = events.read().last() else { return };
+    let first = turn_state.turn_number == 1 && event.faction == battle_config.player_faction;
+    *banner = TurnBanner { faction: Some(event.faction), day: turn_state.turn_number, elapsed: 0.0, intro: first };
+    // The cursor (and so the camera) goes to the army's HQ, else one of its units
+    let hq = tiles.iter()
+        .find(|t| t.owner == Some(event.faction) && t.terrain == Terrain::Base)
+        .map(|t| (t.position.x, t.position.y));
+    let unit = units.iter().find(|(_, f)| f.faction == event.faction).map(|(p, _)| (p.x, p.y));
+    if let Some((x, y)) = hq.or(unit) {
+        cursor.x = x;
+        cursor.y = y;
+        cursor.follow = true;
+    }
+}
+
+fn tick_turn_banner(time: Res<Time>, mut banner: ResMut<TurnBanner>) {
+    if banner.playing() {
+        banner.elapsed += time.delta_secs();
+    }
 }
 
 /// Result of the game - tracks win/lose state
@@ -332,6 +429,38 @@ fn resupply_units(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turn_ends_once_per_request_and_the_day_turns_over() {
+        let data = GameData::load_defaults();
+        let mut app = App::new();
+        app.add_message::<EndTurnRequest>()
+            .add_message::<TurnStartEvent>()
+            .insert_resource(BattleConfig::new(Faction::Western, Faction::Southern))
+            .insert_resource(TurnState { current_faction: Faction::Western, turn_number: 1, phase: TurnPhase::Select })
+            .init_resource::<MovementHighlights>()
+            .init_resource::<GameResult>()
+            .add_systems(Update, pass_turn);
+        let mut unit = Unit::new(UnitType::Scout, &data);
+        unit.moved = true;
+        unit.exhausted = true;
+        let scout = app.world_mut().spawn((unit, FactionMember { faction: Faction::Western })).id();
+
+        // Two requests in one frame (say the button and the map menu) end one turn
+        app.world_mut().write_message(EndTurnRequest);
+        app.world_mut().write_message(EndTurnRequest);
+        app.update();
+        let turn = app.world().resource::<TurnState>();
+        assert_eq!((turn.current_faction, turn.turn_number), (Faction::Southern, 1));
+        let unit = app.world().get::<Unit>(scout).unwrap();
+        assert!(!unit.moved && !unit.exhausted, "the army's units are ready for its next turn");
+
+        app.world_mut().write_message(EndTurnRequest);
+        app.update();
+        let turn = app.world().resource::<TurnState>();
+        assert_eq!((turn.current_faction, turn.turn_number), (Faction::Western, 2));
+        assert_eq!(app.world().resource::<Messages<TurnStartEvent>>().len(), 2);
+    }
 
     #[test]
     fn repair_is_two_hp_for_ten_percent_each() {

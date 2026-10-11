@@ -223,6 +223,17 @@ pub fn hud_card() -> egui::Frame {
     card().inner_margin(Margin::symmetric(12, 8)).corner_radius(CornerRadius::same(8))
 }
 
+/// See-through HUD card for info that sits over the board (the tile and unit
+/// under the cursor), so the map stays visible beneath it
+pub fn glass_card() -> egui::Frame {
+    egui::Frame::new()
+        .fill(Color32::from_rgba_unmultiplied(PARCHMENT.r(), PARCHMENT.g(), PARCHMENT.b(), 175))
+        .stroke(stroke(1.5, Color32::from_rgba_unmultiplied(WOOD.r(), WOOD.g(), WOOD.b(), 110)))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(12, 8))
+        .shadow(egui::Shadow { offset: [0, 2], blur: 18, spread: 2, color: Color32::from_black_alpha(35) })
+}
+
 /// Recessed well inside a card
 pub fn well() -> egui::Frame {
     egui::Frame::new()
@@ -249,6 +260,8 @@ pub fn heading(ui: &mut egui::Ui, text: &str) {
 pub enum Tone {
     Normal,
     Danger,
+    /// Done for now, like a unit that has already moved
+    Muted,
 }
 
 /// A full-width menu row that shows keyboard/gamepad selection and mouse hover
@@ -272,6 +285,7 @@ pub fn menu_item(ui: &mut egui::Ui, label: &str, detail: Option<&str>, selected:
         (false, _) => Color32::from_rgb(0xA8, 0x95, 0x7C),
         (true, Tone::Danger) => BERRY,
         (true, Tone::Normal) => INK,
+        (true, Tone::Muted) => INK_SOFT,
     };
     let left = rect.left() + 28.0;
     if selected && enabled {

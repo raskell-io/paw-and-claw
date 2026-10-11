@@ -5,9 +5,9 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use crate::game::{
     TurnState, TurnPhase, Unit, FactionMember, Faction, GridPosition, MovementHighlights,
     PendingAction, ProductionState, AttackEvent, CaptureEvent, JoinEvent, ResupplyEvent, LoadEvent,
-    UnloadEvent, TurnStartEvent, GameMap, Terrain, Tile, UnitType, estimate_damage, GameResult,
+    UnloadEvent, GameMap, Terrain, Tile, UnitType, estimate_damage, GameResult,
     FogOfWar, Commanders, CommanderId, MapId, MapData,
-    Weather, screen_to_grid, GameData, CancelMoveEvent, GridCursor, BattleConfig, advance_turn,
+    Weather, screen_to_grid, GameData, CancelMoveEvent, GridCursor, BattleConfig,
 };
 use crate::states::GameState;
 
@@ -15,6 +15,7 @@ mod editor;
 mod hud;
 mod input;
 mod menu;
+mod map_menu;
 mod overlays;
 mod production;
 mod setup;
@@ -31,7 +32,6 @@ pub enum MenuAction {
     Unload(usize, (i32, i32)), // Which passenger, and where to put it
     Wait,
     Cancel,  // Undo move - return unit to original position
-    EndTurn,
 }
 
 /// Drop one passenger. Advance Wars lets a transport unload all its passengers
@@ -171,12 +171,6 @@ pub struct SelectedTile {
     pub screen_pos: (f32, f32),
 }
 
-/// Resource to track in-game menu state
-#[derive(Resource, Default)]
-pub struct InGameMenuState {
-    pub open: bool,
-}
-
 /// Resource to track if egui is ready (needs a frame to initialize)
 #[derive(Resource, Default)]
 pub struct EguiReady {
@@ -206,7 +200,6 @@ impl Plugin for UiPlugin {
             .init_resource::<EditorState>()
             .init_resource::<HoveredUnit>()
             .init_resource::<SelectedTile>()
-            .init_resource::<InGameMenuState>()
             .init_resource::<ActionMenuState>()
             .init_resource::<EguiReady>()
             .init_resource::<hud::UnitScreenPositions>()
@@ -222,10 +215,11 @@ impl Plugin for UiPlugin {
                 hud::draw_unit_tokens.run_if(in_state(GameState::Battle)),
                 hud::draw_hud.run_if(in_state(GameState::Battle)),
                 hud::draw_power_cut_in.run_if(in_state(GameState::Battle)),
+                hud::draw_turn_banner.run_if(in_state(GameState::Battle)),
+                map_menu::draw_map_menu.run_if(in_state(GameState::Battle)),
                 hud::draw_inspect_card.run_if(in_state(GameState::Battle)),
                 production::draw_production_menu.run_if(in_state(GameState::Battle)),
                 overlays::draw_game_over.run_if(in_state(GameState::Battle)),
-                overlays::draw_pause_menu.run_if(in_state(GameState::Battle)),
                 editor::draw_editor.run_if(in_state(GameState::Editor)),
             ).run_if(egui_is_ready))
             // Action menu registered separately
@@ -317,14 +311,16 @@ fn update_modal_state(
     mut modal: ResMut<crate::game::ModalOpen>,
     state: Res<State<GameState>>,
     setup: Res<BattleSetupState>,
-    menu: Res<InGameMenuState>,
     production: Res<ProductionState>,
     game_result: Res<GameResult>,
+    map_menu: Res<crate::game::MapMenu>,
+    banner: Res<crate::game::TurnBanner>,
 ) {
     let open = *state.get() != GameState::Battle
         || setup.needs_setup
-        || menu.open
         || production.active
+        || map_menu.open
+        || banner.playing()
         || game_result.game_over;
     if modal.0 != open {
         modal.0 = open;
@@ -340,18 +336,22 @@ fn trigger_battle_setup(mut setup_state: ResMut<BattleSetupState>) {
 /// Handle ESC key to toggle in-game menu
 fn handle_ingame_menu_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut menu_state: ResMut<InGameMenuState>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut pending_action: ResMut<PendingAction>,
     mut highlights: ResMut<MovementHighlights>,
     setup_state: Res<BattleSetupState>,
     game_result: Res<GameResult>,
+    production: Res<ProductionState>,
+    mut map_menu: ResMut<crate::game::MapMenu>,
 ) {
-    // Don't handle menu during setup or victory screen
-    if setup_state.needs_setup || game_result.game_over {
+    // Don't handle menu during setup or victory screen, or while another menu
+    // is open (its own Esc closes it)
+    if setup_state.needs_setup || game_result.game_over || production.active || map_menu.open {
         return;
     }
 
-    if keyboard.just_pressed(KeyCode::Escape) {
+    // Esc, or a right click for mouse players
+    if keyboard.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         // If there's an active action/selection, cancel it first
         if pending_action.unit.is_some() || highlights.selected_unit.is_some() {
             pending_action.unit = None;
@@ -363,9 +363,9 @@ fn handle_ingame_menu_input(
             highlights.selected_unit = None;
             highlights.tiles.clear();
             highlights.attack_targets.clear();
-        } else if !menu_state.open {
-            // Otherwise open the pause menu (it closes itself on Esc)
-            menu_state.open = true;
+        } else {
+            // Otherwise open the map menu (it closes itself on Esc)
+            map_menu.open = true;
         }
     }
 }
@@ -383,14 +383,11 @@ fn draw_action_menu(
     ctx_res: ActionMenuContext,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<ActionMenuState>,
-    mut highlights: ResMut<MovementHighlights>,
-    mut turn_start_events: MessageWriter<TurnStartEvent>,
     mut cursor: ResMut<GridCursor>,
     screen_positions: Res<hud::UnitScreenPositions>,
 ) {
     // Unpack context for convenience
     let game_data = &ctx_res.game_data;
-    let battle_config = &ctx_res.battle_config;
 
     // Don't show if game is over
     if ctx_res.game_result.game_over {
@@ -495,7 +492,6 @@ fn draw_action_menu(
     let mut load_target: Option<(i32, i32)> = None;  // Position of transport to load into
     let mut unload_position: Option<(usize, (i32, i32))> = None;
     let mut wait_clicked = false;
-    let mut end_turn_clicked = false;
     let mut cancel_clicked = false;
 
     // Check if this is a Supplier unit that can resupply
@@ -599,11 +595,6 @@ fn draw_action_menu(
     // Cancel (undo move) - only if unit actually moved
     if pending_action.original_position.is_some() {
         menu_state.actions.push(MenuAction::Cancel);
-    }
-
-    // End Turn is the last option (not mid-boarding, with two units on one tile)
-    if !boarding {
-        menu_state.actions.push(MenuAction::EndTurn);
     }
 
     let action_count = menu_state.actions.len();
@@ -713,12 +704,6 @@ fn draw_action_menu(
                 }
                 if pending_action.original_position.is_some() && row(ui, "Undo move", None, theme::Tone::Normal) {
                     cancel_clicked = true;
-                }
-                if !boarding {
-                    ui.separator();
-                    if row(ui, "End turn", None, theme::Tone::Danger) {
-                        end_turn_clicked = true;
-                    }
                 }
             });
         });
@@ -940,9 +925,6 @@ fn draw_action_menu(
             MenuAction::Cancel => {
                 cancel_clicked = true;
             }
-            MenuAction::EndTurn => {
-                end_turn_clicked = true;
-            }
         }
     }
 
@@ -975,40 +957,6 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     }
 
-    // Handle End Turn (from button or keyboard)
-    if end_turn_clicked {
-        // Cancel current action
-        if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
-            unit.exhausted = true;
-        }
-        pending_action.unit = None;
-        pending_action.targets.clear();
-        pending_action.can_capture = false;
-        pending_action.capture_tile = None;
-        pending_action.can_join = false;
-        pending_action.join_target = None;
-        pending_action.original_position = None;
-
-        // Reset all units of current faction
-        for (mut unit, faction, _) in units.iter_mut() {
-            if let Some(faction) = faction {
-                if faction.faction == turn_state.current_faction {
-                    unit.moved = false;
-                    unit.attacked = false;
-                    unit.exhausted = false;
-                }
-            }
-        }
-
-        let old_faction = turn_state.current_faction;
-        advance_turn(&mut turn_state, &battle_config, &mut highlights);
-
-        turn_start_events.write(TurnStartEvent {
-            faction: turn_state.current_faction,
-        });
-
-        info!("Turn ended via action menu. {} -> {}", game_data.faction_name(old_faction), game_data.faction_name(turn_state.current_faction));
-    }
 
     // Handle cancel (ESC) - same as Wait
     if nav_cancel {

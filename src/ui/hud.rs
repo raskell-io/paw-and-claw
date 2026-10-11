@@ -5,11 +5,11 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
 use super::theme;
-use super::{BattleSetupState, HoveredUnit, InGameMenuState, PortraitTextures, SelectedTile};
+use super::{BattleSetupState, HoveredUnit, PortraitTextures, SelectedTile};
 use crate::game::{
-    advance_turn, AiState, BattleConfig, Commanders, FactionFunds, FactionMember, FogOfWar, GameData, GameMap,
+    AiState, TurnBanner, DAY_BANNER_SECS, MATCH_INTRO_SECS, BattleConfig, Commanders, FactionFunds, FactionMember, FogOfWar, GameData, GameMap,
     GameResult, GridCursor, GridPosition, MovementHighlights, PowerActivatedEvent, PowerLevel, Terrain, Tile,
-    TileVisibility, TurnPhase, TurnStartEvent, TurnState, Unit, UnitClass, Weather, IMPASSABLE,
+    TileVisibility, TurnPhase, TurnState, Unit, UnitClass, Weather, IMPASSABLE,
 };
 
 /// Where each unit appeared on screen last frame, so menus can sit next to it
@@ -27,7 +27,6 @@ pub struct HudContext<'w> {
     pub game_data: Res<'w, GameData>,
     pub battle_config: Res<'w, BattleConfig>,
     pub fog: Res<'w, FogOfWar>,
-    pub menu: Res<'w, InGameMenuState>,
     pub time: Res<'w, Time>,
 }
 
@@ -47,37 +46,20 @@ impl HudContext<'_> {
     }
 }
 
-/// End the current faction's turn: refresh its units and hand over to the next faction
-pub fn end_turn<'a>(
-    turn_state: &mut TurnState,
-    highlights: &mut MovementHighlights,
-    battle_config: &BattleConfig,
-    units: impl Iterator<Item = (Mut<'a, Unit>, &'a FactionMember)>,
-    turn_start_events: &mut MessageWriter<TurnStartEvent>,
-) {
-    for (mut unit, faction) in units {
-        if faction.faction == turn_state.current_faction {
-            unit.moved = false;
-            unit.attacked = false;
-            unit.exhausted = false;
-        }
-    }
-    advance_turn(turn_state, battle_config, highlights);
-    turn_start_events.write(TurnStartEvent { faction: turn_state.current_faction });
-}
-
 pub fn draw_hud(
     mut contexts: EguiContexts,
     hud: HudContext,
-    mut turn_state: ResMut<TurnState>,
-    mut highlights: ResMut<MovementHighlights>,
-    mut units: Query<(&mut Unit, &FactionMember)>,
-    mut turn_start_events: MessageWriter<TurnStartEvent>,
+    turn_state: Res<TurnState>,
+    highlights: Res<MovementHighlights>,
     mut commanders: ResMut<Commanders>,
     mut power_events: MessageWriter<PowerActivatedEvent>,
     keyboard: Res<ButtonInput<KeyCode>>,
     modal: Res<crate::game::ModalOpen>,
     portraits: Res<PortraitTextures>,
+    cursor: Res<GridCursor>,
+    map: Res<GameMap>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut panel_left: Local<bool>,
 ) {
     if !hud.battle_active() {
         return;
@@ -87,50 +69,26 @@ pub fn draw_hud(
     let is_ai_turn = hud.is_ai_turn(&turn_state);
     let player = hud.battle_config.player_faction;
 
-    // --- Turn card (top left) ---
-    egui::Area::new(egui::Id::new("hud_turn"))
-        .anchor(egui::Align2::LEFT_TOP, egui::vec2(16.0, 16.0))
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
-            theme::hud_card().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let current = turn_state.current_faction;
-                    banner(ui, theme::faction_color(game_data, current), 44.0);
-                    ui.vertical(|ui| {
-                        ui.label(theme::display(format!("Day {}", turn_state.turn_number), 26.0).color(theme::WOOD_DARK));
-                        let status = if is_ai_turn {
-                            let dots = ".".repeat((hud.time.elapsed_secs() * 2.0) as usize % 4);
-                            format!("{} is plotting{}", game_data.faction_name(current), dots)
-                        } else {
-                            format!("{} — your move", game_data.faction_name(current))
-                        };
-                        ui.label(theme::body(status, 15.0).color(theme::INK_SOFT));
-                    });
-                });
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    coin(ui);
-                    ui.label(theme::bold(format_funds(hud.funds.get(player)), 19.0));
-                    ui.add_space(10.0);
-                    theme::chip(ui, &format!("{} {}", hud.weather.current.icon(), hud.weather.current.name()), theme::SKY);
-                    if hud.fog.enabled {
-                        theme::chip(ui, "Fog of war", theme::INK_SOFT);
-                    }
-                });
-            });
-        });
-
-    // --- Commander card (top right) ---
-    // Advance Wars star meter: small stars up to the CO Power, big ones up to
-    // the Super CO Power. C fires the CO Power, V the Super.
-    let co_id = commanders.get_active(player);
+    // --- Army panel: Advance Wars' corner box for the army whose turn it is ---
+    // Commander, star meter, funds, day and weather. It sits in the top corner
+    // away from the cursor, flipping when the cursor crosses into its half.
+    let current = turn_state.current_faction;
+    if let Some(fraction) = cursor_screen_fraction(&cursor, &map, &cameras) {
+        if *panel_left && fraction < 0.4 {
+            *panel_left = false;
+        } else if !*panel_left && fraction > 0.6 {
+            *panel_left = true;
+        }
+    }
+    let co_id = commanders.get_active(current);
     let co = game_data.commander(co_id);
-    let charge = commanders.get_charge(player);
+    let charge = commanders.get_charge(current);
     let power_stars = co.power.as_ref().map_or(0, |p| p.stars);
-    let super_cost = commanders.power_cost(player, PowerLevel::Super, game_data).unwrap_or(1).max(1);
+    let super_cost = commanders.power_cost(current, PowerLevel::Super, game_data).unwrap_or(1).max(1);
     let per_star = super_cost as f32 / co.super_power.stars.max(1) as f32;
-    let active = commanders.active_power(player);
-    let ready = |level| commanders.can_activate(player, level, game_data) && !is_ai_turn && !hud.menu.open;
+    let active = commanders.active_power(current);
+    // C fires the CO Power, V the Super (also in the map menu)
+    let ready = |level| commanders.can_activate(player, level, game_data) && !is_ai_turn && !modal.0;
     let mut activate = None;
     if ready(PowerLevel::Power) && keyboard.just_pressed(KeyCode::KeyC) {
         activate = Some(PowerLevel::Power);
@@ -139,37 +97,52 @@ pub fn draw_hud(
         activate = Some(PowerLevel::Super);
     }
 
-    egui::Area::new(egui::Id::new("hud_commander"))
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0))
+    let (align, offset) = if *panel_left {
+        (egui::Align2::LEFT_TOP, egui::vec2(16.0, 16.0))
+    } else {
+        (egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0))
+    };
+    egui::Area::new(egui::Id::new("hud_army"))
+        .anchor(align, offset)
         .order(egui::Order::Middle)
+        .interactable(false)
         .show(ctx, |ui| {
             theme::hud_card().show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    theme::portrait(ui, 54.0, theme::faction_color(game_data, player), &co.name, portraits.get(co_id));
+                    let color = theme::faction_color(game_data, current);
+                    theme::portrait(ui, 64.0, color, &co.name, portraits.get(co_id));
                     ui.vertical(|ui| {
-                        ui.label(theme::display(&co.name, 22.0).color(theme::WOOD_DARK));
-                        star_meter(ui, charge as f32 / per_star, power_stars, co.super_power.stars, active != PowerLevel::None)
-                            .on_hover_text(format!("{} — plays like AW's {}. Charges as your units deal and take damage.",
-                                co.description, co.based_on));
+                        ui.horizontal(|ui| {
+                            ui.label(theme::display(&co.name, 22.0).color(theme::WOOD_DARK));
+                            ui.add_space(12.0);
+                            ui.label(theme::display(format!("Day {}", turn_state.turn_number), 18.0).color(theme::shade(color, 0.7)));
+                        });
+                        star_meter(ui, charge as f32 / per_star, power_stars, co.super_power.stars, active != PowerLevel::None);
+                        ui.horizontal(|ui| {
+                            coin(ui);
+                            ui.label(theme::bold(format_funds(hud.funds.get(current)), 18.0));
+                            ui.add_space(8.0);
+                            theme::chip(ui, &format!("{} {}", hud.weather.current.icon(), hud.weather.current.name()), theme::SKY);
+                            if hud.fog.enabled {
+                                theme::chip(ui, "Fog", theme::INK_SOFT);
+                            }
+                        });
                         let powers = co.power.as_ref().map(|p| (PowerLevel::Power, p, "C"))
                             .into_iter()
                             .chain(std::iter::once((PowerLevel::Super, &co.super_power, "V")));
                         for (level, power, key) in powers {
-                            ui.horizontal(|ui| {
-                                if active == level {
-                                    ui.label(theme::bold(format!("★ {} active!", power.name), 15.0).color(theme::WOOD));
-                                } else if ready(level) {
-                                    if ui.button(theme::bold(format!("★ {}", power.name), 14.0))
-                                        .on_hover_text(&power.description).clicked()
-                                    {
-                                        activate = Some(level);
-                                    }
+                            if active == level {
+                                ui.label(theme::bold(format!("★ {} active!", power.name), 15.0).color(theme::WOOD));
+                            } else if current == player && ready(level) {
+                                ui.horizontal(|ui| {
+                                    ui.label(theme::bold(format!("★ {} ready", power.name), 14.0).color(theme::WOOD));
                                     theme::key_hint(ui, key, "", false);
-                                } else {
-                                    ui.label(theme::body(format!("☆ {} ({}★)", power.name, power.stars), 13.0).color(theme::INK_SOFT))
-                                        .on_hover_text(&power.description);
-                                }
-                            });
+                                });
+                            }
+                        }
+                        if is_ai_turn {
+                            let dots = ".".repeat((hud.time.elapsed_secs() * 2.0) as usize % 4);
+                            ui.label(theme::body(format!("{} is plotting{dots}", game_data.faction_name(current)), 14.0).color(theme::INK_SOFT));
                         }
                     });
                 });
@@ -180,21 +153,6 @@ pub fn draw_hud(
         if let Some(effects) = commanders.activate_power(player, level, game_data) {
             power_events.write(PowerActivatedEvent { faction: player, level, effects });
         }
-    }
-
-    // --- End turn (bottom right) ---
-    if !is_ai_turn {
-        egui::Area::new(egui::Id::new("hud_end_turn"))
-            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -52.0))
-            .order(egui::Order::Middle)
-            .show(ctx, |ui| {
-                ui.set_width(190.0);
-                let busy = turn_state.phase != TurnPhase::Select;
-                if theme::primary_button(ui, "End Turn", !busy, false).clicked() {
-                    end_turn(&mut turn_state, &mut highlights, &hud.battle_config,
-                        units.iter_mut().map(|(u, f)| (u, f)), &mut turn_start_events);
-                }
-            });
     }
 
     // --- Control hints (bottom strip) ---
@@ -208,7 +166,7 @@ pub fn draw_hud(
                 &[("Arrows", "Plan route"), ("Space", "Move here"), ("Esc", "Cancel")]
             }
             TurnPhase::Select => &[
-                ("Arrows", "Cursor"), ("Space", "Select / build"), ("Tab", "Next unit"),
+                ("Arrows", "Cursor"), ("Space", "Select / menu"), ("Tab", "Next unit"),
                 ("C/V", "Powers"), ("Q/E", "Zoom"), ("Esc", "Menu"),
             ],
             TurnPhase::Move => &[("Arrows", "Plan route"), ("Space", "Move here"), ("Esc", "Cancel")],
@@ -282,7 +240,7 @@ pub fn draw_inspect_card(
         .order(egui::Order::Middle)
         .interactable(false)
         .show(ctx, |ui| {
-            theme::hud_card().show(ui, |ui| {
+            theme::glass_card().show(ui, |ui| {
                 ui.set_width(270.0);
                 if let Some((unit, faction)) = unit {
                     let stats = game_data.unit_stats(unit.unit_type);
@@ -579,16 +537,6 @@ fn stat(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.add_space(6.0);
 }
 
-/// A small pennant in a faction's color
-fn banner(ui: &mut egui::Ui, color: egui::Color32, height: f32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, height), egui::Sense::hover());
-    ui.painter().add(egui::Shape::convex_polygon(
-        vec![rect.left_top(), rect.right_top(), rect.right_bottom(),
-             egui::pos2(rect.center().x, rect.bottom() - 6.0), rect.left_bottom()],
-        color, theme::stroke(1.0, theme::shade(color, 0.55)),
-    ));
-}
-
 fn coin(ui: &mut egui::Ui) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
     let painter = ui.painter();
@@ -725,6 +673,141 @@ pub fn draw_weather_overlay(
     ctx.request_repaint();
 }
 
+/// How far across the screen the grid cursor is, from 0 (left edge) to 1 (right)
+fn cursor_screen_fraction(
+    cursor: &GridCursor,
+    map: &GameMap,
+    cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+) -> Option<f32> {
+    let (camera, transform) = cameras.single().ok()?;
+    let size = camera.logical_viewport_size()?;
+    let at = camera.world_to_viewport(transform, GridPosition::new(cursor.x, cursor.y).to_world(map)).ok()?;
+    Some(at.x / size.x.max(1.0))
+}
+
+/// A commander's portrait in a framed square, or their initial when there's no art yet
+fn portrait_square(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, name: &str, texture: Option<egui::TextureId>) {
+    painter.rect_filled(rect.expand(5.0), 6, theme::shade(color, 0.4));
+    match texture {
+        Some(texture) => {
+            painter.image(texture, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+        }
+        None => {
+            painter.rect_filled(rect, 4, theme::PARCHMENT_DEEP);
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, name.chars().next().unwrap_or('?').to_string(),
+                egui::FontId::new(rect.height() * 0.47, theme::title_family()), theme::WOOD_DARK);
+        }
+    }
+}
+
+/// Text with a drop shadow, for banners over the board
+fn shadowed(painter: &egui::Painter, pos: egui::Pos2, align: egui::Align2, text: &str, font: egui::FontId, color: egui::Color32) {
+    let offset = font.size / 18.0 + 1.0;
+    painter.text(pos + egui::vec2(offset, offset), align, text, font.clone(), egui::Color32::from_black_alpha(140));
+    painter.text(pos, align, text, font, color);
+}
+
+/// Advance Wars turn presentation. The battle opens with the map's name and
+/// the two commanders facing off; then, and at the start of every turn, a band
+/// in the army's colour sweeps across with its commander and "Day N".
+pub fn draw_turn_banner(
+    mut contexts: EguiContexts,
+    banner: Res<TurnBanner>,
+    commanders: Res<Commanders>,
+    game_data: Res<GameData>,
+    battle_config: Res<BattleConfig>,
+    setup: Res<BattleSetupState>,
+    portraits: Res<PortraitTextures>,
+) {
+    let Some(faction) = banner.faction else { return };
+    if !banner.playing() || setup.needs_setup {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    let screen = ctx.content_rect();
+    let ease = |x: f32| { let x = x.clamp(0.0, 1.0); 1.0 - (1.0 - x).powi(3) };
+
+    egui::Area::new(egui::Id::new("turn_banner"))
+        .fixed_pos(screen.min)
+        .order(egui::Order::Foreground)
+        .interactable(false)
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            let t = banner.elapsed;
+
+            if banner.intro && t < MATCH_INTRO_SECS {
+                // Match intro: the map's name, then both commanders slide in from the sides
+                let fade_out = 1.0 - ease((t - (MATCH_INTRO_SECS - 0.4)) / 0.4);
+                let alpha = (ease(t / 0.3) * fade_out).clamp(0.0, 1.0);
+                painter.rect_filled(screen, 0, egui::Color32::from_black_alpha((alpha * 200.0) as u8));
+                let title = setup.selected_map.name();
+                shadowed(painter, egui::pos2(screen.center().x, screen.top() + screen.height() * 0.2), egui::Align2::CENTER_CENTER,
+                    title, egui::FontId::new(56.0, theme::title_family()), theme::PARCHMENT.gamma_multiply(alpha));
+
+                let sides = [
+                    (battle_config.player_faction, -1.0_f32),
+                    (battle_config.next_faction(battle_config.player_faction), 1.0),
+                ];
+                for (i, (army, side)) in sides.into_iter().enumerate() {
+                    let enter = ease((t - 0.3 - i as f32 * 0.2) / 0.45);
+                    let color = theme::faction_color(&game_data, army).gamma_multiply(alpha);
+                    let co_id = commanders.get_active(army);
+                    let co = game_data.commander(co_id);
+                    let center = egui::pos2(
+                        screen.center().x + side * (screen.width() * 0.22 + (1.0 - enter) * screen.width() * 0.5),
+                        screen.center().y + 10.0,
+                    );
+                    let card = egui::Rect::from_center_size(center, egui::vec2(300.0, 300.0));
+                    painter.rect_filled(card, 10, theme::shade(color, 0.8));
+                    painter.rect_stroke(card, 10, theme::stroke(4.0, theme::shade(color, 0.45)), egui::StrokeKind::Inside);
+                    let portrait = egui::Rect::from_center_size(card.center() - egui::vec2(0.0, 30.0), egui::vec2(170.0, 170.0));
+                    portrait_square(painter, portrait, color, &co.name, portraits.get(co_id));
+                    shadowed(painter, egui::pos2(card.center().x, portrait.bottom() + 32.0), egui::Align2::CENTER_CENTER,
+                        &co.name, egui::FontId::new(30.0, theme::title_family()), theme::PARCHMENT.gamma_multiply(alpha));
+                    painter.text(egui::pos2(card.center().x, portrait.bottom() + 64.0), egui::Align2::CENTER_CENTER,
+                        game_data.faction_name(army), egui::FontId::new(17.0, theme::bold_family()),
+                        theme::shade(theme::PARCHMENT, 0.85).gamma_multiply(alpha));
+                }
+                let vs = ease((t - 0.8) / 0.3);
+                if vs > 0.0 {
+                    shadowed(painter, screen.center() + egui::vec2(0.0, 10.0), egui::Align2::CENTER_CENTER, "VS",
+                        egui::FontId::new(40.0 + 30.0 * (1.0 - vs), theme::title_family()), theme::GOLD_LIGHT.gamma_multiply(vs * alpha));
+                }
+                return;
+            }
+
+            // Day banner: in, hold, out
+            let t = if banner.intro { t - MATCH_INTRO_SECS } else { t };
+            let enter = ease(t / 0.3);
+            let leave = ease((t - (DAY_BANNER_SECS - 0.3)) / 0.3);
+            let slide = (1.0 - enter) * screen.width() - leave * screen.width();
+            let fade = (enter * (1.0 - leave)).clamp(0.0, 1.0);
+            painter.rect_filled(screen, 0, egui::Color32::from_black_alpha((fade * 70.0) as u8));
+
+            let color = theme::faction_color(&game_data, faction);
+            let band = egui::Rect::from_center_size(screen.center() + egui::vec2(slide, 0.0), egui::vec2(screen.width() * 1.2, 130.0));
+            painter.rect_filled(band, 0, theme::shade(color, 0.85));
+            for edge in [band.top(), band.bottom()] {
+                painter.line_segment([egui::pos2(band.left(), edge), egui::pos2(band.right(), edge)],
+                    theme::stroke(5.0, theme::shade(color, 0.45)));
+            }
+            let stripe = egui::Rect::from_min_max(egui::pos2(band.left(), band.top() + 9.0), egui::pos2(band.right(), band.top() + 14.0));
+            painter.rect_filled(stripe, 0, egui::Color32::from_white_alpha(60));
+
+            let co_id = commanders.get_active(faction);
+            let co = game_data.commander(co_id);
+            let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x - 200.0 + slide, band.center().y), egui::vec2(100.0, 100.0));
+            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id));
+            let text_x = portrait.right() + 30.0;
+            shadowed(painter, egui::pos2(text_x, band.center().y - 6.0), egui::Align2::LEFT_CENTER, &format!("Day {}", banner.day),
+                egui::FontId::new(60.0, theme::title_family()), theme::PARCHMENT);
+            painter.text(egui::pos2(text_x, band.center().y + 40.0), egui::Align2::LEFT_CENTER,
+                format!("{} · {}", game_data.faction_name(faction), co.name),
+                egui::FontId::new(18.0, theme::bold_family()), theme::shade(theme::PARCHMENT, 0.85));
+        });
+    ctx.request_repaint();
+}
+
 /// How long the power cut-in plays, in seconds
 const CUT_IN_SECS: f64 = 2.2;
 
@@ -788,17 +871,7 @@ pub fn draw_power_cut_in(
 
             // Portrait in a framed square on the left of the band
             let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x - 260.0 + slide, band.center().y), egui::vec2(136.0, 136.0));
-            painter.rect_filled(portrait.expand(5.0), 6, theme::shade(color, 0.4));
-            match portraits.get(co_id) {
-                Some(texture) => {
-                    painter.image(texture, portrait, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                }
-                None => {
-                    painter.rect_filled(portrait, 4, theme::PARCHMENT_DEEP);
-                    painter.text(portrait.center(), egui::Align2::CENTER_CENTER, co.name.chars().next().unwrap_or('?').to_string(),
-                        egui::FontId::new(64.0, theme::title_family()), theme::WOOD_DARK);
-                }
-            }
+            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id));
 
             // "SUPER CO POWER!" and the power's name
             let text_x = portrait.right() + 34.0;

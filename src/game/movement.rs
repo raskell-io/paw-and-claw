@@ -245,6 +245,7 @@ impl Plugin for MovementPlugin {
             // Split systems into smaller groups to avoid tuple size limits
             // Camera systems can run independently
             .init_resource::<ModalOpen>()
+            .init_resource::<MapMenu>()
             .add_systems(Update, (fit_camera_to_map, update_camera_angle).run_if(in_state(GameState::Battle)))
             .add_systems(Update, (
                 handle_camera_movement,
@@ -341,8 +342,9 @@ impl Default for CameraZoom {
     fn default() -> Self {
         Self {
             current: 1.0,
-            min: 0.3,   // Zoomed in close
-            max: 4.0,   // Zoomed out far (large maps)
+            // Both limits are set per map and window by `fit_camera_to_map`
+            min: 0.3,
+            max: 4.0,
             speed: 0.15,
         }
     }
@@ -430,6 +432,13 @@ pub struct ProductionState {
     pub active: bool,
     pub base_entity: Option<Entity>,
     pub base_position: (i32, i32),
+}
+
+/// Advance Wars map menu: opened by confirming on a tile with nothing to do
+/// (no ready unit, no free building), it holds the powers and End Turn
+#[derive(Resource, Default)]
+pub struct MapMenu {
+    pub open: bool,
 }
 
 /// Resource to track movement range and attack target highlights
@@ -821,6 +830,7 @@ fn handle_keyboard_input(
     battle_config: Res<BattleConfig>,
     ai_state: Res<AiState>,
     mut production_state: ResMut<ProductionState>,
+    mut map_menu: ResMut<MapMenu>,
 ) {
     // Don't process input if game is over
     if game_ctx.game_result.game_over {
@@ -1266,6 +1276,10 @@ fn handle_keyboard_input(
                         break;
                     }
                 }
+                // Nothing to do here: the map menu (powers, End Turn)
+                if !production_state.active {
+                    map_menu.open = true;
+                }
             }
         }
     }
@@ -1347,15 +1361,24 @@ fn handle_camera_zoom(
 }
 
 /// Handle keyboard toggle for camera angle (T key)
-/// Frame the whole board when a new map is loaded
+/// The closest zoom shows about this many tiles across the screen, so the board
+/// never gets close enough to pick out single flowers and blades of grass
+const ZOOM_IN_TILES: f32 = 13.0;
+
+/// Set the zoom limits for the map and window: zoomed fully out the whole board
+/// fits with a little of the canvas around it, zoomed fully in about
+/// `ZOOM_IN_TILES` span the screen. A new map starts fully out.
 fn fit_camera_to_map(
     map: Res<GameMap>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     projection: Query<&Projection, With<Camera3d>>,
+    mut resized: MessageReader<bevy::window::WindowResized>,
     mut zoom: ResMut<CameraZoom>,
     mut angle: ResMut<CameraAngle>,
 ) {
-    if !map.is_changed() || map.width == 0 || map.height == 0 {
+    let window_changed = resized.read().count() > 0;
+    let new_map = map.is_changed();
+    if !(new_map || window_changed) || map.width == 0 || map.height == 0 {
         return;
     }
     let aspect = windows.single().map(|w| w.width() / w.height().max(1.0)).unwrap_or(16.0 / 9.0);
@@ -1363,10 +1386,17 @@ fn fit_camera_to_map(
         Ok(Projection::Perspective(p)) => p.fov,
         _ => std::f32::consts::FRAC_PI_6,
     };
-    let height = fit_height(map.width as f32 * TILE_SIZE, map.height as f32 * TILE_SIZE, aspect, angle.perspective_pitch, fov);
-    zoom.current = (height / angle.perspective_height).clamp(zoom.min, zoom.max);
-    angle.look_at = Vec2::ZERO;
-    angle.mode = CameraMode::Perspective;
+    let (width, depth) = (map.width as f32, map.height as f32);
+    let zoom_for = |w: f32, d: f32| fit_height(w * TILE_SIZE, d * TILE_SIZE, aspect, angle.perspective_pitch, fov) / angle.perspective_height;
+    zoom.max = zoom_for(width, depth);
+    zoom.min = zoom_for(width.min(ZOOM_IN_TILES), 0.0).min(zoom.max);
+    if new_map {
+        zoom.current = zoom.max;
+        angle.look_at = Vec2::ZERO;
+        angle.mode = CameraMode::Perspective;
+    } else {
+        zoom.current = zoom.current.clamp(zoom.min, zoom.max);
+    }
 }
 
 /// Camera height needed to see a `width` x `depth` board (world units) with
@@ -1401,9 +1431,16 @@ fn update_camera_angle(
     time: Res<Time>,
     mut angle: ResMut<CameraAngle>,
     zoom: Res<CameraZoom>,
+    map: Res<GameMap>,
     mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
     let Ok(mut camera_transform) = camera_query.single_mut() else { return };
+
+    // Keep the board on screen: fully zoomed out it's framed in the middle, and
+    // the closer the zoom the further the view may pan, up to the board's edges
+    let slack = (1.0 - zoom.current / zoom.max.max(0.001)).max(0.0);
+    let reach = Vec2::new(map.width as f32, map.height as f32) * TILE_SIZE / 2.0 * slack;
+    angle.look_at = angle.look_at.clamp(-reach, reach);
 
     // Update transition progress based on mode
     let target = match angle.mode {

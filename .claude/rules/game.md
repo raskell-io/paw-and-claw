@@ -30,7 +30,8 @@ src/
 │   ├── setup.rs     # Skirmish setup (faction, commander, map)
 │   ├── hud.rs       # Battle HUD, inspect card, unit tokens
 │   ├── production.rs# Build menu
-│   ├── overlays.rs  # Pause, game over, battle teardown
+│   ├── map_menu.rs  # AW map menu: units, intel, commanders, options, end turn
+│   ├── overlays.rs  # Game over, battle teardown
 │   └── editor.rs    # Map editor
 └── dev.rs           # PAW_SCRIPT screenshot driver (native, dev only)
 ```
@@ -54,6 +55,11 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 - COs copy AW2/DS COs: always-on abilities + CO Power + Super CO Power (stars, +20% per use);
   either power also gives every unit +10 attack and defense
 - Fog: forests and lily pads hide units except from neighbours; hidden enemies spring traps
+- Turns end only through `EndTurnRequest` (handled by `turn::pass_turn`): from the map menu
+  or the AI. The map menu (`ui/map_menu.rs`, Esc / right click / Start, or confirm on a tile
+  with nothing to do) follows AW: Units, Intel, Commanders, powers, Options, End turn. Each turn opens with
+  a "Day N" banner (`TurnBanner`), the battle's first with the map/CO intro; while it plays
+  the board is modal and the AI waits, and the cursor jumps to the army's HQ
 
 ## Rendering
 - 3D perspective camera looking down at board
@@ -68,9 +74,14 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   when the pointer jumps) and clicking moves; picking uses the tile-top plane
 - Arrows/WASD move the grid cursor; the camera follows a key-driven cursor,
   keeping `SCROLL_LOOKAHEAD` tiles of map visible beyond it (`keep_cursor_in_view`)
+- Zoom (Q/E, wheel) is limited per map and window by `fit_camera_to_map`: fully out frames
+  the whole board with some canvas around it, fully in shows ~`ZOOM_IN_TILES` across; the
+  view can pan further the closer the zoom, never past the board
 - All gameplay should work with gamepad (portability goal)
 
 ## UI Guidelines
+- HUD: one army panel (CO, stars, funds, day, weather) for the army whose turn it is, in
+  the top corner away from the cursor; the tile/unit box below uses the see-through `glass_card`
 - Build every screen from `ui/theme.rs` (parchment cards, `menu_item`, `key_hint`, `meter`);
   don't hardcode colors or use stock egui windows
 - Menus must work with `MenuInput` (keyboard + gamepad), not just the mouse; use
@@ -83,6 +94,6 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 ## Screenshots
 Drive the real game and capture screens with the dev script, e.g.:
 `PAW_SCRIPT="wait 90; key Enter; wait 30; shot setup; quit" cargo run`
-(steps: wait N, until menu|setup|board, key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, co KEY, move X Y, shot NAME, gameover win|lose, quit;
+(steps: wait N, until menu|setup|board|turn (turn = banner done, input live), key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, co KEY, move X Y, shot NAME, gameover win|lose, quit;
 output goes to `screenshots/`, which is gitignored). Captures land a few frames after
 `shot`, so wait before sending the next input.

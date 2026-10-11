@@ -7,7 +7,7 @@ use super::{
     TurnState, TurnPhase, FactionFunds, AttackEvent, CaptureEvent, GameResult,
     calculate_movement_range, calculate_damage, spawn_unit, CoBonuses,
     Commanders, PowerActivatedEvent, Weather, WeatherType, SpriteAssetsParam,
-    UnitAnimation, effective_movement, GameData, BattleConfig, TurnStartEvent,
+    UnitAnimation, effective_movement, GameData, BattleConfig, EndTurnRequest, TurnBanner,
     find_path, route_waypoints,
 };
 
@@ -20,6 +20,7 @@ struct AiResources<'w> {
     game_data: Res<'w, GameData>,
     battle_config: Res<'w, BattleConfig>,
     weather: Res<'w, Weather>,
+    banner: Res<'w, TurnBanner>,
 }
 
 pub struct AiPlugin;
@@ -29,7 +30,7 @@ impl Plugin for AiPlugin {
         app.init_resource::<AiState>()
             .init_resource::<AiTurnPlan>()
             .init_resource::<AiMemory>()
-            .add_systems(Update, ai_turn_system);
+            .add_systems(Update, ai_turn_system.before(super::pass_turn));
     }
 }
 
@@ -1753,7 +1754,7 @@ fn ai_power_choice(
 
 fn ai_turn_system(
     mut ai_res: AiResources,
-    mut turn_state: ResMut<TurnState>,
+    turn_state: Res<TurnState>,
     mut funds: ResMut<FactionFunds>,
     time: Res<Time>,
     mut commands: Commands,
@@ -1766,7 +1767,7 @@ fn ai_turn_system(
     mut commanders: ResMut<Commanders>,
     mut power_events: MessageWriter<PowerActivatedEvent>,
     mut sprite_param: SpriteAssetsParam,
-    mut turn_start_events: MessageWriter<TurnStartEvent>,
+    mut end_turn: MessageWriter<EndTurnRequest>,
     animations_query: Query<(), With<UnitAnimation>>,
 ) {
     if game_result.game_over {
@@ -1780,7 +1781,8 @@ fn ai_turn_system(
         return;
     }
 
-    if turn_state.phase == TurnPhase::Action {
+    // Let the turn's "Day N" banner play out first
+    if turn_state.phase == TurnPhase::Action || ai_res.banner.playing() {
         return;
     }
 
@@ -1915,29 +1917,10 @@ fn ai_turn_system(
         }
 
         AiTurnPhase::EndingTurn => {
-            // Reset AI faction units
-            for (_, _, _, faction, mut unit) in units.iter_mut() {
-                if faction.faction == ai_faction {
-                    unit.moved = false;
-                    unit.attacked = false;
-                    unit.exhausted = false;
-                }
-            }
-
-            // Switch to player faction
-            let next = ai_res.battle_config.next_faction(ai_faction);
-            if next == ai_res.battle_config.player_faction {
-                turn_state.turn_number += 1;
-            }
-            turn_state.current_faction = next;
-            turn_state.phase = TurnPhase::Select;
+            // Turn handover happens in pass_turn, which runs right after this system
             ai_res.ai_state.phase = AiTurnPhase::Waiting;
-
-            turn_start_events.write(TurnStartEvent {
-                faction: next,
-            });
-
-            info!("AI ended turn {}", turn_state.turn_number - 1);
+            end_turn.write(EndTurnRequest);
+            info!("AI ended its turn on day {}", turn_state.turn_number);
         }
     }
 }
