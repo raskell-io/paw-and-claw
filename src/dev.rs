@@ -133,7 +133,7 @@ fn letter_key(letter: u8) -> KeyCode {
 fn run_script(
     mut script: ResMut<DevScript>,
     mut commands: Commands,
-    window: Query<Entity, With<PrimaryWindow>>,
+    mut window: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     mut keys: MessageWriter<KeyboardInput>,
     mut buttons: MessageWriter<MouseButtonInput>,
     mut cursor: MessageWriter<CursorMoved>,
@@ -146,7 +146,7 @@ fn run_script(
     map: Res<crate::game::GameMap>,
     sprites: Res<crate::game::SpriteAssets>,
 ) {
-    let Ok(window) = window.single() else { return };
+    let Ok((window, mut window_state)) = window.single_mut() else { return };
 
     if let Some(release) = script.release.take() {
         match release {
@@ -199,10 +199,13 @@ fn run_script(
             script.held = Some(key_code);
             script.wait = frames;
         }
+        // Board picking reads the window's cursor position, so set that too
         Step::Move(x, y) => {
+            window_state.set_cursor_position(Some(Vec2::new(x, y)));
             cursor.write(CursorMoved { window, position: Vec2::new(x, y), delta: None });
         }
         Step::Click(x, y) => {
+            window_state.set_cursor_position(Some(Vec2::new(x, y)));
             cursor.write(CursorMoved { window, position: Vec2::new(x, y), delta: None });
             buttons.write(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window });
             script.release = Some(Release::Mouse);

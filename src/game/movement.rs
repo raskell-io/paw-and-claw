@@ -196,14 +196,13 @@ pub fn screen_to_grid(
     let cursor_pos = window.cursor_position()?;
     let ray = camera.viewport_to_world(camera_transform, cursor_pos).ok()?;
 
-    // Intersect with Y=0 ground plane
-    // Ray equation: P = origin + t * direction
-    // Plane equation: Y = 0
-    // Solve for t: origin.y + t * direction.y = 0
+    // Intersect with the plane of the tile tops (land tiles stand 4 units tall),
+    // so the tile under the pointer is the one that looks under it
+    const PICK_HEIGHT: f32 = 4.0;
     if ray.direction.y.abs() < 0.0001 {
         return None; // Ray parallel to ground
     }
-    let t = -ray.origin.y / ray.direction.y;
+    let t = (PICK_HEIGHT - ray.origin.y) / ray.direction.y;
     if t < 0.0 {
         return None; // Intersection behind camera
     }
@@ -1390,15 +1389,6 @@ fn update_cursor_from_mouse(
         return;
     }
 
-    // If a movement path is being drawn, cursor follows the path endpoint
-    if input.movement_path.drawing {
-        if let Some(endpoint) = input.movement_path.path.last() {
-            input.cursor.x = endpoint.x;
-            input.cursor.y = endpoint.y;
-            return;
-        }
-    }
-
     let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
@@ -2015,9 +2005,12 @@ fn animate_highlight_gloss(
     }
 }
 
-/// Handle mouse/touch path drawing
+/// With a unit selected, the route arrow follows the mouse (like Dual Strike's
+/// stylus): hovering a reachable tile extends the route there, or redraws the
+/// cheapest one when the pointer jumps. Clicking then moves (`handle_click_input`).
+/// Only actual pointer movement counts, so a resting mouse never overrides a
+/// route drawn with the keys.
 fn handle_path_drawing(
-    mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     map: Res<GameMap>,
@@ -2026,59 +2019,46 @@ fn handle_path_drawing(
     input_mode: Res<InputMode>,
     egui_wants_input: Res<EguiWantsInput>,
     game_data: Res<GameData>,
+    mut pointer_moved: MessageReader<CursorMoved>,
+    unit_positions: Query<(Entity, &GridPosition), With<Unit>>,
 ) {
-    // Don't process input if egui wants it (UI is being clicked)
-    if egui_wants_input.wants_any_pointer_input() {
+    let moved = pointer_moved.read().count() > 0;
+    if egui_wants_input.wants_any_pointer_input() || *input_mode == InputMode::Keyboard {
         return;
     }
-
-    // Skip if using keyboard mode exclusively
-    if *input_mode == InputMode::Keyboard {
-        return;
-    }
-
-    // Only handle path drawing when a unit is selected
-    if highlights.selected_unit.is_none() || highlights.tiles.is_empty() {
+    let (Some(mover), Some(unit_class)) = (highlights.selected_unit, highlights.selected_unit_class) else {
         if movement_path.drawing {
             movement_path.clear();
         }
         return;
+    };
+    if !moved {
+        return;
     }
-
     let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = camera_query.single() else { return };
-
-    let Some(cursor_pos) = screen_to_grid(window, camera, camera_transform, &map) else {
+    let Some(hover) = screen_to_grid(window, camera, camera_transform, &map) else { return };
+    if !highlights.tiles.contains(&(hover.x, hover.y)) || movement_path.path.last() == Some(&hover) {
         return;
+    }
+
+    let start = match movement_path.path.first() {
+        Some(&start) => start,
+        None => {
+            let Ok((_, pos)) = unit_positions.get(mover) else { return };
+            let start = IVec2::new(pos.x, pos.y);
+            movement_path.start(start);
+            start
+        }
     };
-
-    // Start dragging on mouse down
-    if mouse_button.just_pressed(MouseButton::Left) {
-        // If path already started (from unit selection), just start dragging
-        if !movement_path.path.is_empty() {
-            movement_path.dragging = true;
+    if !movement_path.try_extend(hover, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data) {
+        let occupied = unit_positions.iter()
+            .filter(|(e, _)| *e != mover)
+            .map(|(_, p)| (p.x, p.y))
+            .collect();
+        if let Some(route) = find_path(start, hover, &map, &occupied, unit_class, &game_data) {
+            movement_path.reroute(route, &map, unit_class, &game_data);
         }
-        // Otherwise, check if clicking within movement range to start new path
-        else if highlights.tiles.contains(&(cursor_pos.x, cursor_pos.y)) {
-            movement_path.start(cursor_pos);
-            movement_path.dragging = true;
-        }
-    }
-
-    // Extend path while dragging
-    if movement_path.dragging && mouse_button.pressed(MouseButton::Left) {
-        if let Some(last_pos) = movement_path.path.last().copied() {
-            if cursor_pos != last_pos {
-                if let Some(unit_class) = highlights.selected_unit_class {
-                    movement_path.try_extend(cursor_pos, &map, &highlights.tiles, &highlights.tile_costs, unit_class, &game_data);
-                }
-            }
-        }
-    }
-
-    // Stop dragging on mouse release
-    if mouse_button.just_released(MouseButton::Left) {
-        movement_path.dragging = false;
     }
 }
 

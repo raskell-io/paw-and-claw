@@ -49,7 +49,9 @@ src/
 
 ## Input
 - Mouse for selection and commands; the mouse takes the cursor only when it
-  actually moves, so a resting pointer never overrides keys
+  actually moves, so a resting pointer never overrides keys. With a unit
+  selected, hovering a reachable tile draws the route there (cheapest route
+  when the pointer jumps) and clicking moves; picking uses the tile-top plane
 - Arrows/WASD move the grid cursor; the camera follows a key-driven cursor,
   keeping `SCROLL_LOOKAHEAD` tiles of map visible beyond it (`keep_cursor_in_view`)
 - All gameplay should work with gamepad (portability goal)
