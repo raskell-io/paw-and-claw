@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # web-latest release
   pages: write
   id-token: write
 
@@ -32,6 +32,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y binaryen
       - name: Build
         run: tools/web/build.sh dist
+      # pawandclaw.raskell.io serves this build at /play/: its Cloudflare Pages build downloads
+      # the web-latest release, and the deploy hook makes it rebuild with the new game
+      - name: Publish as the web-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tar -czf paw-and-claw-web.tar.gz -C dist .
+          gh release view web-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create web-latest --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+              --title "Web build (latest)" --notes "The latest web (WebAssembly) build from main, served at https://pawandclaw.raskell.io/play/"
+          gh release upload web-latest paw-and-claw-web.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Redeploy pawandclaw.raskell.io
+        env:
+          PAGES_DEPLOY_HOOK: ${{ secrets.PAGES_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$PAGES_DEPLOY_HOOK" ]; then curl -fsS -X POST "$PAGES_DEPLOY_HOOK" >/dev/null
+          else echo "PAGES_DEPLOY_HOOK is not set; the website keeps its current game build"; fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
