@@ -187,6 +187,34 @@ fn save_to_storage(slot: u32, json: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Store a small settings document (localStorage for WASM, `saves/<name>.json` for native)
+pub fn write_setting(name: &str, json: &str) -> Result<(), String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let storage = web_sys::window().ok_or("No window object")?
+            .local_storage().map_err(|_| "Failed to access localStorage")?
+            .ok_or("localStorage not available")?;
+        storage.set_item(&format!("paw_and_claw_{name}"), json).map_err(|_| "Failed to write to localStorage".to_string())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::create_dir_all("saves").map_err(|e| e.to_string())?;
+        std::fs::write(format!("saves/{name}.json"), json).map_err(|e| e.to_string())
+    }
+}
+
+/// Read a settings document stored by `write_setting`, if there is one
+pub fn read_setting(name: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()?.local_storage().ok()??.get_item(&format!("paw_and_claw_{name}")).ok()?
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read_to_string(format!("saves/{name}.json")).ok()
+    }
+}
+
 /// Load data from storage (localStorage for WASM, filesystem for native)
 #[cfg(target_arch = "wasm32")]
 fn load_from_storage(slot: u32) -> Result<String, String> {

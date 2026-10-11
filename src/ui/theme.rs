@@ -280,12 +280,34 @@ pub fn menu_item(ui: &mut egui::Ui, label: &str, detail: Option<&str>, selected:
     menu_item_icon(ui, None, label, detail, selected, enabled, tone)
 }
 
+/// Queue a UI sound (an id in audio.ron) for `ui::ui_sounds` to play: theme
+/// widgets draw with egui alone and can't reach Bevy's audio
+pub fn queue_sound(ctx: &egui::Context, id: &'static str) {
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<&'static str>>(egui::Id::new("ui_sounds")).push(id));
+}
+
+/// Take the UI sounds queued since the last call
+pub fn take_sounds(ctx: &egui::Context) -> Vec<&'static str> {
+    ctx.data_mut(|d| d.remove_temp::<Vec<&'static str>>(egui::Id::new("ui_sounds"))).unwrap_or_default()
+}
+
 /// A menu row with a pixel icon before its label
 pub fn menu_item_icon(ui: &mut egui::Ui, icon: Option<super::icons::Icon>, label: &str, detail: Option<&str>, selected: bool, enabled: bool, tone: Tone) -> egui::Response {
     let height = if detail.is_some() { 48.0 } else { 38.0 };
     let width = ui.available_width();
     let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), sense);
+    if enabled {
+        // A tick when the selection lands here (keys, pad or mouse), a blip when clicked
+        let was_selected = ui.ctx().data(|d| d.get_temp::<bool>(response.id)).unwrap_or(false);
+        if selected && !was_selected {
+            queue_sound(ui.ctx(), "menu_move");
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(response.id, selected));
+        if response.clicked() {
+            queue_sound(ui.ctx(), "menu_confirm");
+        }
+    }
     let painter = ui.painter();
     // Selection (keyboard/gamepad focus) is gold; plain hover is a softer tint
     let fill = match (enabled, selected, response.hovered()) {

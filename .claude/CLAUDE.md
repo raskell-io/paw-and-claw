@@ -34,6 +34,7 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 - `commanders.ron` - 28 commanders copying the Advance Wars 2 / Dual Strike COs (abilities, CO Power, Super CO Power)
 - `damage_tables.ron` - attacker vs defender base damage (missing entry = can't attack)
 - `movement_costs.ron` - movement cost per terrain and unit class
+- `audio.ron` - sound effects and music by id (files under `assets/audio/`)
 
 ### Core Module
 - `src/game/modding.rs` - Data structures, loading, validation
@@ -46,6 +47,15 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 - **Native**: Embedded defaults + mod override support
 
 See `modding.md` for detailed documentation.
+
+### Audio
+- `tools/audio/sfx.py` synthesizes every sound effect into `assets/audio/sfx/*.wav`, aiming for
+  the Game Boy Advance (sampled-instrument feel, not NES squares): FM bells and brass,
+  plucked strings, filtered saws and noise, then an 18 kHz / 8-bit output stage. Re-run it
+  after editing a sound
+- `game/audio.rs` plays them: send `PlaySfx("id")`, or let it react to game events.
+  Menu rows queue their own tick/confirm sounds (`theme::queue_sound`)
+- Music (one theme per CO, power themes) is planned: composed in code, rendered to OGG
 
 ### Sprites
 - `assets/sprites/manifest.json` is the source of truth for all generated sprites

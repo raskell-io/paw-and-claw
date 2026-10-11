@@ -208,6 +208,8 @@ impl Plugin for UiPlugin {
             .init_resource::<UnitTextures>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(PreUpdate, update_modal_state)
+            .add_systems(Update, menu_key_sounds)
+            .add_systems(EguiPrimaryContextPass, ui_sounds)
             .add_systems(EguiPrimaryContextPass, (theme::apply_theme, register_portraits, register_unit_textures))
             .add_systems(EguiPrimaryContextPass, (
                 menu::draw_main_menu.run_if(in_state(GameState::Menu)),
@@ -325,6 +327,49 @@ fn update_modal_state(
         || game_result.game_over;
     if modal.0 != open {
         modal.0 = open;
+    }
+}
+
+/// Hand the sounds queued by theme widgets to the audio plugin
+fn ui_sounds(mut contexts: EguiContexts, mut play: MessageWriter<crate::game::PlaySfx>) {
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    for id in theme::take_sounds(ctx) {
+        play.write(crate::game::PlaySfx(id));
+    }
+}
+
+/// While a menu is up, keys and the pad tick, confirm and back out audibly.
+/// (Menu rows also tick when their selection changes; repeats in one frame
+/// play once.)
+fn menu_key_sounds(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    state: Res<State<GameState>>,
+    modal: Res<crate::game::ModalOpen>,
+    turn_state: Res<TurnState>,
+    banner: Res<crate::game::TurnBanner>,
+    mut play: MessageWriter<crate::game::PlaySfx>,
+) {
+    let in_menu = match state.get() {
+        GameState::Editor => false,
+        GameState::Battle => (modal.0 || turn_state.phase == TurnPhase::Action) && !banner.playing(),
+        _ => true,
+    };
+    if !in_menu {
+        return;
+    }
+    let pad = |b: GamepadButton| gamepads.iter().any(|g| g.just_pressed(b));
+    let any_key = |keys: &[KeyCode]| keys.iter().any(|k| keyboard.just_pressed(*k));
+    if any_key(&[KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::KeyW, KeyCode::KeyS])
+        || pad(GamepadButton::DPadUp) || pad(GamepadButton::DPadDown) || pad(GamepadButton::DPadLeft) || pad(GamepadButton::DPadRight)
+    {
+        play.write(crate::game::PlaySfx("menu_move"));
+    }
+    if any_key(&[KeyCode::Enter, KeyCode::Space]) || pad(GamepadButton::South) {
+        play.write(crate::game::PlaySfx("menu_confirm"));
+    }
+    if any_key(&[KeyCode::Escape, KeyCode::Backspace]) || pad(GamepadButton::East) {
+        play.write(crate::game::PlaySfx("menu_back"));
     }
 }
 

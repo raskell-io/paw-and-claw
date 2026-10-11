@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/raskell-io/paw-and-claw"
 
 [dependencies]
-bevy = { version = "0.17", features = ["wayland"] }
+bevy = { version = "0.17", features = ["wayland", "wav"] }
 bevy_ecs_tilemap = "0.17"
 bevy_egui = "0.38"
 serde = { version = "1", features = ["derive"] }

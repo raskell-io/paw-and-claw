@@ -53,6 +53,9 @@ const DEFAULT_DAMAGE_TABLES_RON: &str = include_str!("../../assets/data/damage_t
 /// Default movement costs embedded at compile time
 const DEFAULT_MOVEMENT_COSTS_RON: &str = include_str!("../../assets/data/movement_costs.ron");
 
+/// Embedded default sound effects and music
+const DEFAULT_AUDIO_RON: &str = include_str!("../../assets/data/audio.ron");
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -225,6 +228,38 @@ pub struct MovementCostsRegistry {
     pub costs: HashMap<String, HashMap<String, u32>>,
 }
 
+/// A sound file and how loud it plays before the player's volume settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SoundData {
+    pub file: String,
+    #[serde(default = "full_volume")]
+    pub volume: f32,
+    /// Each play shifts the pitch by up to this much (0.05 = ±5%), so
+    /// repeated sounds don't sound identical
+    #[serde(default)]
+    pub pitch_variance: f32,
+    /// Music only: loop the track (themes) or play it once (jingles)
+    #[serde(default = "looped_default")]
+    pub looped: bool,
+}
+
+fn looped_default() -> bool {
+    true
+}
+
+fn full_volume() -> f32 {
+    1.0
+}
+
+/// Registry of sound effects and music by id (audio.ron)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AudioRegistry {
+    #[serde(default)]
+    pub sfx: HashMap<String, SoundData>,
+    #[serde(default)]
+    pub music: HashMap<String, SoundData>,
+}
+
 // ============================================================================
 // GAME DATA RESOURCE
 // ============================================================================
@@ -238,6 +273,7 @@ pub struct GameData {
     pub commanders: CommandersRegistry,
     pub damage_tables: DamageTablesRegistry,
     pub movement_costs: MovementCostsRegistry,
+    pub audio: AudioRegistry,
 }
 
 impl GameData {
@@ -255,6 +291,8 @@ impl GameData {
             .expect("Failed to parse embedded damage_tables.ron");
         let movement_costs = ron::from_str(DEFAULT_MOVEMENT_COSTS_RON)
             .expect("Failed to parse embedded movement_costs.ron");
+        let audio = ron::from_str(DEFAULT_AUDIO_RON)
+            .expect("Failed to parse embedded audio.ron");
 
         Self {
             factions,
@@ -263,6 +301,7 @@ impl GameData {
             commanders,
             damage_tables,
             movement_costs,
+            audio,
         }
     }
 
@@ -312,6 +351,10 @@ impl GameData {
                 for (attacker, row) in r.secondary {
                     self.damage_tables.secondary.entry(attacker).or_default().extend(row);
                 }
+            });
+            merge_mod_file(&path.join("audio.ron"), |r: AudioRegistry| {
+                self.audio.sfx.extend(r.sfx);
+                self.audio.music.extend(r.music);
             });
             merge_mod_file(&path.join("movement_costs.ron"), |r: MovementCostsRegistry| {
                 for (terrain, row) in r.costs {

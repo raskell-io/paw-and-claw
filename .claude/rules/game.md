@@ -21,6 +21,7 @@ src/
 │   ├── fog.rs       # Fog of war
 │   ├── weather.rs   # Weather effects
 │   ├── modding.rs   # Data loading
+│   ├── audio.rs     # Sound effects: PlaySfx, event-driven sounds, volume settings
 │   └── save.rs      # Save/load
 ├── ui/              # egui UI code
 │   ├── mod.rs       # Plugin, action menu, hover tracking

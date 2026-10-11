@@ -315,6 +315,7 @@ fn process_captures(
     mut materials: ResMut<Assets<StandardMaterial>>,
     game_data: Res<GameData>,
     commanders: Res<Commanders>,
+    mut play: MessageWriter<super::PlaySfx>,
 ) {
     for event in events.read() {
         let Ok((unit, faction_member)) = units.get(event.unit) else {
@@ -362,6 +363,7 @@ fn process_captures(
         );
 
         // Check if capture is complete
+        play.write(super::PlaySfx(if tile.capture_progress >= required { "capture_done" } else { "capture_tick" }));
         if tile.capture_progress >= required {
             tile.owner = Some(faction_member.faction);
             tile.capture_progress = 0;
@@ -645,6 +647,7 @@ mod tests {
         let data = GameData::load_defaults();
         let mut app = App::new();
         app.add_message::<CaptureEvent>()
+            .add_message::<super::super::PlaySfx>()
             .insert_resource(Assets::<StandardMaterial>::default())
             .insert_resource({
                 let mut commanders = Commanders::default();

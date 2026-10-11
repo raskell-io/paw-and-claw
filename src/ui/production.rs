@@ -31,6 +31,7 @@ pub struct UnitSpawner<'w, 's> {
     images: Res<'w, Assets<Image>>,
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
+    play: MessageWriter<'w, crate::game::PlaySfx>,
 }
 
 pub fn draw_production_menu(
@@ -169,7 +170,10 @@ pub fn draw_production_menu(
             spawn_unit_with_state(&mut s.commands, &s.map, &mut s.meshes, &mut s.materials, &s.sprite_assets,
                 &s.images, game_data, faction, unit, x, y);
             info!("Built {:?} at ({}, {}) for {} funds", unit_type, x, y, cost);
+            spawner.play.write(crate::game::PlaySfx("build"));
             close = true;
+        } else {
+            spawner.play.write(crate::game::PlaySfx("error"));
         }
     }
     if close {

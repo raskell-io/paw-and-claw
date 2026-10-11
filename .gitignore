@@ -5,3 +5,4 @@ web/*.wasm
 .DS_Store
 screenshots/
 __pycache__/
+saves/

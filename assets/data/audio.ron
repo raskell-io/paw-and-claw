@@ -1,0 +1,49 @@
+// Sound effects and music, by id. Files live under assets/ (sound effects are
+// made by tools/audio/sfx.py). `volume` scales the sound before the player's
+// own volume settings; `pitch_variance` shifts each play's pitch by up to that
+// much (0.05 = ±5%) so repeats don't sound identical. The move_* sounds loop
+// while a unit travels. Mods can override an entry or add new ones.
+(
+    sfx: {
+        // Menus and the board cursor
+        "cursor":       (file: "audio/sfx/cursor.wav", volume: 0.6, pitch_variance: 0.04),
+        "menu_move":    (file: "audio/sfx/menu_move.wav", volume: 0.7, pitch_variance: 0.03),
+        "menu_confirm": (file: "audio/sfx/menu_confirm.wav", volume: 0.8),
+        "menu_back":    (file: "audio/sfx/menu_back.wav", volume: 0.8),
+        "error":        (file: "audio/sfx/error.wav", volume: 0.8),
+        // Units
+        "select":       (file: "audio/sfx/select.wav", volume: 0.8, pitch_variance: 0.03),
+        "move_foot":    (file: "audio/sfx/move_foot.wav", volume: 0.9, pitch_variance: 0.06),
+        "move_wheels":  (file: "audio/sfx/move_wheels.wav", volume: 0.8, pitch_variance: 0.05),
+        "move_air":     (file: "audio/sfx/move_air.wav", volume: 0.8, pitch_variance: 0.05),
+        "move_boat":    (file: "audio/sfx/move_boat.wav", volume: 0.8, pitch_variance: 0.05),
+        "join":         (file: "audio/sfx/join.wav", volume: 0.8, pitch_variance: 0.03),
+        "load":         (file: "audio/sfx/load.wav", volume: 0.8, pitch_variance: 0.03),
+        "unload":       (file: "audio/sfx/unload.wav", volume: 0.8, pitch_variance: 0.03),
+        // Combat
+        "hit":          (file: "audio/sfx/hit.wav", volume: 0.8, pitch_variance: 0.08),
+        "shot":         (file: "audio/sfx/shot.wav", volume: 0.8, pitch_variance: 0.08),
+        "boom":         (file: "audio/sfx/boom.wav", volume: 0.7, pitch_variance: 0.06),
+        "defeat":       (file: "audio/sfx/defeat.wav", volume: 0.8, pitch_variance: 0.06),
+        "heal":         (file: "audio/sfx/heal.wav", volume: 0.8),
+        // Properties and money
+        "capture_tick": (file: "audio/sfx/capture_tick.wav", volume: 0.8, pitch_variance: 0.02),
+        "capture_done": (file: "audio/sfx/capture_done.wav", volume: 0.8),
+        "build":        (file: "audio/sfx/build.wav", volume: 0.8, pitch_variance: 0.05),
+        "funds":        (file: "audio/sfx/funds.wav", volume: 0.7),
+        // Commanders and turns
+        "power":        (file: "audio/sfx/power.wav", volume: 0.8),
+        "day":          (file: "audio/sfx/day.wav", volume: 0.8),
+        "turn_end":     (file: "audio/sfx/turn_end.wav", volume: 0.8),
+    },
+    // Music, made by tools/audio/music.py. Still to come: the other commanders'
+    // themes and a power theme per army
+    music: {
+        "title": (file: "audio/music/title.ogg", volume: 0.8),
+        // Plays once over the match intro
+        "battle_start": (file: "audio/music/battle_start.ogg", volume: 0.85, looped: false),
+        // Commander themes, `co_<commander key>`: played on that commander's turns
+        "co_dusty": (file: "audio/music/co_dusty.ogg", volume: 0.8),
+        "co_frost": (file: "audio/music/co_frost.ogg", volume: 0.8),
+    },
+)

@@ -42,6 +42,8 @@ enum MainItem {
 
 #[derive(Clone, Copy, PartialEq)]
 enum OptionItem {
+    SoundEffects,
+    Music,
     Fog,
     Controls,
     Save,
@@ -49,8 +51,10 @@ enum OptionItem {
     Title,
 }
 
-const OPTION_ITEMS: [OptionItem; 5] =
-    [OptionItem::Fog, OptionItem::Controls, OptionItem::Save, OptionItem::Load, OptionItem::Title];
+const OPTION_ITEMS: [OptionItem; 7] = [
+    OptionItem::SoundEffects, OptionItem::Music, OptionItem::Fog, OptionItem::Controls,
+    OptionItem::Save, OptionItem::Load, OptionItem::Title,
+];
 
 /// Where the player is in the menu
 #[derive(Default)]
@@ -76,6 +80,7 @@ pub struct MenuActions<'w> {
     save: MessageWriter<'w, SaveGameEvent>,
     load: MessageWriter<'w, LoadGameEvent>,
     cursor: ResMut<'w, GridCursor>,
+    audio: ResMut<'w, crate::game::AudioSettings>,
 }
 
 /// What the menu shows
@@ -174,6 +179,17 @@ pub fn draw_map_menu(
             nav.stepped = input.step_horizontal(&mut nav.selected, 2);
         } else if count > 0 {
             nav.stepped = input.step_vertical(&mut nav.selected, count);
+            // Left/right turn the volume rows down and up
+            if nav.page == Page::Options {
+                let step = if input.left() { -0.1 } else if input.right() { 0.1 } else { 0.0 };
+                if step != 0.0 {
+                    match OPTION_ITEMS.get(nav.selected) {
+                        Some(OptionItem::SoundEffects) => actions.audio.sfx = step_volume(actions.audio.sfx, step, false),
+                        Some(OptionItem::Music) => actions.audio.music = step_volume(actions.audio.music, step, false),
+                        _ => {}
+                    }
+                }
+            }
         }
         if input.confirm() && count > 0 {
             confirmed = Some(nav.selected);
@@ -280,6 +296,8 @@ pub fn draw_map_menu(
                     heading(ui, "Options", "");
                     for (i, item) in OPTION_ITEMS.iter().enumerate() {
                         let (label, detail, tone) = match item {
+                            OptionItem::SoundEffects => (format!("Sound effects: {}", volume_bar(actions.audio.sfx)), Some("←→ to adjust"), Tone::Normal),
+                            OptionItem::Music => (format!("Music: {}", volume_bar(actions.audio.music)), Some("←→ to adjust"), Tone::Normal),
                             OptionItem::Fog => (format!("Fog of war: {}", if actions.fog.enabled { "On" } else { "Off" }), None, Tone::Normal),
                             OptionItem::Controls => (format!("Controls: {}", actions.input_mode.name()), None, Tone::Normal),
                             OptionItem::Save => ("Save game".to_string(), Some("F5"), Tone::Normal),
@@ -290,6 +308,8 @@ pub fn draw_map_menu(
                             ui.separator();
                         }
                         let icon = match item {
+                            OptionItem::SoundEffects => Icon::Bell,
+                            OptionItem::Music => Icon::Note,
                             OptionItem::Fog => Icon::Cloud,
                             OptionItem::Controls => Icon::Gamepad,
                             OptionItem::Save => Icon::Book,
@@ -356,6 +376,8 @@ pub fn draw_map_menu(
             menu.open = false;
         }
         Page::Options => match OPTION_ITEMS[index] {
+            OptionItem::SoundEffects => actions.audio.sfx = step_volume(actions.audio.sfx, 0.1, true),
+            OptionItem::Music => actions.audio.music = step_volume(actions.audio.music, 0.1, true),
             OptionItem::Fog => actions.fog.enabled = !actions.fog.enabled,
             OptionItem::Controls => *actions.input_mode = actions.input_mode.cycle(),
             OptionItem::Save => {
@@ -373,6 +395,17 @@ pub fn draw_map_menu(
         },
         Page::Intel | Page::Commanders => {}
     }
+}
+
+/// A 0..1 volume as a percentage, "Off" when silent
+fn volume_bar(volume: f32) -> String {
+    if volume <= 0.0 { "Off".to_string() } else { format!("{}%", (volume * 100.0).round()) }
+}
+
+/// Step a volume by `step`, wrapping past full back to silent when `wrap`
+fn step_volume(volume: f32, step: f32, wrap: bool) -> f32 {
+    let next = ((volume + step) * 10.0).round() / 10.0;
+    if wrap && next > 1.0 + 1e-3 { 0.0 } else { next.clamp(0.0, 1.0) }
 }
 
 fn heading(ui: &mut egui::Ui, title: &str, detail: &str) {
