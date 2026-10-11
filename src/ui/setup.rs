@@ -286,6 +286,13 @@ pub fn draw_battle_setup(
 
 /// A titled card for one setup column; gold border when it has input focus
 fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused: bool, add: impl FnOnce(&mut egui::Ui)) {
+    use super::icons::Icon;
+    let icon = match title {
+        "Faction" => Some(Icon::Banner),
+        "Commander" => Some(Icon::Crown),
+        "Battlefield" => Some(Icon::Flag),
+        _ => None,
+    };
     let frame = theme::card().stroke(theme::stroke(if focused { 3.0 } else { 2.0 }, if focused { theme::GOLD } else { theme::WOOD }));
     frame.show(ui, |ui| {
         // Fixed size whatever the content: long text wraps and lists scroll
@@ -293,7 +300,7 @@ fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused:
         ui.set_height(height - 32.0);
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.vertical(|ui| {
-            theme::heading(ui, title);
+            theme::heading_icon(ui, icon, title);
             add(ui);
         });
     });

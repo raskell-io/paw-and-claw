@@ -129,6 +129,10 @@ pub enum MapId {
     PivotIsle,
     RidgeIsland,
     TwinIsle,
+    MojiIsland,
+    DuoFalls,
+    ToilFerry,
+    PointStormy,
     #[allow(dead_code)] // Custom map loading, see ROADMAP
     Custom(usize),
 }
@@ -149,6 +153,10 @@ impl MapId {
             MapId::PivotIsle => "Pivot Isle",
             MapId::RidgeIsland => "Ridge Island",
             MapId::TwinIsle => "Twin Isle",
+            MapId::MojiIsland => "Moji Island",
+            MapId::DuoFalls => "Duo Falls",
+            MapId::ToilFerry => "Toil Ferry",
+            MapId::PointStormy => "Point Stormy",
             MapId::Custom(_) => "Custom Map",
         }
     }
@@ -160,6 +168,10 @@ impl MapId {
             MapId::PivotIsle,
             MapId::RidgeIsland,
             MapId::TwinIsle,
+            MapId::MojiIsland,
+            MapId::DuoFalls,
+            MapId::ToilFerry,
+            MapId::PointStormy,
             MapId::Woodland,
             MapId::RiverCrossing,
             MapId::TwinBases,
@@ -192,6 +204,10 @@ pub fn get_builtin_map(id: MapId) -> MapData {
         MapId::PivotIsle => create_pivot_isle_map(),
         MapId::RidgeIsland => create_ridge_island_map(),
         MapId::TwinIsle => create_twin_isle_map(),
+        MapId::MojiIsland => create_moji_island_map(),
+        MapId::DuoFalls => create_duo_falls_map(),
+        MapId::ToilFerry => create_toil_ferry_map(),
+        MapId::PointStormy => create_point_stormy_map(),
         MapId::Custom(_) => create_woodland_map(), // Fallback
     };
     add_workshops_beside_hqs(&mut map);
@@ -1153,6 +1169,158 @@ fn create_twin_isle_map() -> MapData {
     map
 }
 
+/// Moji Island, an Advance Wars War Room map. A ring-shaped island around an
+/// inner bay, terrain translated as on Spann Island. The first army holds the
+/// northern shore, with a storehouse blocking the trail below its base; the
+/// second sits on the peninsula in the middle of the bay. No starting units.
+fn create_moji_island_map() -> MapData {
+    let mut map = map_from_rows("Moji Island", &[
+        "wwwwwwwwwwwwwwwwwwwwwwwwww",
+        "wwwwwwww............wwwwww",
+        "wwwwww................wwww",
+        "wwwww.FFSTT.SBS.SF.TToowww",
+        "wwwww.=======S====TTToowww",
+        "wwww.S=.....TT...TooTTooww",
+        "wwww..=STT.wwww.ToooFTTTww",
+        "www..T=TTwwwwwwwwwoooTTTww",
+        "www...=T.wwwwwwwwwwoTTTTww",
+        "wwwT..=..www.TT.wwwTTTTTww",
+        "wwwTSS=.www.T....TTTTTTTww",
+        "wwwT..=.wwwTFBFT....TTTTww",
+        "wwwTT.=Swww..F===.....TTww",
+        "wwwTT.=..www..T.=S..SSS.ww",
+        "wwwT.S=T.www...S=.......ww",
+        "wwwT.T=T.wwwwww.=..SS..www",
+        "wwwT..=.wwwwwww.=S....wwww",
+        "wwww.SFSww.T...S=....wwwww",
+        "wwwwT.======SS===..wwwwwww",
+        "wwwwTTT.ww..T....wwwwwwwww",
+        "wwwwwTTwwwwwwwwwwwwwwwwwww",
+        "wwwwwwwwwwwwwwwwwwwwwwwwww",
+    ]);
+    map.description = "A bull's-eye island: one army on the rim, the other at the heart of the bay.".to_string();
+
+    for (x, y) in [(13, 3), (6, 3), (7, 3), (8, 3), (12, 3), (14, 3), (16, 3), (17, 3), (13, 4)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(13, 11), (12, 11), (14, 11), (13, 12), (17, 13), (15, 14)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
+/// Duo Falls, an Advance Wars War Room map. A long island split by two
+/// creeks that fall into lagoons, each crossed by a single trail bridge;
+/// the small two-tile lake in the western woods is a pond. Airports are
+/// roosts. The first army starts in the west, the second in the east. No
+/// starting units.
+fn create_duo_falls_map() -> MapData {
+    let mut map = map_from_rows("Duo Falls", &[
+        "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
+        "wwwwwww....~...wwwwww..~.T.wwwwww",
+        "www..TT.SS.~.S..wwwTTSF~.STT..www",
+        "wTTT===========.www.======..TT.ww",
+        "wTTT=T...TT~.T=.wwwS=.T~.=....S.w",
+        "wTTF=F.SS..~..=SwwwT=Swww=FBF.TTw",
+        "wT..B....Twww.=Twww.=.www===..TTw",
+        "w..S=S.TTTwwwS=FwwwS=Twww.A.A.TTw",
+        "w..A=A.wwTwww.=..w..=.www....SS.w",
+        "w.SS=SSTTTwwwT=.S.AT=SwwwSS..o.ww",
+        "ww....TTTTwww.=======TwwwT.oowwww",
+        "www.TTTTwwwwww.TTFTTTwwww.wwwwwww",
+        "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
+    ]);
+    map.description = "Two waterfalls cut a long island into thirds; each creek has one bridge.".to_string();
+
+    for (x, y) in [(4, 6), (3, 5), (5, 5), (3, 7), (5, 7), (13, 7), (15, 7), (3, 8), (5, 8), (2, 9), (3, 9), (5, 9), (6, 9)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(27, 5), (22, 2), (26, 5), (28, 5), (26, 7), (29, 8), (30, 8), (25, 9), (26, 9)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
+/// Toil Ferry, an Advance Wars War Room map. Two coasts and three shore-ringed
+/// islands across a wide channel, so docks and roosts matter: shoals are
+/// shores, ports docks and airports roosts. The first army starts in the
+/// south-west, the second in the north-east. No starting units.
+fn create_toil_ferry_map() -> MapData {
+    let mut map = map_from_rows("Toil Ferry", &[
+        "T.T.TswwwwwoTTTTTTToTTT..T",
+        "S.AsswwswwwwwTSSooTT...S..",
+        ".PTswws.swwwwwssw.A=FBF==S",
+        ".wswwwsTFswwwwwwwww=PF.A=.",
+        "swwwwwws.AswwwwwwwwwwTT.=.",
+        "wwwrwwwwsswwwswwwrwwwww.=S",
+        "wwwwwwwwwrwwsTsswwwwwwwS=.",
+        "wwwwwrwwwwrwsT.oswwwwwwT=S",
+        "wwwwwwwwwwwwsSFooswwrww.=.",
+        "www..wwwwwwwws.ooTswwwwo=.",
+        ".P.TTS..wwwwwwssoPwwwwsT=T",
+        "S=======Twwwwwws..swwws.=S",
+        ".SF..o.=..swwwwwsAswws===.",
+        "..TTooT=FA.swrwwwswwwsF.TT",
+        ".BToooT===A.swwwwwwwsT.ASo",
+        "TToooooSF=.PwwwwwrwwwPoooo",
+    ]);
+    map.description = "A wide channel dotted with islands; whoever rules the water rules the ferry.".to_string();
+
+    for (x, y) in [(1, 14), (1, 10), (5, 10), (0, 11), (1, 12), (2, 12), (8, 13), (9, 13), (7, 15), (8, 15)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(21, 2), (23, 1), (18, 2), (20, 2), (22, 2), (25, 2), (20, 3), (21, 3), (23, 3), (25, 5), (23, 6), (25, 7)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
+/// Point Stormy, an Advance Wars War Room map. A northern headland and a
+/// southern mainland around a bay, joined by a long trail down the east;
+/// shoals are shores, ports docks and airports roosts, and the two small
+/// lakes are ponds. The first army starts on the headland in the north-west,
+/// the second on the bay's southern shore with two docks and two roosts. No
+/// starting units.
+fn create_point_stormy_map() -> MapData {
+    let mut map = map_from_rows("Point Stormy", &[
+        "wwwwwwwwwwwwwwwwwwwwwwwww",
+        "wwwww...SS...Towwwwwwwwww",
+        "wwTT.....TTTTT...wwwwwwww",
+        "wT.....TTTwwTT.....wwwwww",
+        "wS.oo.S.F=======SS...wwww",
+        "wwA..F.B.F..sss=======www",
+        "wwwww.F.ST.swwws..STT=Tww",
+        "wwwwwsssssswwwwwwS.oo=TTw",
+        "wwwwwwwwwwwwwwwwwwwoo=TTw",
+        "wwssswwwwwwwwwrwwwwoo=TTw",
+        "ww...wwwwwrwwwwwrwwo.=T.w",
+        "w..F.PwwwwwwwwwwwwwwPF=Sw",
+        "w.A.F=.swrwwwrwwwwww..=.w",
+        "w...T=FswwwwwwwrwwsT.A=.S",
+        "wwTTT=.swwwwwwwwwwsTT.=ST",
+        "wwTTT=.swwTP.P.wwsTTSS=.T",
+        "w.TTS=Sww.AFBFAwwsTwwT=TT",
+        "w.T..=Sww...F.swws.TTT=.T",
+        "w....=..w...=.ssss.T..=.T",
+        ".TTT.=T....S=T....S.SS=.T",
+        "TTTTT==================..",
+        "TTTTT..SS...TSTT..TTTT...",
+    ]);
+    map.description = "A headland against a crowded mainland across a stormy bay, linked by one long trail.".to_string();
+
+    for (x, y) in [(7, 5), (6, 4), (8, 4), (5, 5), (9, 5), (6, 6), (8, 6), (18, 6), (17, 7)] {
+        map.add_property(x, y, Faction::Eastern);
+    }
+    for (x, y) in [(12, 16), (4, 12), (6, 13), (11, 15), (13, 15), (10, 16), (11, 16), (13, 16), (14, 16), (12, 17)] {
+        map.add_property(x, y, Faction::Northern);
+    }
+
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1247,6 +1415,51 @@ mod tests {
             (Terrain::Base, e, 1), (Terrain::Base, n, 1),
             (Terrain::Workshop, e, 2), (Terrain::Workshop, n, 2), (Terrain::Workshop, None, 4),
             (Terrain::Storehouse, e, 1), (Terrain::Storehouse, n, 8), (Terrain::Storehouse, None, 18),
+        ]);
+    }
+
+    #[test]
+    fn moji_island_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::MojiIsland, (26, 22), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 3), (Terrain::Workshop, n, 3), (Terrain::Workshop, None, 2),
+            (Terrain::Storehouse, e, 5), (Terrain::Storehouse, n, 2), (Terrain::Storehouse, None, 17),
+        ]);
+    }
+
+    #[test]
+    fn duo_falls_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::DuoFalls, (33, 13), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 3), (Terrain::Workshop, n, 3), (Terrain::Workshop, None, 1),
+            (Terrain::Roost, e, 2), (Terrain::Roost, n, 1), (Terrain::Roost, None, 2),
+            (Terrain::Storehouse, e, 7), (Terrain::Storehouse, n, 4), (Terrain::Storehouse, None, 14),
+        ]);
+    }
+
+    #[test]
+    fn toil_ferry_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::ToilFerry, (26, 16), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 3), (Terrain::Workshop, n, 3), (Terrain::Workshop, None, 3),
+            (Terrain::Dock, e, 1), (Terrain::Dock, n, 1), (Terrain::Dock, None, 4),
+            (Terrain::Roost, e, 1), (Terrain::Roost, n, 2), (Terrain::Roost, None, 5),
+            (Terrain::Storehouse, e, 4), (Terrain::Storehouse, n, 5), (Terrain::Storehouse, None, 6),
+        ]);
+    }
+
+    #[test]
+    fn point_stormy_matches_the_war_room_original() {
+        let (e, n) = (Some(Faction::Eastern), Some(Faction::Northern));
+        assert_layout(MapId::PointStormy, (25, 22), &[
+            (Terrain::Base, e, 1), (Terrain::Base, n, 1),
+            (Terrain::Workshop, e, 4), (Terrain::Workshop, n, 5), (Terrain::Workshop, None, 2),
+            (Terrain::Dock, n, 2), (Terrain::Dock, None, 2),
+            (Terrain::Roost, n, 2), (Terrain::Roost, None, 3),
+            (Terrain::Storehouse, e, 4), (Terrain::Storehouse, None, 20),
         ]);
     }
 

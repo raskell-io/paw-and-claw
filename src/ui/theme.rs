@@ -248,7 +248,17 @@ pub fn well() -> egui::Frame {
 
 /// Card heading in small caps with a thin rule underneath
 pub fn heading(ui: &mut egui::Ui, text: &str) {
-    ui.label(display(text, 22.0).color(WOOD_DARK));
+    heading_icon(ui, None, text);
+}
+
+/// A section heading with a pixel icon before it
+pub fn heading_icon(ui: &mut egui::Ui, icon: Option<super::icons::Icon>, text: &str) {
+    ui.horizontal(|ui| {
+        if let Some(icon) = icon {
+            super::icons::icon(ui, icon, 24.0);
+        }
+        ui.label(display(text, 22.0).color(WOOD_DARK));
+    });
     let rect = ui.available_rect_before_wrap();
     let y = ui.cursor().top() - 2.0;
     ui.painter().hline(rect.left()..=rect.right(), y, stroke(1.0, Color32::from_rgb(0xC9, 0xAE, 0x7E)));
@@ -267,6 +277,11 @@ pub enum Tone {
 /// A full-width menu row that shows keyboard/gamepad selection and mouse hover
 /// the same way. Returns the response so callers can sync hover with selection.
 pub fn menu_item(ui: &mut egui::Ui, label: &str, detail: Option<&str>, selected: bool, enabled: bool, tone: Tone) -> egui::Response {
+    menu_item_icon(ui, None, label, detail, selected, enabled, tone)
+}
+
+/// A menu row with a pixel icon before its label
+pub fn menu_item_icon(ui: &mut egui::Ui, icon: Option<super::icons::Icon>, label: &str, detail: Option<&str>, selected: bool, enabled: bool, tone: Tone) -> egui::Response {
     let height = if detail.is_some() { 48.0 } else { 38.0 };
     let width = ui.available_width();
     let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
@@ -287,10 +302,20 @@ pub fn menu_item(ui: &mut egui::Ui, label: &str, detail: Option<&str>, selected:
         (true, Tone::Normal) => INK,
         (true, Tone::Muted) => INK_SOFT,
     };
-    let left = rect.left() + 28.0;
+    let mut left = rect.left() + 28.0;
+    if let Some(icon) = icon {
+        let size = if detail.is_some() { 30.0 } else { 26.0 };
+        let icon_rect = egui::Rect::from_center_size(egui::pos2(left + size / 2.0, rect.center().y), egui::vec2(size, size));
+        let color = if enabled { icon.color() } else { Color32::from_rgb(0xB8, 0xA8, 0x90) };
+        super::icons::paint(painter, icon_rect, icon, color);
+        left += size + 10.0;
+    }
     if selected && enabled {
-        // Selection pip
-        let c = egui::pos2(rect.left() + 14.0, rect.center().y);
+        // Selection pip, nudging right and back like Advance Wars' pointing glove
+        let t = ui.input(|i| i.time) as f32;
+        let bob = ((t * 5.0).sin() * 0.5 + 0.5) * 3.0;
+        ui.ctx().request_repaint();
+        let c = egui::pos2(rect.left() + 12.0 + bob, rect.center().y);
         painter.add(egui::Shape::convex_polygon(
             vec![c + egui::vec2(-4.0, -6.0), c + egui::vec2(5.0, 0.0), c + egui::vec2(-4.0, 6.0)],
             WOOD, Stroke::NONE,

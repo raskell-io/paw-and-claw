@@ -13,6 +13,7 @@ use crate::states::GameState;
 
 mod editor;
 mod hud;
+mod icons;
 mod input;
 mod menu;
 mod map_menu;
@@ -643,8 +644,9 @@ fn draw_action_menu(
                 ui.label(theme::display(game_data.unit_name(attacker_unit.unit_type), 20.0).color(theme::WOOD_DARK));
                 ui.add_space(2.0);
                 let mut idx = 0usize;
-                let mut row = |ui: &mut egui::Ui, label: &str, detail: Option<&str>, tone: theme::Tone| -> bool {
-                    let response = theme::menu_item(ui, label, detail, idx == selected, true, tone);
+                use icons::Icon;
+                let mut row = |ui: &mut egui::Ui, icon: Icon, label: &str, detail: Option<&str>, tone: theme::Tone| -> bool {
+                    let response = theme::menu_item_icon(ui, Some(icon), label, detail, idx == selected, true, tone);
                     if theme::pointer_selects(ui, &response) {
                         hovered_index = Some(idx);
                     }
@@ -666,25 +668,25 @@ fn draw_action_menu(
                         }
                     };
                     let detail = format!("Deals {deal}{outcome}");
-                    if row(ui, &format!("Attack {name}"), Some(&detail), theme::Tone::Normal) {
+                    if row(ui, Icon::Sword, &format!("Attack {name}"), Some(&detail), theme::Tone::Normal) {
                         attack_target = Some(*entity);
                     }
                 }
                 if let Some((terrain_name, progress, required)) = &capture_info {
                     // Advance Wars counts down the points left to capture
                     let detail = format!("{} of {} left", required - progress, required);
-                    if row(ui, &format!("Capture {terrain_name}"), Some(&detail), theme::Tone::Normal) {
+                    if row(ui, Icon::Flag, &format!("Capture {terrain_name}"), Some(&detail), theme::Tone::Normal) {
                         capture_clicked = true;
                     }
                 }
-                if can_join && row(ui, "Join", Some("Merge HP, stamina and ammo"), theme::Tone::Normal) {
+                if can_join && row(ui, Icon::Plus, "Join", Some("Merge HP, stamina and ammo"), theme::Tone::Normal) {
                     join_clicked = true;
                 }
-                if is_supplier && row(ui, "Resupply", Some("Refill adjacent allies"), theme::Tone::Normal) {
+                if is_supplier && row(ui, Icon::Crate, "Resupply", Some("Refill adjacent allies"), theme::Tone::Normal) {
                     resupply_clicked = true;
                 }
                 for (transport_pos, transport_name) in &adjacent_transport_info {
-                    if row(ui, &format!("Load into {transport_name}"), None, theme::Tone::Normal) {
+                    if row(ui, Icon::LoadIn, &format!("Load into {transport_name}"), None, theme::Tone::Normal) {
                         load_target = Some(*transport_pos);
                     }
                 }
@@ -695,14 +697,14 @@ fn draw_action_menu(
                     };
                     let label = format!("Unload {}", game_data.unit_name(attacker_unit.cargo[i].unit_type));
                     let detail = format!("To the {dir} · {}", game_data.terrain_name(terrain));
-                    if row(ui, &label, Some(&detail), theme::Tone::Normal) {
+                    if row(ui, Icon::UnloadOut, &label, Some(&detail), theme::Tone::Normal) {
                         unload_position = Some((i, (ux, uy)));
                     }
                 }
-                if !boarding && row(ui, "Wait", None, theme::Tone::Normal) {
+                if !boarding && row(ui, Icon::Hourglass, "Wait", None, theme::Tone::Normal) {
                     wait_clicked = true;
                 }
-                if pending_action.original_position.is_some() && row(ui, "Undo move", None, theme::Tone::Normal) {
+                if pending_action.original_position.is_some() && row(ui, Icon::Undo, "Undo move", None, theme::Tone::Normal) {
                     cancel_clicked = true;
                 }
             });

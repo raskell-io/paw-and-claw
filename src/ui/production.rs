@@ -6,6 +6,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use super::hud::format_funds;
 use super::input::MenuInput;
+use super::icons::{self, Icon};
 use super::theme;
 use crate::game::{
     spawn_unit_with_state, AiState, BattleConfig, Commanders, FactionFunds, GameData, GameMap, GameResult,
@@ -217,14 +218,24 @@ fn roster_row(
         egui::FontId::new(18.0, theme::bold_family()), ink);
     let (min_r, max_r) = stats.attack_range;
     let range = if min_r == max_r { format!("{min_r}") } else { format!("{min_r}–{max_r}") };
-    // Keep the description clear of the price column
-    let text_clip = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 84.0, rect.bottom()));
-    painter.with_clip_rect(text_clip).text(egui::pos2(x, rect.top() + 39.0), egui::Align2::LEFT_CENTER,
-        format!("Move {} · Range {} · {}", stats.movement, range, data.description),
+    // Move and range as icons, then the description, clear of the price column
+    let text_clip = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 104.0, rect.bottom()));
+    let clipped = painter.with_clip_rect(text_clip);
+    let line_y = rect.top() + 39.0;
+    let mut cx = x;
+    for (icon, value) in [(Icon::Boot, stats.movement.to_string()), (Icon::Target, range)] {
+        icons::paint(&clipped, egui::Rect::from_center_size(egui::pos2(cx + 8.0, line_y), egui::vec2(17.0, 17.0)), icon, icon.color());
+        let text = clipped.text(egui::pos2(cx + 19.0, line_y), egui::Align2::LEFT_CENTER, value,
+            egui::FontId::new(14.0, theme::bold_family()), ink);
+        cx = text.right() + 10.0;
+    }
+    clipped.text(egui::pos2(cx, line_y), egui::Align2::LEFT_CENTER, &data.description,
         egui::FontId::proportional(14.0), theme::INK_SOFT);
 
-    painter.text(egui::pos2(rect.right() - 12.0, rect.center().y), egui::Align2::RIGHT_CENTER, format_funds(cost),
+    let price = painter.text(egui::pos2(rect.right() - 12.0, rect.center().y), egui::Align2::RIGHT_CENTER, format_funds(cost),
         egui::FontId::new(18.0, theme::bold_family()), if affordable { theme::WOOD_DARK } else { theme::BERRY });
+    icons::paint(painter, egui::Rect::from_center_size(egui::pos2(price.left() - 12.0, rect.center().y), egui::vec2(20.0, 20.0)),
+        Icon::Coin, Icon::Coin.color());
 
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

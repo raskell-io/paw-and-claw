@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
 use super::hud::format_funds;
+use super::icons::Icon;
 use super::input::MenuInput;
 use super::setup::passive_bonuses;
 use super::theme::{self, Tone};
@@ -202,15 +203,23 @@ pub fn draw_map_menu(
                             MainItem::Units => ("Units".to_string(), Some(format!("{} ready of {}", ready_units, my_units.len())), Tone::Normal),
                             MainItem::Intel => ("Intel".to_string(), Some("Armies, funds, properties".to_string()), Tone::Normal),
                             MainItem::Commanders => ("Commanders".to_string(), Some("Abilities and powers".to_string()), Tone::Normal),
-                            MainItem::Power(PowerLevel::Super) => (format!("★ {}", co.super_power.name), Some("Super CO Power".to_string()), Tone::Normal),
-                            MainItem::Power(_) => (format!("★ {}", co.power.as_ref().map_or("", |p| p.name.as_str())), Some("CO Power".to_string()), Tone::Normal),
+                            MainItem::Power(PowerLevel::Super) => (co.super_power.name.clone(), Some("Super CO Power".to_string()), Tone::Normal),
+                            MainItem::Power(_) => (co.power.as_ref().map_or(String::new(), |p| p.name.clone()), Some("CO Power".to_string()), Tone::Normal),
                             MainItem::Options => ("Options".to_string(), Some("Fog, controls, save, quit".to_string()), Tone::Normal),
                             MainItem::EndTurn => ("End turn".to_string(), None, Tone::Danger),
                         };
                         if matches!(item, MainItem::Options) {
                             ui.separator();
                         }
-                        let response = theme::menu_item(ui, &label, detail.as_deref(), i == nav.selected, true, tone);
+                        let icon = match item {
+                            MainItem::Units => Icon::Paw,
+                            MainItem::Intel => Icon::Scroll,
+                            MainItem::Commanders => Icon::Crown,
+                            MainItem::Power(_) => Icon::Star,
+                            MainItem::Options => Icon::Gear,
+                            MainItem::EndTurn => Icon::Hourglass,
+                        };
+                        let response = theme::menu_item_icon(ui, Some(icon), &label, detail.as_deref(), i == nav.selected, true, tone);
                         if theme::pointer_selects(ui, &response) {
                             nav.selected = i;
                         }
@@ -280,7 +289,14 @@ pub fn draw_map_menu(
                         if *item == OptionItem::Title {
                             ui.separator();
                         }
-                        let response = theme::menu_item(ui, &label, detail, i == nav.selected, true, tone);
+                        let icon = match item {
+                            OptionItem::Fog => Icon::Cloud,
+                            OptionItem::Controls => Icon::Gamepad,
+                            OptionItem::Save => Icon::Book,
+                            OptionItem::Load => Icon::OpenBook,
+                            OptionItem::Title => Icon::Door,
+                        };
+                        let response = theme::menu_item_icon(ui, Some(icon), &label, detail, i == nav.selected, true, tone);
                         if theme::pointer_selects(ui, &response) {
                             nav.selected = i;
                         }
@@ -404,20 +420,23 @@ fn intel(ui: &mut egui::Ui, info: &MenuInfo, commanders: &Commanders) {
                     .color(theme::shade(theme::faction_color(game_data, *army), 0.75)));
             }
             ui.end_row();
-            let row = |ui: &mut egui::Ui, name: &str, values: Vec<String>| {
-                ui.label(theme::body(name, 15.0).color(theme::INK_SOFT));
+            let row = |ui: &mut egui::Ui, icon: Icon, name: &str, values: Vec<String>| {
+                ui.horizontal(|ui| {
+                    super::icons::icon(ui, icon, 20.0);
+                    ui.label(theme::body(name, 15.0).color(theme::INK_SOFT));
+                });
                 for v in values {
                     ui.label(theme::bold(v, 16.0));
                 }
                 ui.end_row();
             };
-            row(ui, "Commander", armies.iter().map(|&a| game_data.commander(commanders.get_active(a)).name.clone()).collect());
-            row(ui, "Funds", armies.iter().map(|&a| format_funds(info.funds.get(a))).collect());
-            row(ui, "Income / day", columns.iter().map(|(_, s)| format_funds(s.3)).collect());
-            row(ui, "Properties", columns.iter().map(|(_, s)| s.2.to_string()).collect());
-            row(ui, "Units", columns.iter().map(|(_, s)| s.0.to_string()).collect());
-            row(ui, "Army value", columns.iter().map(|(_, s)| format_funds(s.1)).collect());
-            row(ui, "Power meter", armies.iter().map(|&a| {
+            row(ui, Icon::Crown, "Commander", armies.iter().map(|&a| game_data.commander(commanders.get_active(a)).name.clone()).collect());
+            row(ui, Icon::Coin, "Funds", armies.iter().map(|&a| format_funds(info.funds.get(a))).collect());
+            row(ui, Icon::Coin, "Income / day", columns.iter().map(|(_, s)| format_funds(s.3)).collect());
+            row(ui, Icon::Flag, "Properties", columns.iter().map(|(_, s)| s.2.to_string()).collect());
+            row(ui, Icon::Paw, "Units", columns.iter().map(|(_, s)| s.0.to_string()).collect());
+            row(ui, Icon::Scroll, "Army value", columns.iter().map(|(_, s)| format_funds(s.1)).collect());
+            row(ui, Icon::Star, "Power meter", armies.iter().map(|&a| {
                 let full = commanders.power_cost(a, PowerLevel::Super, game_data).unwrap_or(1).max(1);
                 format!("{}%", (commanders.get_charge(a) * 100 / full).min(100))
             }).collect());

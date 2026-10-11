@@ -3,11 +3,13 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
+use super::icons::Icon;
 use super::input::MenuInput;
 use super::theme::{self, Tone};
 use crate::states::GameState;
 
 struct MenuEntry {
+    icon: Icon,
     label: &'static str,
     detail: &'static str,
     target: Option<MenuTarget>,
@@ -21,14 +23,14 @@ enum MenuTarget {
 
 fn entries() -> Vec<MenuEntry> {
     let mut entries = vec![
-        MenuEntry { label: "Skirmish", detail: "Pick a faction, a commander and a map", target: Some(MenuTarget::State(GameState::Battle)) },
-        MenuEntry { label: "Map Editor", detail: "Paint your own battlefield", target: Some(MenuTarget::State(GameState::Editor)) },
-        MenuEntry { label: "Campaign", detail: "Coming soon", target: None },
-        MenuEntry { label: "Roguelike", detail: "Coming soon", target: None },
+        MenuEntry { icon: Icon::Swords, label: "Skirmish", detail: "Pick a faction, a commander and a map", target: Some(MenuTarget::State(GameState::Battle)) },
+        MenuEntry { icon: Icon::Quill, label: "Map Editor", detail: "Paint your own battlefield", target: Some(MenuTarget::State(GameState::Editor)) },
+        MenuEntry { icon: Icon::Banner, label: "Campaign", detail: "Coming soon", target: None },
+        MenuEntry { icon: Icon::Die, label: "Roguelike", detail: "Coming soon", target: None },
     ];
     // Browsers own the tab lifecycle, so only offer Quit on native
     if cfg!(not(target_arch = "wasm32")) {
-        entries.push(MenuEntry { label: "Quit", detail: "Back to the burrow", target: Some(MenuTarget::Quit) });
+        entries.push(MenuEntry { icon: Icon::Door, label: "Quit", detail: "Back to the burrow", target: Some(MenuTarget::Quit) });
     }
     entries
 }
@@ -75,7 +77,7 @@ pub fn draw_main_menu(
             theme::card().show(ui, |ui| {
                 ui.set_width(card_width - 28.0);
                 for (i, entry) in entries.iter().enumerate() {
-                    let response = theme::menu_item(ui, entry.label, Some(entry.detail), i == *selected,
+                    let response = theme::menu_item_icon(ui, Some(entry.icon), entry.label, Some(entry.detail), i == *selected,
                         entry.target.is_some(), Tone::Normal);
                     if theme::pointer_selects(ui, &response) && entry.target.is_some() {
                         *selected = i;

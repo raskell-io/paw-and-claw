@@ -25,6 +25,7 @@ src/
 ├── ui/              # egui UI code
 │   ├── mod.rs       # Plugin, action menu, hover tracking
 │   ├── theme.rs     # Palette, fonts, shared widgets (cards, menu rows, meters)
+│   ├── icons.rs     # Pixel-art UI icons (9x9 masks, auto outline)
 │   ├── input.rs     # MenuInput: keyboard + gamepad menu navigation
 │   ├── menu.rs      # Title screen
 │   ├── setup.rs     # Skirmish setup (faction, commander, map)
@@ -82,6 +83,8 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 ## UI Guidelines
 - HUD: one army panel (CO, stars, funds, day, weather) for the army whose turn it is, in
   the top corner away from the cursor; the tile/unit box below uses the see-through `glass_card`
+- Icons come from `ui/icons.rs` (`menu_item_icon`, `heading_icon`, `icons::icon`); the UI font
+  lacks most symbol glyphs, so don't use Unicode symbols as icons
 - Build every screen from `ui/theme.rs` (parchment cards, `menu_item`, `key_hint`, `meter`);
   don't hardcode colors or use stock egui windows
 - Menus must work with `MenuInput` (keyboard + gamepad), not just the mouse; use

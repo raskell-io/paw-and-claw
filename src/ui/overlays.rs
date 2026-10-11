@@ -108,13 +108,22 @@ pub fn draw_game_over(
                 theme::well().show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     egui::Grid::new("battle_stats").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
-                        ui.label(theme::body("Days fought", 16.0).color(theme::INK_SOFT));
+                        ui.horizontal(|ui| {
+                            super::icons::icon(ui, super::icons::Icon::Sun, 20.0);
+                            ui.label(theme::body("Days fought", 16.0).color(theme::INK_SOFT));
+                        });
                         ui.label(theme::bold(turn_state.turn_number.to_string(), 16.0));
                         ui.end_row();
-                        ui.label(theme::body(format!("{} units left", game_data.faction_name(player)), 16.0).color(theme::INK_SOFT));
+                        ui.horizontal(|ui| {
+                            super::icons::icon(ui, super::icons::Icon::Paw, 20.0);
+                            ui.label(theme::body(format!("{} units left", game_data.faction_name(player)), 16.0).color(theme::INK_SOFT));
+                        });
                         ui.label(theme::bold(survivors(player).to_string(), 16.0));
                         ui.end_row();
-                        ui.label(theme::body(format!("{} units left", game_data.faction_name(enemy)), 16.0).color(theme::INK_SOFT));
+                        ui.horizontal(|ui| {
+                            super::icons::icon(ui, super::icons::Icon::Swords, 20.0);
+                            ui.label(theme::body(format!("{} units left", game_data.faction_name(enemy)), 16.0).color(theme::INK_SOFT));
+                        });
                         ui.label(theme::bold(survivors(enemy).to_string(), 16.0));
                         ui.end_row();
                     });
