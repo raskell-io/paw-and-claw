@@ -6,7 +6,9 @@ by color. This does the same: it takes the raw Western roster in
 `assets/sprites/originals/units/western/`, repaints the team cloth (the green
 pixels) in each army's color from `assets/data/factions.ron`, stands the unit
 on the ground, centers it on its tile and makes its 2-frame idle sheet, writing
-`assets/sprites/units/{faction}/{id}.png`.
+`assets/sprites/units/{faction}/{id}.png`. The 64x64 battle-scene sprites in
+`originals/battle/western/` become `assets/sprites/battle/{faction}/{id}.png`
+the same way.
 
 Western gets the same treatment, so its sage green becomes the same vivid kind
 of team color as the others. Brown leather, fur, skin, gold trim and the dark
@@ -46,6 +48,9 @@ from soften_outline import soften  # noqa: E402
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "assets" / "sprites" / "originals" / "units" / "western"
 OUT = REPO / "assets" / "sprites" / "units"
+# Battle sprites (64x64, for battle scenes) are built the same way
+BATTLE_SOURCE = REPO / "assets" / "sprites" / "originals" / "battle" / "western"
+BATTLE_OUT = REPO / "assets" / "sprites" / "battle"
 FACTIONS = ["western", "northern", "southern", "eastern", "nether"]
 BUILDINGS = ["base", "workshop", "dock", "roost", "outpost", "storehouse"]
 BUILDING_SOURCE = REPO / "assets" / "sprites" / "originals" / "features"
@@ -124,25 +129,26 @@ def center_horizontally(w, h, pixels):
     return out
 
 
-def source_for(unit_id, faction):
+def source_for(unit_id, faction, source=SOURCE):
     """The army's own raw sprite for this unit if it has one, else the Western roster's"""
-    own = SOURCE.parent / faction / f"{unit_id}.png"
-    return own if faction != "western" and own.exists() else SOURCE / f"{unit_id}.png"
+    own = source.parent / faction / f"{unit_id}.png"
+    return own if faction != "western" and own.exists() else source / f"{unit_id}.png"
 
 
-def build(unit_id, faction, target):
-    w, h, pixels = read_png(source_for(unit_id, faction))
+def build(unit_id, faction, target, source=SOURCE, out_dir=OUT):
+    w, h, pixels = read_png(source_for(unit_id, faction, source))
     pixels = center_horizontally(w, h, [recolor(p, target) for p in pixels])
     rows = [y for y in range(h) if any(pixels[y * w + x][3] for x in range(w))]
-    shift = 0 if unit_id in AIR else max(0, GROUND_ROW - rows[-1])
+    ground_row = GROUND_ROW * h // 32
+    shift = 0 if unit_id in AIR else max(0, ground_row - rows[-1])
     grounded = [(0, 0, 0, 0)] * (w * h)
     for y in range(h - shift):
         grounded[(y + shift) * w:(y + shift + 1) * w] = pixels[y * w:(y + 1) * w]
     # Walkers bob above planted feet; boats and fliers bob whole
-    feet = 0 if unit_id in AIR or unit_id in NAVAL else 3
+    feet = 0 if unit_id in AIR or unit_id in NAVAL else 3 * h // 32
     frames = [grounded, bob_frame(w, h, grounded, feet)]
     sheet = [frames[x // w][y * w + x % w] for y in range(h) for x in range(w * 2)]
-    out = OUT / faction / f"{unit_id}.png"
+    out = out_dir / faction / f"{unit_id}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     write_png(out, w * 2, h, sheet)
 
@@ -171,6 +177,11 @@ def main():
         for unit_id in units:
             build(unit_id, faction, colors[faction])
     print(f"Wrote {len(units)} units for {', '.join(args.factions)}")
+    battle = sorted(p.stem for p in BATTLE_SOURCE.glob("*.png"))
+    for faction in args.factions:
+        for unit_id in battle:
+            build(unit_id, faction, colors[faction], BATTLE_SOURCE, BATTLE_OUT)
+    print(f"Wrote {len(battle)} battle sprites for {', '.join(args.factions)}")
 
     buildings = [b for b in BUILDINGS if (BUILDING_SOURCE / f"{b}.png").exists()]
     for building_id in buildings:

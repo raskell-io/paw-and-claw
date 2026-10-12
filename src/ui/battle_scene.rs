@@ -142,7 +142,7 @@ fn draw_side(
     let front_y = if flier { half.top() + half.height() * 0.5 } else { ground_top + (bar_top - ground_top) * 0.78 };
     // Front row of three toward the split, a staggered back row of two behind
     let slots: [(f32, f32); 5] = [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0), (2.0, 0.0), (1.5, 1.0)];
-    let texture = unit_textures.get(side.faction, side.unit_type);
+    let texture = unit_textures.battle(side.faction, side.unit_type);
     let frame = ((t * 4.0) as u32) % texture.map_or(1, |(_, f)| f.max(1));
     let mut order: Vec<usize> = (0..figures).collect();
     // Back row drawn first, so the front row stands in front of it

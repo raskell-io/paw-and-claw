@@ -89,8 +89,16 @@ tile all have the same pixel size, and one sprite spans one tile.
 | Terrain features | 32×32 | low top-down | transparent | `terrain/features/{id}.png` |
 | Commander portraits | 64×64 | head and shoulders | `#4E321C` | `portraits/{id}.png` |
 
-Battle sprites aren't used in game yet (no battle scenes so far); they're
-generated now so each unit's two sprites match.
+Battle sprites are shown in the battle scenes (`ui/battle_scene.rs`); a unit
+without one falls back to its map sprite. Like the map units, one Western roster
+is generated (`originals/battle/western/`, raw sheet `originals/battle/western-sheet.png`)
+and `team_colors.py` builds every army's version into `battle/{faction}/` as a
+2-frame idle strip; `originals/battle/northern/scout.png` is the Northern axe
+militia. They were made with **Pro Flash** at 64×64, Remove background on, with
+the right-facing Western battle anchor as style image (all "Copy from style image"
+boxes on), described as "{Name} battle sprite. A detailed pixel art battle
+sprite for Advance Wars Dual Strike style battle scenes, full body in side view,
+facing right: {subject}. Large flat team cloth in bright pure green …".
 
 ### PixelLab settings
 

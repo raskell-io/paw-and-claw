@@ -334,12 +334,19 @@ fn register_portraits(
 pub struct UnitTextures {
     /// Texture and number of animation frames in its strip
     textures: std::collections::HashMap<(crate::game::Faction, crate::game::UnitType), (egui::TextureId, u32)>,
+    /// The 64x64 battle-scene versions
+    battle: std::collections::HashMap<(crate::game::Faction, crate::game::UnitType), (egui::TextureId, u32)>,
     registered: bool,
 }
 
 impl UnitTextures {
     pub fn get(&self, faction: crate::game::Faction, unit_type: crate::game::UnitType) -> Option<(egui::TextureId, u32)> {
         self.textures.get(&(faction, unit_type)).copied()
+    }
+
+    /// The battle-scene sprite, or the map sprite when there's none
+    pub fn battle(&self, faction: crate::game::Faction, unit_type: crate::game::UnitType) -> Option<(egui::TextureId, u32)> {
+        self.battle.get(&(faction, unit_type)).copied().or_else(|| self.get(faction, unit_type))
     }
 }
 
@@ -359,6 +366,11 @@ fn register_unit_textures(
             let frames = images.get(&handle).map_or(1, crate::game::frame_count);
             let texture = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle));
             units.textures.insert((faction, unit_type), (texture, frames));
+            if let Some(handle) = sprites.battle_sprite(&images, faction, unit_type) {
+                let frames = images.get(&handle).map_or(1, crate::game::frame_count);
+                let texture = contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle));
+                units.battle.insert((faction, unit_type), (texture, frames));
+            }
         }
     }
     units.registered = true;

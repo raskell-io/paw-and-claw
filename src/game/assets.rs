@@ -29,6 +29,8 @@ impl Plugin for AssetPlugin {
 #[derive(Resource, Default)]
 pub struct SpriteAssets {
     pub unit_sprites: HashMap<(Faction, UnitType), Handle<Image>>,
+    /// 64x64 battle-scene sprites (2-frame idle strips)
+    pub battle_sprites: HashMap<(Faction, UnitType), Handle<Image>>,
     pub terrain_tiles: HashMap<Terrain, Handle<Image>>,
     pub terrain_features: HashMap<Terrain, Handle<Image>>,
     /// Buildings in an army's colors (`terrain/features/{faction}/{id}.png`);
@@ -48,6 +50,10 @@ impl SpriteAssets {
             game_data.faction(faction).asset_folder,
             game_data.unit(unit_type).asset_name
         )
+    }
+
+    pub fn battle_sprite_path(game_data: &GameData, faction: Faction, unit_type: UnitType) -> String {
+        Self::unit_sprite_path(game_data, faction, unit_type).replacen("sprites/units/", "sprites/battle/", 1)
     }
 
     pub fn terrain_tile_path(game_data: &GameData, terrain: Terrain) -> String {
@@ -77,6 +83,10 @@ impl SpriteAssets {
 
     pub fn unit_sprite(&self, images: &Assets<Image>, faction: Faction, unit_type: UnitType) -> Option<Handle<Image>> {
         Self::ready(images, self.unit_sprites.get(&(faction, unit_type)))
+    }
+
+    pub fn battle_sprite(&self, images: &Assets<Image>, faction: Faction, unit_type: UnitType) -> Option<Handle<Image>> {
+        Self::ready(images, self.battle_sprites.get(&(faction, unit_type)))
     }
 
     pub fn tile_sprite(&self, images: &Assets<Image>, terrain: Terrain) -> Option<Handle<Image>> {
@@ -109,6 +119,7 @@ impl SpriteAssets {
 
     fn all_handles(&self) -> impl Iterator<Item = &Handle<Image>> {
         self.unit_sprites.values()
+            .chain(self.battle_sprites.values())
             .chain(self.terrain_tiles.values())
             .chain(self.terrain_features.values())
             .chain(self.owned_features.values())
@@ -140,6 +151,9 @@ fn start_asset_loading(asset_server: Res<AssetServer>, mut sprites: ResMut<Sprit
         for &unit_type in UnitType::all() {
             if let Some(handle) = load(SpriteAssets::unit_sprite_path(&game_data, faction, unit_type)) {
                 sprites.unit_sprites.insert((faction, unit_type), handle);
+            }
+            if let Some(handle) = load(SpriteAssets::battle_sprite_path(&game_data, faction, unit_type)) {
+                sprites.battle_sprites.insert((faction, unit_type), handle);
             }
         }
     }
