@@ -83,6 +83,40 @@
     </div>
 
     <script>
+        // Sound: browsers start every AudioContext paused until the player
+        // taps or presses a key, and the game's audio backend opens its one
+        // context at startup, before any of that. Keep track of the contexts
+        // and resume them on every gesture (also after iOS pauses audio when
+        // the app goes to the background).
+        (function () {
+            const Native = window.AudioContext || window.webkitAudioContext;
+            if (!Native) return;
+            const contexts = [];
+            class TrackedAudioContext extends Native {
+                constructor(...args) {
+                    super(...args);
+                    contexts.push(this);
+                }
+            }
+            window.AudioContext = TrackedAudioContext;
+            if (window.webkitAudioContext) window.webkitAudioContext = TrackedAudioContext;
+            window.pawAudioContexts = contexts;
+            const resume = () => {
+                for (const context of contexts) {
+                    if (context.state !== 'running' && context.state !== 'closed') {
+                        context.resume().catch(() => {});
+                    }
+                }
+            };
+            for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown', 'mousedown']) {
+                window.addEventListener(type, resume, { capture: true, passive: true });
+            }
+            // iPhone: play like a game, not a ringtone, so the silent switch doesn't mute it
+            if (navigator.audioSession) {
+                try { navigator.audioSession.type = 'playback'; } catch (_) {}
+            }
+        })();
+
         // Saves live in localStorage. Ask the browser to keep it even when
         // space runs low (installed home-screen apps usually get this anyway)
         if (navigator.storage && navigator.storage.persist) {
