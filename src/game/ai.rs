@@ -70,6 +70,9 @@ pub enum AiStrategy {
 pub struct AiConfig {
     pub personality: AiPersonality,
     pub strategy: AiStrategy,
+    /// How hard to go for the enemy HQ this turn (0-1): rises when we're
+    /// clearly stronger and as the battle drags on, so games end
+    pub push_hq: f32,
 }
 
 impl Default for AiConfig {
@@ -77,6 +80,7 @@ impl Default for AiConfig {
         Self {
             personality: AiPersonality::Aggressive,
             strategy: AiStrategy::Balanced,
+            push_hq: 0.0,
         }
     }
 }
@@ -1158,6 +1162,8 @@ fn score_capture_action(
     let required = game_data.terrain_capture_points(tile.terrain) as i32;
 
     let is_base = game_data.terrain_produces(tile.terrain);
+    // The HQ (which builds nothing) is the win condition
+    let is_hq = tile.terrain == Terrain::Base;
     let income = game_data.terrain_income(tile.terrain);
 
     // === BASE CAPTURE UTILITY ===
@@ -1174,7 +1180,7 @@ fn score_capture_action(
         }
         AiStrategy::Blitz => {
             // Only care about enemy HQ
-            if is_base && tile.owner.is_some() && tile.owner != Some(ai_faction) {
+            if is_hq && tile.owner.is_some() && tile.owner != Some(ai_faction) {
                 score += 200.0; // This is the win condition!
             } else {
                 score *= 0.3; // Ignore other captures
@@ -1191,9 +1197,9 @@ fn score_capture_action(
         _ => {}
     }
 
-    // === ENEMY BASE = VICTORY CONDITION ===
-    if is_base && tile.owner.is_some() && tile.owner != Some(ai_faction) {
-        score += 150.0; // Capturing enemy base is huge
+    // === ENEMY HQ = VICTORY CONDITION ===
+    if is_hq && tile.owner.is_some() && tile.owner != Some(ai_faction) {
+        score += 150.0 + 150.0 * config.push_hq;
     }
 
     // === RISK ASSESSMENT ===
@@ -1325,6 +1331,20 @@ fn score_move_action(
         // Ranged units like to stand just outside reach, at their longest range
         let ideal = if unit.is_indirect { stats.attack_range.1 as f32 } else { 1.0 };
         score += 12.0 - (dist - ideal).abs() * 1.2;
+    }
+
+    // === PUSH FOR THE HQ ===
+    // When we're ahead or the battle drags on, capturers head for the enemy
+    // HQ and the rest escort them there
+    if config.push_hq > 0.0 {
+        let dist_to_hq = analysis.enemy_properties.iter()
+            .filter(|t| t.terrain == Terrain::Base)
+            .map(|t| ((move_to.0 - t.pos.x).abs() + (move_to.1 - t.pos.y).abs()) as f32)
+            .min_by(|a, b| a.partial_cmp(b).unwrap());
+        if let Some(dist) = dist_to_hq {
+            let pull = if stats.can_capture { 45.0 - dist * 3.0 } else { 25.0 - dist * 1.5 };
+            score += pull * config.push_hq;
+        }
     }
 
     // === STRATEGIC GOAL ALIGNMENT ===
@@ -1535,7 +1555,14 @@ fn plan_turn_advanced(
                             move_to: (*mx, *my),
                             target: enemy.entity,
                         };
-                        let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
+                        let mut score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
+                        // A unit holding its HQ blocks the capture that wins the game:
+                        // when pushing, everything that can reach it hits it
+                        let on_enemy_hq = analysis.enemy_properties.iter()
+                            .any(|t| t.terrain == Terrain::Base && t.pos.x == enemy.pos.x && t.pos.y == enemy.pos.y);
+                        if on_enemy_hq {
+                            score += 70.0 * config.push_hq;
+                        }
                         all_possible.push((ai_unit.entity, action, score));
                     }
                 }
@@ -1772,6 +1799,13 @@ fn smart_production(
         }
     }
 
+    // Pushing for the HQ needs units that can capture it
+    let capturers = analysis.ai_units.iter().filter(|u| game_data.unit_stats(u.unit_type).can_capture).count();
+    if config.push_hq > 0.3 && capturers < 3 {
+        build_list.push((UnitType::Scout, 92.0));
+        build_list.push((UnitType::Shocktrooper, 88.0));
+    }
+
     // A mixed army: each unit of a type we already field makes another less
     // wanted (a single favourite used to take over the whole production)
     for (unit_type, priority) in build_list.iter_mut() {
@@ -1881,9 +1915,20 @@ fn ai_turn_system(
 
     // Get AI config from CO personality
     let co = game_data.commander(commanders.get_active(ai_faction));
+    // Go for the HQ when well ahead (army value), or more and more after day 12
+    let value = |mine: bool| -> f32 {
+        units.iter()
+            .filter(|(_, _, _, f, _)| if mine { f.faction == ai_faction } else { !ai_res.battle_config.allied(f.faction, ai_faction) })
+            .map(|(_, _, _, _, u)| game_data.unit_stats(u.unit_type).cost as f32 * u.display_hp() as f32 / 10.0)
+            .sum()
+    };
+    let (ours, theirs) = (value(true), value(false));
+    let ahead = if theirs > 0.0 { ((ours / theirs - 1.1) / 0.5).clamp(0.0, 1.0) } else { 1.0 };
+    let late = ((turn_state.turn_number as f32 - 12.0) / 12.0).clamp(0.0, 1.0);
     let config = AiConfig {
         personality: co.personality,
         strategy: ai_res.ai_state.config.strategy, // Keep strategy from state
+        push_hq: ahead.max(late),
     };
 
     match ai_res.ai_state.phase {

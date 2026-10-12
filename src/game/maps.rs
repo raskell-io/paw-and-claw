@@ -76,6 +76,15 @@ impl MapData {
         map.units = map.units.into_iter()
             .filter_map(|mut u| remap(u.faction).map(|f| { u.faction = f; u }))
             .collect();
+        // An empty slot's HQ becomes a plain neutral outpost: a spare HQ to
+        // capture would keep an army alive after it lost its own
+        let empty_hqs: Vec<(i32, i32)> = map.properties.iter()
+            .filter(|p| remap(p.owner).is_none() && map.get_terrain(p.x, p.y) == Some(Terrain::Base))
+            .map(|p| (p.x, p.y))
+            .collect();
+        for (x, y) in empty_hqs {
+            map.set_terrain(x, y, Terrain::Outpost);
+        }
         map.properties = map.properties.into_iter()
             .filter_map(|mut p| remap(p.owner).map(|f| { p.owner = f; p }))
             .collect();
@@ -1534,9 +1543,11 @@ mod tests {
         let three = map.with_armies(&[Faction::Southern, Faction::Western, Faction::Eastern]);
         let owners: std::collections::HashSet<Faction> = three.properties.iter().map(|p| p.owner).collect();
         assert_eq!(owners, [Faction::Southern, Faction::Western, Faction::Eastern].into_iter().collect());
-        // Every army has its own HQ
+        // Every army has its own HQ, and the empty corner's HQ is just an outpost
         for faction in [Faction::Southern, Faction::Western, Faction::Eastern] {
             assert!(three.hq_of(faction).is_some(), "{faction:?} has no HQ");
         }
+        let hqs = three.terrain.iter().flatten().filter(|&&t| t == Terrain::Base).count();
+        assert_eq!(hqs, 3);
     }
 }
