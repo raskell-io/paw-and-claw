@@ -31,6 +31,8 @@ pub struct GameStateContext<'w> {
     /// The player's fog: enemies they can't see can't be targeted, don't
     /// block planned routes and spring traps when walked into
     pub fog: Res<'w, super::FogOfWar>,
+    /// Armies and teams: allies are never targets
+    pub battle_config: Res<'w, super::BattleConfig>,
 }
 
 /// Bundled input state for systems with many parameters
@@ -501,7 +503,7 @@ pub fn calculate_attack_targets(
     attacker: &Unit,
     attacker_pos: &GridPosition,
     attacker_faction: &FactionMember,
-    units: &[(Entity, GridPosition, FactionMember, UnitType)],
+    units: &[(Entity, GridPosition, FactionMember, UnitType, bool)],
     game_data: &GameData,
     co: &super::CoBonuses,
 ) -> HashSet<Entity> {
@@ -514,14 +516,14 @@ pub fn calculate_attack_targets(
         max_range
     };
 
-    for (entity, pos, faction, unit_type) in units {
+    for (entity, pos, faction, unit_type, submerged) in units {
         // Can't attack own faction
         if faction.faction == attacker_faction.faction {
             continue;
         }
 
         // A weapon that can hit this unit type and has ammo, or a machine gun
-        if game_data.weapon(attacker.unit_type, attacker.ammo, *unit_type).is_none() {
+        if game_data.weapon_vs(attacker.unit_type, attacker.ammo, *unit_type, *submerged).is_none() {
             continue;
         }
 
@@ -1028,8 +1030,9 @@ fn handle_keyboard_input(
 
                 // Calculate attack targets
                 let all_units: Vec<_> = units.iter()
-                    .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
-                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                    .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction
+                        || (game_ctx.fog.is_visible(p.x, p.y) && !game_ctx.battle_config.allied(f.faction, turn_state.current_faction)))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type, u.submerged))
                     .collect();
                 let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
@@ -1181,8 +1184,9 @@ fn handle_keyboard_input(
 
                     // Calculate attack targets from current/new position
                     let all_units: Vec<_> = units.iter()
-                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
-                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction
+                        || (game_ctx.fog.is_visible(p.x, p.y) && !game_ctx.battle_config.allied(f.faction, turn_state.current_faction)))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type, u.submerged))
                         .collect();
                     let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
@@ -1191,7 +1195,8 @@ fn handle_keyboard_input(
                         tiles.iter()
                             .find(|(_, t)| t.position.x == input.cursor.x && t.position.y == input.cursor.y)
                             .map(|(e, tile)| {
-                                let capturable = game_data.terrain_capturable(tile.terrain) && tile.owner != Some(faction_copy.faction);
+                                let capturable = game_data.terrain_capturable(tile.terrain)
+                            && !tile.owner.is_some_and(|owner| game_ctx.battle_config.allied(owner, faction_copy.faction));
                                 (capturable, if capturable { Some(e) } else { None })
                             })
                             .unwrap_or((false, None))
@@ -1262,8 +1267,9 @@ fn handle_keyboard_input(
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
-                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
-                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction
+                        || (game_ctx.fog.is_visible(p.x, p.y) && !game_ctx.battle_config.allied(f.faction, turn_state.current_faction)))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type, u.submerged))
                         .collect();
                     let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
@@ -1810,8 +1816,9 @@ fn handle_click_input(
 
                     // Calculate attack targets
                     let all_units: Vec<_> = units.iter()
-                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
-                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                        .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction
+                        || (game_ctx.fog.is_visible(p.x, p.y) && !game_ctx.battle_config.allied(f.faction, turn_state.current_faction)))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type, u.submerged))
                         .collect();
                     let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
@@ -1910,8 +1917,9 @@ fn handle_click_input(
 
             // Calculate attack targets from new position
             let all_units: Vec<_> = units.iter()
-                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
-                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction
+                        || (game_ctx.fog.is_visible(p.x, p.y) && !game_ctx.battle_config.allied(f.faction, turn_state.current_faction)))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type, u.submerged))
                 .collect();
             let targets = calculate_attack_targets(&unit_copy, &new_pos, &faction_copy, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
@@ -1920,7 +1928,8 @@ fn handle_click_input(
                 tiles.iter()
                     .find(|(_, t)| t.position.x == grid_x && t.position.y == grid_y)
                     .map(|(e, tile)| {
-                        let capturable = game_data.terrain_capturable(tile.terrain) && tile.owner != Some(faction_copy.faction);
+                        let capturable = game_data.terrain_capturable(tile.terrain)
+                            && !tile.owner.is_some_and(|owner| game_ctx.battle_config.allied(owner, faction_copy.faction));
                         (capturable, if capturable { Some(e) } else { None })
                     })
                     .unwrap_or((false, None))
@@ -1992,8 +2001,9 @@ fn handle_click_input(
 
             // Calculate attack targets
             let all_units: Vec<_> = units.iter()
-                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction || game_ctx.fog.is_visible(p.x, p.y))
-                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type))
+                .filter(|(_, p, _, f, _)| f.faction == turn_state.current_faction
+                        || (game_ctx.fog.is_visible(p.x, p.y) && !game_ctx.battle_config.allied(f.faction, turn_state.current_faction)))
+                        .map(|(e, p, _, f, u)| (e, p.clone(), f.clone(), u.unit_type, u.submerged))
                 .collect();
             let attack_targets = calculate_attack_targets(&unit, &pos, &faction, &all_units, &game_data, &game_ctx.commanders.get_bonuses(turn_state.current_faction, &game_data));
 
@@ -2863,10 +2873,10 @@ mod tests {
         let [enemy, friend, enemy_jet, far_enemy] = [(); 4].map(|_| world.spawn_empty().id());
         let enemy_faction = FactionMember { faction: Faction::Northern };
         let units = vec![
-            (enemy, GridPosition::new(1, 0), enemy_faction.clone(), UnitType::Scout),
-            (friend, GridPosition::new(0, 1), me.clone(), UnitType::Scout),
-            (enemy_jet, GridPosition::new(-1, 0), enemy_faction.clone(), UnitType::Raptor),
-            (far_enemy, GridPosition::new(3, 0), enemy_faction, UnitType::Scout),
+            (enemy, GridPosition::new(1, 0), enemy_faction.clone(), UnitType::Scout, false),
+            (friend, GridPosition::new(0, 1), me.clone(), UnitType::Scout, false),
+            (enemy_jet, GridPosition::new(-1, 0), enemy_faction.clone(), UnitType::Raptor, false),
+            (far_enemy, GridPosition::new(3, 0), enemy_faction, UnitType::Scout, false),
         ];
         let targets = calculate_attack_targets(&scout, &GridPosition::new(0, 0), &me, &units, &data, &crate::game::CoBonuses::none());
         assert_eq!(targets, HashSet::from([enemy]));

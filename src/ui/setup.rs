@@ -1,48 +1,55 @@
-//! Skirmish setup: faction, commander and battlefield selection
+//! Skirmish setup: the armies (2 to 4, each played by a person or the
+//! computer, optionally in two teams), each army's commander, and the
+//! battlefield (built-in maps and maps made in the editor)
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
+use super::icons::Icon;
 use super::input::MenuInput;
 use super::theme::{self, Tone};
-use super::{BattleSetupState, PortraitTextures};
+use super::{ArmySetup, BattleSetupState, PortraitTextures};
 use crate::game::{
-    get_builtin_map, spawn_map_from_data, spawn_units_from_data, BattleConfig, BattleMapId, CommanderData, CommanderId,
-    Commanders, Faction, FactionFunds, GameData, GameMap, MapData, MapId, SpriteAssets, TilesetTheme,
-    TurnPhase, TurnStartEvent, TurnState,
+    get_builtin_map, map_problem, spawn_map_from_data, spawn_units_from_data, Army, BattleConfig, BattleMap, CommanderData,
+    CommanderId, Commanders, CustomMaps, Faction, FactionFunds, GameData, GameMap, MapData, MapId, SpriteAssets,
+    TilesetTheme, TurnPhase, TurnStartEvent, TurnState,
 };
 use crate::states::GameState;
 
-/// Factions offered to the player (Nether is the antagonist, not playable)
-const PLAYABLE: [Faction; 4] = [Faction::Western, Faction::Northern, Faction::Southern, Faction::Eastern];
+/// Factions offered in setup (Nether is the antagonist, not playable)
+pub const PLAYABLE: [Faction; 4] = [Faction::Western, Faction::Northern, Faction::Southern, Faction::Eastern];
 
 /// Which column keyboard/gamepad input is driving
 #[derive(Default, Clone, Copy, PartialEq)]
 pub enum Column {
     #[default]
-    Faction,
+    Armies,
     Commander,
     Map,
 }
 
 impl Column {
-    const ALL: [Column; 3] = [Column::Faction, Column::Commander, Column::Map];
+    const ALL: [Column; 3] = [Column::Armies, Column::Commander, Column::Map];
 
     fn index(self) -> usize {
         Self::ALL.iter().position(|&c| c == self).unwrap()
     }
 }
 
-/// The faction the AI fields against the player's choice
-pub fn opponent_for(player: Faction) -> Faction {
-    match player {
-        Faction::Eastern => Faction::Northern,
-        Faction::Northern => Faction::Eastern,
-        Faction::Western => Faction::Southern,
-        Faction::Southern => Faction::Western,
-        Faction::Nether => Faction::Eastern,
-    }
+/// Rows in the Armies column: one per army, then the battle options
+#[derive(Clone, Copy, PartialEq)]
+enum ArmyRow {
+    Army(usize),
+    Count,
+    Teams,
+}
+
+/// Rows in the Commander column: a faction (random commander) or one commander
+#[derive(Clone, Copy, PartialEq)]
+enum CommanderRow {
+    Random(Faction),
+    Pick(CommanderId),
 }
 
 /// Everything needed to spawn a battle
@@ -60,36 +67,63 @@ pub struct BattleSpawner<'w, 's> {
 }
 
 impl BattleSpawner<'_, '_> {
-    fn start(&mut self, game_data: &GameData, player_faction: Faction, player_co: CommanderId, map_id: MapId) {
-        let ai_faction = opponent_for(player_faction);
-        self.commanders.set_commander(player_faction, player_co);
-
-        let ai_cos = CommanderId::for_faction(ai_faction, game_data);
-        if let Some(&ai_co) = ai_cos.get(rand::random::<usize>() % ai_cos.len().max(1)) {
-            self.commanders.set_commander(ai_faction, ai_co);
-            info!("Battle started! Map: {}, Player ({:?}): {:?}, AI ({:?}): {:?}",
-                map_id.name(), player_faction, player_co, ai_faction, ai_co);
+    /// Start a battle: each army gets its commander (random when none is
+    /// picked) and its slot on the map; armies on the right face left
+    fn start(&mut self, game_data: &GameData, armies: &[ArmySetup], teams: bool, map: &MapData, battle_map: BattleMap) {
+        let factions: Vec<Faction> = armies.iter().map(|a| a.faction).collect();
+        let map_data = map.with_armies(&factions);
+        let mut config = Vec::new();
+        for (i, army) in armies.iter().enumerate() {
+            let co = army.co.unwrap_or_else(|| {
+                let cos = CommanderId::for_faction(army.faction, game_data);
+                cos.get(rand::random::<usize>() % cos.len().max(1)).copied().unwrap_or(CommanderId::Kira)
+            });
+            self.commanders.set_commander(army.faction, co);
+            let facing_left = map_data.hq_of(army.faction).map_or(i % 2 == 1, |(x, _)| x as f32 >= map_data.width as f32 / 2.0);
+            config.push(Army { faction: army.faction, ai: !army.human, team: if teams { (i % 2) as u8 } else { i as u8 },
+                defeated: false, facing_left });
+            info!("Army {}: {:?} led by {:?} ({})", i + 1, army.faction, co, if army.human { "person" } else { "computer" });
         }
+        info!("Battle started on {}", battle_map.name);
 
-        self.commands.insert_resource(BattleConfig::new(player_faction, ai_faction));
-        self.commands.insert_resource(BattleMapId(Some(map_id)));
-        self.commands.insert_resource(TurnState {
-            current_faction: player_faction,
-            turn_number: 1,
-            phase: TurnPhase::Select,
-        });
-        // Everyone starts broke; the first player collects Day 1 income from
+        let first = armies[0].faction;
+        self.commands.insert_resource(BattleConfig::from_armies(config));
+        self.commands.insert_resource(battle_map);
+        self.commands.insert_resource(TurnState { current_faction: first, turn_number: 1, phase: TurnPhase::Select });
+        // Everyone starts broke; the first army collects Day 1 income from
         // the turn start event below
         self.commands.insert_resource(FactionFunds::default());
 
-        let map_data = get_builtin_map(map_id).with_factions(player_faction, ai_faction);
         spawn_map_from_data(&mut self.commands, &mut self.game_map, &mut self.meshes, &mut self.materials,
             &self.sprite_assets, &mut self.images, game_data, &map_data, *self.tileset_theme);
         spawn_units_from_data(&mut self.commands, &self.game_map, &mut self.meshes, &mut self.materials,
             &self.sprite_assets, &self.images, game_data, &map_data);
 
-        self.turn_start_events.write(TurnStartEvent { faction: player_faction });
+        self.turn_start_events.write(TurnStartEvent { faction: first });
     }
+}
+
+/// Give an army a faction; an army that had it takes this army's old one
+fn assign_faction(armies: &mut [ArmySetup], index: usize, faction: Faction) {
+    let old = armies[index].faction;
+    if old == faction {
+        return;
+    }
+    if let Some(other) = armies.iter().position(|a| a.faction == faction) {
+        armies[other].faction = old;
+        armies[other].co = None;
+    }
+    armies[index].faction = faction;
+    armies[index].co = None;
+}
+
+/// "Player 2" for the second person, "Computer" for the AI
+fn controller_name(armies: &[ArmySetup], index: usize) -> String {
+    if !armies[index].human {
+        return "Computer".to_string();
+    }
+    let number = armies[..=index].iter().filter(|a| a.human).count();
+    format!("Player {number}")
 }
 
 pub fn draw_battle_setup(
@@ -101,8 +135,9 @@ pub fn draw_battle_setup(
     input: MenuInput,
     time: Res<Time>,
     portraits: Res<PortraitTextures>,
+    custom_maps: Res<CustomMaps>,
     mut column: Local<Column>,
-    mut maps: Local<Vec<(MapId, MapData)>>,
+    mut maps: Local<(usize, Vec<(MapId, MapData, Option<String>)>)>,
     mut shown: Local<bool>,
 ) {
     if !setup.needs_setup {
@@ -111,57 +146,88 @@ pub fn draw_battle_setup(
     }
     // The keypress that opened this screen must not also confirm it
     let accept_input = std::mem::replace(&mut *shown, true);
-    if maps.is_empty() {
-        *maps = MapId::all_builtin().into_iter().map(|id| (id, get_builtin_map(id))).collect();
+    // Built-in maps, then the player's own (rebuilt when the editor saved more)
+    if maps.1.is_empty() || maps.0 != custom_maps.maps.len() {
+        let builtin = MapId::all_builtin().into_iter().map(|id| (id, get_builtin_map(id), None));
+        let custom = custom_maps.maps.iter().enumerate().map(|(i, (_, map))| (MapId::Custom(i), map.clone(), map_problem(map)));
+        *maps = (custom_maps.maps.len(), builtin.chain(custom).collect());
     }
+    let maps = &maps.1;
+    let map_index = maps.iter().position(|(id, ..)| *id == setup.selected_map).unwrap_or(0);
+    setup.selected_map = maps[map_index].0;
+    let max_armies = maps[map_index].1.army_count().clamp(2, 4);
+    setup.army_count = setup.army_count.clamp(2, max_armies);
+    if setup.army_count < 4 {
+        setup.teams = false;
+    }
+    setup.selected_army = setup.selected_army.min(setup.army_count - 1);
+    let count = setup.army_count;
 
-    let commanders = CommanderId::for_faction(setup.player_faction, &game_data);
-    if setup.player_co.map_or(true, |co| !commanders.contains(&co)) {
-        setup.player_co = commanders.first().copied();
-    }
+    let army_rows: Vec<ArmyRow> = (0..count).map(ArmyRow::Army)
+        .chain((max_armies > 2).then_some(ArmyRow::Count))
+        .chain((count == 4).then_some(ArmyRow::Teams))
+        .collect();
+    let commander_rows: Vec<CommanderRow> = PLAYABLE.iter()
+        .flat_map(|&f| std::iter::once(CommanderRow::Random(f))
+            .chain(CommanderId::for_faction(f, &game_data).into_iter().map(CommanderRow::Pick)))
+        .collect();
+    let selected = setup.selected_army;
+    let current_commander_row = match setup.armies[selected].co {
+        Some(co) => CommanderRow::Pick(co),
+        None => CommanderRow::Random(setup.armies[selected].faction),
+    };
+    let mut army_row = *setup.armies_cursor.get_or_insert(0);
+    army_row = army_row.min(army_rows.len() - 1);
 
     // --- Keyboard / gamepad ---
     let mut start = false;
+    let mut army_action: Option<ArmyRow> = None;
+    let mut pick: Option<CommanderRow> = None;
+    let mut pick_map: Option<MapId> = None;
     if accept_input {
-    let mut col = column.index();
-    if input.step_horizontal(&mut col, Column::ALL.len()) || input.next_section() {
-        if input.next_section() {
-            col = (col + 1) % Column::ALL.len();
-        }
-    }
-    *column = Column::ALL[col];
-    match *column {
-        Column::Faction => {
-            let mut i = PLAYABLE.iter().position(|&f| f == setup.player_faction).unwrap_or(0);
-            if input.step_vertical(&mut i, PLAYABLE.len()) {
-                setup.player_faction = PLAYABLE[i];
-                setup.player_co = None;
+        let mut col = column.index();
+        if input.step_horizontal(&mut col, Column::ALL.len()) || input.next_section() {
+            if input.next_section() {
+                col = (col + 1) % Column::ALL.len();
             }
         }
-        Column::Commander => {
-            let mut i = setup.player_co.and_then(|co| commanders.iter().position(|&c| c == co)).unwrap_or(0);
-            if input.step_vertical(&mut i, commanders.len()) {
-                setup.player_co = Some(commanders[i]);
+        *column = Column::ALL[col];
+        match *column {
+            Column::Armies => {
+                input.step_vertical(&mut army_row, army_rows.len());
+                if let ArmyRow::Army(i) = army_rows[army_row] {
+                    setup.selected_army = i;
+                }
+                // Enter here changes the row (who plays, how many armies, teams)
+                if input.confirm() {
+                    army_action = Some(army_rows[army_row]);
+                }
+            }
+            Column::Commander => {
+                let mut i = commander_rows.iter().position(|&r| r == current_commander_row).unwrap_or(0);
+                if input.step_vertical(&mut i, commander_rows.len()) {
+                    pick = Some(commander_rows[i]);
+                }
+                start = input.confirm();
+            }
+            Column::Map => {
+                let mut i = map_index;
+                if input.step_vertical(&mut i, maps.len()) {
+                    pick_map = Some(maps[i].0);
+                }
+                start = input.confirm();
             }
         }
-        Column::Map => {
-            let mut i = maps.iter().position(|(id, _)| *id == setup.selected_map).unwrap_or(0);
-            if input.step_vertical(&mut i, maps.len()) {
-                setup.selected_map = maps[i].0;
-            }
+        if input.back() {
+            next_state.set(GameState::Menu);
+            return;
         }
-    }
-    start = input.confirm();
-    if input.back() {
-        next_state.set(GameState::Menu);
-        return;
-    }
     }
 
     let mut back_to_title = false;
     let sprites_ready = spawner.sprite_assets.loading_complete;
+    let map_ok = maps[map_index].2.is_none();
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    let opponent = opponent_for(setup.player_faction);
 
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
         let screen = ui.max_rect();
@@ -182,7 +248,7 @@ pub fn draw_battle_setup(
                 ui.label(theme::display("Skirmish", if compact { 34.0 } else { 44.0 }).color(theme::PARCHMENT));
                 // Short screens (phones) keep the title only
                 if !compact {
-                    ui.label(theme::body("Choose your army, your commander and the field of battle", 18.0).color(theme::GOLD_LIGHT));
+                    ui.label(theme::body("Choose the armies, who leads them and the field of battle", 18.0).color(theme::GOLD_LIGHT));
                 }
             });
         });
@@ -193,56 +259,92 @@ pub fn draw_battle_setup(
         ui.scope_builder(egui::UiBuilder::new().max_rect(columns), |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = gap;
-                column_card(ui, col_w, col_h, "Faction", *column == Column::Faction, |ui| {
-                    egui::ScrollArea::vertical().id_salt("setup_factions").auto_shrink([false, false]).show(ui, |ui| {
-                        for faction in PLAYABLE {
-                            let response = faction_row(ui, &game_data, faction, setup.player_faction == faction);
-                            if setup.player_faction == faction && *column == Column::Faction {
+                column_card(ui, col_w, col_h, "Armies", *column == Column::Armies, |ui| {
+                    egui::ScrollArea::vertical().id_salt("setup_armies").auto_shrink([false, false]).show(ui, |ui| {
+                        for (row_index, row) in army_rows.iter().enumerate() {
+                            let focused = *column == Column::Armies && row_index == army_row;
+                            let response = match *row {
+                                ArmyRow::Army(i) => {
+                                    let team = setup.teams.then_some((i % 2) as u8);
+                                    army_card(ui, &game_data, &portraits, &setup.armies, i, team, i == setup.selected_army, focused)
+                                }
+                                ArmyRow::Count => theme::menu_item_icon(ui, Some(Icon::Banner), &format!("Armies: {count}"),
+                                    Some(&format!("This map holds up to {max_armies}")), focused, true, Tone::Normal),
+                                ArmyRow::Teams => theme::menu_item_icon(ui, Some(Icon::Swords),
+                                    if setup.teams { "Teams: 2 vs 2" } else { "Teams: free for all" },
+                                    Some(if setup.teams { "Armies 1 & 3 against 2 & 4" } else { "Every army for itself" }),
+                                    focused, true, Tone::Normal),
+                            };
+                            if focused {
                                 response.scroll_to_me(None);
                             }
                             if response.clicked() {
-                                setup.player_faction = faction;
-                                setup.player_co = None;
-                                *column = Column::Faction;
+                                *column = Column::Armies;
+                                army_row = row_index;
+                                // A tap on an army selects it; tapping it again changes who plays it
+                                match *row {
+                                    ArmyRow::Army(i) if i != setup.selected_army => setup.selected_army = i,
+                                    other => army_action = Some(other),
+                                }
                             }
                         }
                     });
                 });
-                column_card(ui, col_w, col_h, "Commander", *column == Column::Commander, |ui| {
+                column_card(ui, col_w, col_h, &format!("Army {} commander", selected + 1), *column == Column::Commander, |ui| {
                     egui::ScrollArea::vertical().id_salt("setup_commanders").auto_shrink([false, false]).show(ui, |ui| {
-                        for &co_id in &commanders {
-                            let co = game_data.commander(co_id);
-                            let selected = setup.player_co == Some(co_id);
-                            let response = commander_row(ui, &game_data, co, theme::faction_color(&game_data, setup.player_faction),
-                                selected, portraits.get(co_id));
-                            if selected && *column == Column::Commander {
+                        for row in &commander_rows {
+                            let is_current = *row == current_commander_row;
+                            let response = match *row {
+                                CommanderRow::Random(faction) => {
+                                    ui.add_space(4.0);
+                                    let taken = setup.armies[..count].iter().position(|a| a.faction == faction).filter(|&i| i != selected);
+                                    let detail = match taken {
+                                        Some(i) => format!("Random commander · swaps with army {}", i + 1),
+                                        None => "Random commander".to_string(),
+                                    };
+                                    faction_heading(ui, &game_data, faction, &detail, is_current)
+                                }
+                                CommanderRow::Pick(co_id) => {
+                                    let co = game_data.commander(co_id);
+                                    commander_row(ui, &game_data, co, theme::faction_color(&game_data, co.faction),
+                                        is_current, portraits.get(co_id))
+                                }
+                            };
+                            if is_current && *column == Column::Commander {
                                 response.scroll_to_me(None);
                             }
                             if response.clicked() {
-                                setup.player_co = Some(co_id);
+                                pick = Some(*row);
                                 *column = Column::Commander;
                             }
                         }
                     });
                 });
                 column_card(ui, col_w, col_h, "Battlefield", *column == Column::Map, |ui| {
-                    let selected = maps.iter().find(|(id, _)| *id == setup.selected_map).map(|(_, m)| m.clone());
-                    if let Some(map) = &selected {
-                        let preview = map.with_factions(setup.player_faction, opponent);
-                        minimap(ui, &game_data, &preview, egui::vec2(ui.available_width(), if compact { 80.0 } else { 120.0 }));
-                        ui.add_space(2.0);
-                        ui.label(theme::body(&map.description, 14.0).color(theme::INK_SOFT).italics());
-                        ui.add_space(6.0);
-                    }
+                    let (_, map, problem) = &maps[map_index];
+                    let factions: Vec<Faction> = setup.armies[..count].iter().map(|a| a.faction).collect();
+                    minimap(ui, &game_data, &map.with_armies(&factions), egui::vec2(ui.available_width(), if compact { 80.0 } else { 120.0 }));
+                    ui.add_space(2.0);
+                    let note = problem.clone().unwrap_or_else(|| map.description.clone());
+                    ui.label(theme::body(note, 14.0).color(if problem.is_some() { theme::BERRY } else { theme::INK_SOFT }).italics());
+                    ui.add_space(6.0);
                     egui::ScrollArea::vertical().id_salt("setup_maps").auto_shrink([false, false]).show(ui, |ui| {
-                        for (id, map) in maps.iter() {
-                            let detail = format!("{} × {}", map.width, map.height);
-                            let response = theme::menu_item(ui, id.name(), Some(&detail), setup.selected_map == *id, true, Tone::Normal);
+                        for (id, map, problem) in maps.iter() {
+                            let armies = map.army_count();
+                            let mut detail = format!("{} × {}", map.width, map.height);
+                            if armies > 2 {
+                                detail.push_str(&format!(" · up to {armies} armies"));
+                            }
+                            if matches!(id, MapId::Custom(_)) {
+                                detail.push_str(if problem.is_some() { " · can't be played yet" } else { " · your map" });
+                            }
+                            let response = theme::menu_item(ui, &map.name, Some(&detail), setup.selected_map == *id, true,
+                                if problem.is_some() { Tone::Muted } else { Tone::Normal });
                             if setup.selected_map == *id && *column == Column::Map {
                                 response.scroll_to_me(None);
                             }
                             if response.clicked() {
-                                setup.selected_map = *id;
+                                pick_map = Some(*id);
                                 *column = Column::Map;
                             }
                         }
@@ -256,15 +358,18 @@ pub fn draw_battle_setup(
             theme::card().show(ui, |ui| {
                 ui.set_width(footer.width() - 28.0);
                 ui.horizontal(|ui| {
-                    matchup_side(ui, &game_data, setup.player_faction,
-                        setup.player_co.map(|co| game_data.commander_name(co).to_string()).unwrap_or_else(|| "—".into()));
-                    ui.add_space(12.0);
-                    ui.label(theme::display("vs", 26.0).color(theme::INK_SOFT));
-                    ui.add_space(12.0);
-                    matchup_side(ui, &game_data, opponent, "Random commander".into());
+                    for i in 0..count {
+                        if i > 0 {
+                            let word = if setup.teams && i == 2 { "vs" } else if setup.teams { "&" } else { "vs" };
+                            ui.label(theme::display(word, if count > 2 { 18.0 } else { 26.0 }).color(theme::INK_SOFT));
+                        }
+                        // Teams line up as 1 & 3 vs 2 & 4
+                        let shown = if setup.teams { [0, 2, 1, 3][i] } else { i };
+                        matchup_side(ui, &game_data, &portraits, &setup.armies, shown, count > 2);
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let label = if sprites_ready { "Begin Battle" } else { "Loading art…" };
-                        if theme::primary_button(ui, label, setup.player_co.is_some() && sprites_ready, true).clicked() {
+                        let label = if !sprites_ready { "Loading art…" } else if map_ok { "Begin Battle" } else { "Map not ready" };
+                        if theme::primary_button(ui, label, sprites_ready && map_ok, true).clicked() {
                             start = true;
                         }
                     });
@@ -274,7 +379,11 @@ pub fn draw_battle_setup(
             ui.horizontal(|ui| {
                 theme::key_hint(ui, "←→", "Column", true);
                 theme::key_hint(ui, "↑↓", "Choose", true);
-                theme::key_hint(ui, "Enter", "Begin battle", true);
+                if *column == Column::Armies {
+                    theme::key_hint(ui, "Enter", "Change", true);
+                } else {
+                    theme::key_hint(ui, "Enter", "Begin battle", true);
+                }
                 if theme::key_hint_button(ui, "Esc", "Back", true) {
                     back_to_title = true;
                 }
@@ -282,26 +391,118 @@ pub fn draw_battle_setup(
         });
     });
 
+    setup.armies_cursor = Some(army_row);
+    match army_action {
+        Some(ArmyRow::Army(i)) => {
+            setup.selected_army = i;
+            // Who plays it: a person or the computer (the first army can be either too)
+            setup.armies[i].human = !setup.armies[i].human;
+        }
+        Some(ArmyRow::Count) => {
+            setup.army_count = if setup.army_count >= max_armies { 2 } else { setup.army_count + 1 };
+        }
+        Some(ArmyRow::Teams) => setup.teams = !setup.teams,
+        None => {}
+    }
+    if let Some(row) = pick {
+        let i = setup.selected_army;
+        match row {
+            CommanderRow::Random(faction) => {
+                assign_faction(&mut setup.armies, i, faction);
+                setup.armies[i].co = None;
+            }
+            CommanderRow::Pick(co) => {
+                assign_faction(&mut setup.armies, i, game_data.commander(co).faction);
+                setup.armies[i].co = Some(co);
+            }
+        }
+    }
+    if let Some(id) = pick_map {
+        setup.selected_map = id;
+    }
+
     if back_to_title {
         next_state.set(GameState::Menu);
         return;
     }
 
     // Wait for sprites so every unit and tile spawns with its art
-    if start && sprites_ready {
-        if let Some(co) = setup.player_co {
-            spawner.start(&game_data, setup.player_faction, co, setup.selected_map);
-            setup.needs_setup = false;
+    if start && sprites_ready && map_ok {
+        let (id, map, _) = &maps[map_index];
+        let battle_map = match id {
+            MapId::Custom(_) => BattleMap { id: None, name: map.name.clone() },
+            builtin => BattleMap { id: Some(*builtin), name: builtin.name().to_string() },
+        };
+        let armies = setup.armies[..count].to_vec();
+        spawner.start(&game_data, &armies, setup.teams, map, battle_map);
+        setup.needs_setup = false;
+    }
+}
+
+/// One army in the Armies column: its banner, commander and who plays it
+fn army_card(ui: &mut egui::Ui, game_data: &GameData, portraits: &PortraitTextures, armies: &[ArmySetup], index: usize,
+             team: Option<u8>, selected: bool, focused: bool) -> egui::Response {
+    let army = armies[index];
+    let color = theme::faction_color(game_data, army.faction);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 70.0), egui::Sense::click());
+    let painter = ui.painter().with_clip_rect(rect.shrink(1.0));
+    let fill = if focused { theme::GOLD_LIGHT } else if selected || response.hovered() { theme::PARCHMENT_DEEP } else { egui::Color32::TRANSPARENT };
+    painter.rect(rect, 8, fill, theme::stroke(if selected { 2.0 } else { 0.0 }, theme::WOOD), egui::StrokeKind::Inside);
+    // Portrait (or banner when the commander is random)
+    let face = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), egui::vec2(54.0, 54.0));
+    painter.rect_filled(face, 4, theme::shade(color, 0.5));
+    match army.co.and_then(|co| portraits.get(co)) {
+        Some(texture) => {
+            egui::Image::new((texture, face.size())).corner_radius(4).paint_at(ui, face.shrink(2.0));
+        }
+        None => {
+            painter.text(face.center(), egui::Align2::CENTER_CENTER, "?", egui::FontId::new(30.0, theme::title_family()), theme::PARCHMENT);
         }
     }
+    let painter = ui.painter().with_clip_rect(rect.shrink(1.0));
+    painter.rect_stroke(face, 4, theme::stroke(2.0, color), egui::StrokeKind::Inside);
+    let x = face.right() + 10.0;
+    painter.text(egui::pos2(x, rect.top() + 17.0), egui::Align2::LEFT_CENTER,
+        format!("{} · {}", index + 1, game_data.faction_name(army.faction)), egui::FontId::new(17.0, theme::bold_family()), theme::shade(color, 0.7));
+    let co = army.co.map_or("Random commander".to_string(), |co| game_data.commander_name(co).to_string());
+    painter.text(egui::pos2(x, rect.top() + 37.0), egui::Align2::LEFT_CENTER, co, egui::FontId::proportional(14.0), theme::INK);
+    // Who plays it, and the team
+    let who = controller_name(armies, index);
+    let chip_color = if army.human { theme::LEAF } else { theme::INK_SOFT };
+    let mut label = who;
+    if let Some(team) = team {
+        label.push_str(if team == 0 { " · Team A" } else { " · Team B" });
+    }
+    painter.text(egui::pos2(x, rect.top() + 56.0), egui::Align2::LEFT_CENTER, label,
+        egui::FontId::new(13.0, theme::bold_family()), chip_color);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// A faction's heading in the Commander column (picks it with a random commander)
+fn faction_heading(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, detail: &str, selected: bool) -> egui::Response {
+    let color = theme::faction_color(game_data, faction);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 46.0), egui::Sense::click());
+    let painter = ui.painter();
+    let fill = if selected { theme::GOLD_LIGHT } else if response.hovered() { theme::PARCHMENT_DEEP } else { egui::Color32::TRANSPARENT };
+    painter.rect(rect, 6, fill, theme::stroke(if selected { 2.0 } else { 0.0 }, theme::WOOD), egui::StrokeKind::Inside);
+    let banner = egui::Rect::from_min_size(rect.min + egui::vec2(10.0, 7.0), egui::vec2(16.0, rect.height() - 14.0));
+    painter.add(egui::Shape::convex_polygon(
+        vec![banner.left_top(), banner.right_top(), banner.right_bottom(),
+             egui::pos2(banner.center().x, banner.bottom() - 6.0), banner.left_bottom()],
+        color, theme::stroke(1.0, theme::shade(color, 0.6)),
+    ));
+    painter.text(egui::pos2(banner.right() + 10.0, rect.top() + 15.0), egui::Align2::LEFT_CENTER, game_data.faction_name(faction),
+        egui::FontId::new(18.0, theme::display_family()), theme::shade(color, 0.7));
+    painter.text(egui::pos2(banner.right() + 10.0, rect.top() + 33.0), egui::Align2::LEFT_CENTER, detail,
+        egui::FontId::proportional(13.0), theme::INK_SOFT);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A titled card for one setup column; gold border when it has input focus
 fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused: bool, add: impl FnOnce(&mut egui::Ui)) {
-    use super::icons::Icon;
     let icon = match title {
-        "Faction" => Some(Icon::Banner),
-        "Commander" => Some(Icon::Crown),
+        "Armies" => Some(Icon::Banner),
+        t if t.ends_with("commander") => Some(Icon::Crown),
         "Battlefield" => Some(Icon::Flag),
         _ => None,
     };
@@ -316,34 +517,6 @@ fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused:
             add(ui);
         });
     });
-}
-
-fn faction_row(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, selected: bool) -> egui::Response {
-    let data = game_data.faction(faction);
-    let color = theme::faction_color(game_data, faction);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 74.0), egui::Sense::click());
-    let painter = ui.painter().with_clip_rect(rect.shrink(2.0));
-    let hot = selected || response.hovered();
-    painter.rect(rect, 8, if hot { theme::GOLD_LIGHT } else { theme::PARCHMENT_DEEP },
-        theme::stroke(if selected { 2.0 } else { 0.0 }, theme::WOOD), egui::StrokeKind::Inside);
-    // Faction banner swatch
-    let banner = egui::Rect::from_min_size(rect.min + egui::vec2(10.0, 10.0), egui::vec2(18.0, rect.height() - 20.0));
-    painter.add(egui::Shape::convex_polygon(
-        vec![banner.left_top(), banner.right_top(), banner.right_bottom(),
-             egui::pos2(banner.center().x, banner.bottom() - 7.0), banner.left_bottom()],
-        color, theme::stroke(1.0, theme::shade(color, 0.6)),
-    ));
-    let x = banner.right() + 12.0;
-    painter.text(egui::pos2(x, rect.top() + 18.0), egui::Align2::LEFT_CENTER, &data.name,
-        egui::FontId::new(19.0, theme::display_family()), theme::INK);
-    // One line, cut with an ellipsis when the column is narrow
-    let mut job = egui::text::LayoutJob::simple_singleline(data.description.clone(), egui::FontId::proportional(14.0), theme::INK_SOFT);
-    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.right() - x - 8.0);
-    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-    painter.galley(egui::pos2(x, rect.top() + 38.0 - galley.size().y / 2.0), galley, theme::INK_SOFT);
-    painter.text(egui::pos2(x, rect.top() + 57.0), egui::Align2::LEFT_CENTER, data.animals.join(" · "),
-        egui::FontId::new(13.0, theme::bold_family()), theme::shade(color, 0.7));
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn commander_row(ui: &mut egui::Ui, game_data: &GameData, co: &CommanderData, color: egui::Color32, selected: bool, image: Option<egui::TextureId>) -> egui::Response {
@@ -464,12 +637,20 @@ pub fn passive_bonuses(co: &CommanderData, game_data: &GameData) -> Vec<(String,
     out
 }
 
-fn matchup_side(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, commander: String) {
-    let color = theme::faction_color(game_data, faction);
-    theme::portrait(ui, 44.0, color, game_data.faction_name(faction), None);
+fn matchup_side(ui: &mut egui::Ui, game_data: &GameData, portraits: &PortraitTextures, armies: &[ArmySetup], index: usize, small: bool) {
+    let army = armies[index];
+    let color = theme::faction_color(game_data, army.faction);
+    let image = army.co.and_then(|co| portraits.get(co));
+    theme::portrait(ui, if small { 36.0 } else { 44.0 }, color, game_data.faction_name(army.faction), image);
     ui.vertical(|ui| {
-        ui.label(theme::display(game_data.faction_name(faction), 20.0));
-        ui.label(theme::body(commander, 15.0).color(theme::INK_SOFT));
+        let name = if small { army.co.map_or("Random", |co| game_data.commander_name(co)).to_string() } else { game_data.faction_name(army.faction).to_string() };
+        ui.label(theme::display(name, if small { 16.0 } else { 20.0 }));
+        let detail = if small {
+            controller_name(armies, index)
+        } else {
+            format!("{} · {}", army.co.map_or("Random commander", |co| game_data.commander_name(co)), controller_name(armies, index))
+        };
+        ui.label(theme::body(detail, if small { 12.0 } else { 15.0 }).color(theme::INK_SOFT));
     });
 }
 

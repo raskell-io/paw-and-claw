@@ -29,7 +29,7 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 
 ### Data Files (assets/data/)
 - `factions.ron` - 5 factions: names, colors, animals, sprite folders. Factions are cosmetic; every gameplay effect comes from commanders
-- `units.ron` - 20 unit types with full stats
+- `units.ron` - 20 unit types with full stats (`dive_stamina`/`hits_divers` for diving)
 - `terrain.ron` - 17 terrain types with properties (`builds` and `resupplies` list the unit classes a property makes and serves)
 - `commanders.ron` - 28 commanders copying the Advance Wars 2 / Dual Strike COs (abilities, CO Power, Super CO Power)
 - `damage_tables.ron` - attacker vs defender base damage (missing entry = can't attack)
@@ -75,6 +75,12 @@ See `modding.md` for detailed documentation.
 - Loading sets `PendingLoad`; `apply_pending_load` (Battle state) rebuilds the board with the normal
   spawn code and restores the state, then the turn resumes with its Day banner
 - UI: `ui/saves.rs` (slot screen, toasts, F5/F9), Continue on the title screen, map menu Options
+
+### Battles and maps
+- Skirmish: 2-4 armies, each played by a person (hot seat) or the computer, free-for-all or
+  2 vs 2 (armies 1 & 3 vs 2 & 4). See the Armies notes in `.claude/rules/game.md`
+- The map editor saves maps with the saves (`saves/map_<name>.json`, localStorage on the web);
+  `CustomMaps` lists them and setup offers them once every army has an HQ (`map_problem`)
 
 ### Sprites
 - `assets/sprites/manifest.json` is the source of truth for all generated sprites

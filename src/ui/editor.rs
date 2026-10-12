@@ -5,12 +5,14 @@ use bevy_egui::{egui, EguiContexts};
 
 use super::theme::{self, Tone};
 use super::{EditorMode, EditorState};
-use crate::game::{Faction, GameData, MapData, PropertyOwnership, Terrain, UnitPlacement, UnitType};
+use crate::game::{map_problem, CustomMaps, Faction, GameData, MapData, PropertyOwnership, Terrain, UnitPlacement, UnitType, ARMY_SLOTS};
 use crate::states::GameState;
 
-/// Maps are authored for two army slots; battles assign real factions to them
-/// (see `MapData::with_factions`)
-const ARMIES: [(Faction, &str); 2] = [(Faction::Eastern, "First army"), (Faction::Northern, "Second army")];
+/// Maps are authored for up to four army slots; battles assign real factions
+/// to them (see `MapData::with_armies`)
+const ARMIES: [(Faction, &str); 4] = [
+    (ARMY_SLOTS[0], "Army 1"), (ARMY_SLOTS[1], "Army 2"), (ARMY_SLOTS[2], "Army 3"), (ARMY_SLOTS[3], "Army 4"),
+];
 
 const PALETTE: [Terrain; 17] = [
     Terrain::Grass, Terrain::TallGrass, Terrain::Thicket, Terrain::Brambles, Terrain::Log,
@@ -31,6 +33,7 @@ pub fn draw_editor(
     mut editor: ResMut<EditorState>,
     mut next_state: ResMut<NextState<GameState>>,
     game_data: Res<GameData>,
+    mut custom_maps: ResMut<CustomMaps>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
 
@@ -41,7 +44,7 @@ pub fn draw_editor(
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 10)).show(ui, |ui| {
-                    tools_panel(ui, &mut editor, &mut next_state, &game_data)
+                    tools_panel(ui, &mut editor, &mut next_state, &game_data, &mut custom_maps)
                 });
             });
         });
@@ -50,7 +53,8 @@ pub fn draw_editor(
         .show(ctx, |ui| canvas(ui, &mut editor, &game_data));
 }
 
-fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut NextState<GameState>, game_data: &GameData) {
+fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut NextState<GameState>, game_data: &GameData,
+               custom_maps: &mut CustomMaps) {
     ui.label(theme::display("Map Editor", 28.0).color(theme::WOOD_DARK));
     ui.add_space(6.0);
 
@@ -110,9 +114,13 @@ fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut Nex
     ui.add_space(8.0);
 
     theme::heading(ui, "Overview");
-    for (faction, label) in ARMIES {
+    for (i, (faction, label)) in ARMIES.into_iter().enumerate() {
         let units = editor.map.units.iter().filter(|u| u.faction == faction).count();
         let props = editor.map.properties.iter().filter(|p| p.owner == faction).count();
+        // Armies 3 and 4 are optional
+        if i >= 2 && units == 0 && props == 0 {
+            continue;
+        }
         let has_base = editor.map.properties.iter()
             .any(|p| p.owner == faction && editor.map.get_terrain(p.x, p.y) == Some(Terrain::Base));
         ui.horizontal(|ui| {
@@ -127,25 +135,61 @@ fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut Nex
     }
     ui.add_space(8.0);
 
-    theme::heading(ui, "File");
-    ui.horizontal(|ui| {
-        ui.text_edit_singleline(&mut editor.map_name);
-        ui.label(theme::body(".json", 14.0).color(theme::INK_SOFT));
-    });
+    theme::heading(ui, "Your maps");
     ui.horizontal(|ui| {
         if ui.button("Save map").clicked() {
-            let path = std::path::Path::new(&editor.map_name).with_extension("json");
-            editor.status = match editor.map.save_to_file(&path) {
-                Ok(()) => format!("Saved to {}", path.display()),
-                Err(e) => format!("Save failed: {e}"),
+            editor.status = if editor.map.name.trim().is_empty() {
+                "Give the map a name first".into()
+            } else {
+                match custom_maps.save(&editor.map) {
+                    Ok(()) => match map_problem(&editor.map) {
+                        None => format!("Saved \"{}\": pick it in Skirmish", editor.map.name.trim()),
+                        Some(problem) => format!("Saved, but it can't be played yet: {problem}"),
+                    },
+                    Err(e) => format!("Save failed: {e}"),
+                }
             };
         }
-        if ui.button("Clear").clicked() {
-            let (name, w, h) = (editor.map.name.clone(), editor.map.width, editor.map.height);
-            editor.map = MapData::new(&name, w, h);
-            editor.status = "Map cleared".into();
+        if ui.button("New map").clicked() {
+            let (w, h) = (editor.map.width, editor.map.height);
+            editor.map = MapData::new("New Map", w, h);
+            editor.status = "Started a new map".into();
         }
     });
+    if custom_maps.maps.is_empty() {
+        ui.label(theme::body("Maps you save show up here and in Skirmish.", 13.0).color(theme::INK_SOFT));
+    }
+    let mut load = None;
+    let mut delete = None;
+    for (key, map) in &custom_maps.maps {
+        ui.horizontal(|ui| {
+            ui.label(theme::bold(&map.name, 15.0));
+            ui.label(theme::body(format!("{}×{}", map.width, map.height), 13.0).color(theme::INK_SOFT));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let confirming = editor.confirm_delete.as_deref() == Some(key.as_str());
+                if ui.button(if confirming { "Sure?" } else { "Delete" }).clicked() {
+                    delete = Some((key.clone(), confirming));
+                }
+                if ui.button("Edit").clicked() {
+                    load = Some(map.clone());
+                }
+            });
+        });
+    }
+    if let Some(map) = load {
+        editor.status = format!("Editing \"{}\"", map.name);
+        editor.map = map;
+        editor.confirm_delete = None;
+    }
+    match delete {
+        Some((key, true)) => {
+            custom_maps.delete(&key);
+            editor.confirm_delete = None;
+            editor.status = "Map deleted".into();
+        }
+        Some((key, false)) => editor.confirm_delete = Some(key),
+        None => {}
+    }
     if !editor.status.is_empty() {
         ui.label(theme::body(&editor.status, 14.0).color(theme::WOOD));
     }

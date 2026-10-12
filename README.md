@@ -86,7 +86,7 @@ Animal kingdoms from across the world clash in strategic warfare. Each faction b
 
 ## Game Modes
 
-- **Skirmish** - 1v1 or 2v2 battles on custom maps
+- **Skirmish** - 2 to 4 armies, free-for-all or 2 vs 2, against the computer or friends on one device
 - **Roguelike** - Procedural campaign with persistent progression
 - **Campaign** - Story-driven missions (planned)
 - **Map Editor** - Create and share custom battlefields

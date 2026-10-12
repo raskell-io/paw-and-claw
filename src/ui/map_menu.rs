@@ -97,15 +97,21 @@ pub struct MenuInfo<'w, 's> {
     portraits: Res<'w, PortraitTextures>,
     units: Query<'w, 's, (&'static Unit, &'static FactionMember, &'static GridPosition)>,
     tiles: Query<'w, 's, &'static Tile>,
+    battle_map: Res<'w, crate::game::BattleMap>,
 }
 
 impl MenuInfo<'_, '_> {
+    /// The army the menu speaks for: the person playing (or playing next)
     fn player(&self) -> Faction {
-        self.battle_config.player_faction
+        self.battle_config.viewer(self.turn_state.current_faction)
     }
 
-    fn enemy(&self) -> Faction {
-        self.battle_config.next_faction(self.player())
+    /// Every army, this one first, then the rest in turn order
+    fn armies(&self) -> Vec<Faction> {
+        let player = self.player();
+        std::iter::once(player)
+            .chain(self.battle_config.armies.iter().map(|a| a.faction).filter(|&f| f != player))
+            .collect()
     }
 
     fn players_turn(&self) -> bool {
@@ -179,8 +185,8 @@ pub fn draw_map_menu(
     nav.stepped = false;
     if accept_input {
         if nav.page == Page::Commanders {
-            // Left/right flips between the two commanders
-            nav.stepped = input.step_horizontal(&mut nav.selected, 2);
+            // Left/right flips through the commanders
+            nav.stepped = input.step_horizontal(&mut nav.selected, info.armies().len());
         } else if count > 0 {
             nav.stepped = input.step_vertical(&mut nav.selected, count);
             // Left/right turn the volume rows down and up
@@ -200,7 +206,7 @@ pub fn draw_map_menu(
         }
         back = input.back();
     }
-    nav.selected = nav.selected.min(count.max(if nav.page == Page::Commanders { 2 } else { 1 }) - 1);
+    nav.selected = nav.selected.min(count.max(if nav.page == Page::Commanders { info.armies().len() } else { 1 }) - 1);
 
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let mut hint: Option<&'static str> = None;
@@ -214,7 +220,7 @@ pub fn draw_map_menu(
                     ui.set_width(300.0);
                     ui.vertical_centered(|ui| {
                         ui.label(theme::display(format!("Day {}", info.turn_state.turn_number), 28.0).color(theme::WOOD_DARK));
-                        ui.label(theme::body(format!("{} · {} {}", info.setup.selected_map.name(),
+                        ui.label(theme::body(format!("{} · {} {}", info.battle_map.name,
                             info.weather.current.icon(), info.weather.current.name()), 14.0).color(theme::INK_SOFT));
                     });
                     ui.add_space(4.0);
@@ -284,7 +290,7 @@ pub fn draw_map_menu(
                     hint = hint.or(hints(ui, &[("↑↓", "Choose"), ("Enter", "Go to unit"), ("Esc", "Back")]));
                 }
                 Page::Intel => {
-                    ui.set_width(460.0);
+                    ui.set_width((200.0 + 130.0 * info.armies().len() as f32).max(460.0));
                     heading(ui, "Intel", &format!("Day {} · {} {}", info.turn_state.turn_number,
                         info.weather.current.icon(), info.weather.current.name()));
                     intel(ui, &info, &actions.commanders);
@@ -292,7 +298,7 @@ pub fn draw_map_menu(
                 }
                 Page::Commanders => {
                     ui.set_width(460.0);
-                    let army = if nav.selected == 0 { player } else { info.enemy() };
+                    let army = info.armies().get(nav.selected).copied().unwrap_or(player);
                     commander_page(ui, &info, &actions.commanders, army);
                     hint = hint.or(hints(ui, &[("←→", "Other commander"), ("Esc", "Back")]));
                 }
@@ -339,7 +345,7 @@ pub fn draw_map_menu(
     match hint {
         Some("Esc") => back = true,
         Some("Enter") if count > 0 => confirmed = Some(nav.selected),
-        Some("←→") => nav.selected = (nav.selected + 1) % 2,
+        Some("←→") => nav.selected = (nav.selected + 1) % info.armies().len().max(1),
         _ => {}
     }
     if back {
@@ -451,7 +457,7 @@ fn hints(ui: &mut egui::Ui, keys: &[(&'static str, &str)]) -> Option<&'static st
 /// Side by side numbers for both armies, like AW's Intel screen
 fn intel(ui: &mut egui::Ui, info: &MenuInfo, commanders: &Commanders) {
     let game_data = &*info.game_data;
-    let armies = [info.player(), info.enemy()];
+    let armies = info.armies();
     let stats = |army: Faction| {
         let units: Vec<&Unit> = info.units.iter().filter(|(_, f, _)| f.faction == army).map(|(u, _, _)| u).collect();
         let value: u32 = units.iter()
@@ -467,7 +473,7 @@ fn intel(ui: &mut egui::Ui, info: &MenuInfo, commanders: &Commanders) {
     let columns: Vec<_> = armies.iter().map(|&a| (a, stats(a))).collect();
     theme::well().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        egui::Grid::new("intel").num_columns(3).spacing([28.0, 6.0]).show(ui, |ui| {
+        egui::Grid::new("intel").num_columns(armies.len() + 1).spacing([28.0, 6.0]).show(ui, |ui| {
             ui.label("");
             for (army, _) in &columns {
                 ui.label(theme::bold(game_data.faction_name(*army), 16.0)
@@ -505,7 +511,7 @@ fn commander_page(ui: &mut egui::Ui, info: &MenuInfo, commanders: &Commanders, a
     let co = game_data.commander(co_id);
     let color = theme::faction_color(game_data, army);
     ui.horizontal(|ui| {
-        theme::portrait_facing(ui, 84.0, color, &co.name, info.portraits.get(co_id), army != info.player());
+        theme::portrait_facing(ui, 84.0, color, &co.name, info.portraits.get(co_id), info.battle_config.facing_left(army));
         ui.vertical(|ui| {
             ui.label(theme::display(&co.name, 28.0).color(theme::WOOD_DARK));
             ui.label(theme::bold(game_data.faction_name(army), 15.0).color(theme::shade(color, 0.75)));

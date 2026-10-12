@@ -29,6 +29,7 @@ pub struct HudContext<'w> {
     pub battle_config: Res<'w, BattleConfig>,
     pub fog: Res<'w, FogOfWar>,
     pub time: Res<'w, Time>,
+    pub turn: Res<'w, TurnState>,
 }
 
 impl HudContext<'_> {
@@ -39,6 +40,11 @@ impl HudContext<'_> {
 
     pub fn is_ai_turn(&self, turn_state: &TurnState) -> bool {
         self.ai_state.enabled && self.battle_config.is_ai_faction(turn_state.current_faction)
+    }
+
+    /// Whose eyes the board is seen through right now (see `BattleConfig::viewer`)
+    pub fn viewer(&self) -> crate::game::Faction {
+        self.battle_config.viewer(self.turn.current_faction)
     }
 
     /// Whether the player can currently see a tile
@@ -67,12 +73,12 @@ pub fn draw_hud(
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let game_data = &hud.game_data;
     let is_ai_turn = hud.is_ai_turn(&turn_state);
-    let player = hud.battle_config.player_faction;
-
     // --- Army panel: Advance Wars' corner box for the army whose turn it is ---
     // Commander, star meter, funds, day and weather. It sits in the top corner
     // away from the cursor, flipping when the cursor crosses into its half.
     let current = turn_state.current_faction;
+    // Powers belong to the army whose turn it is, when a person plays it
+    let player = current;
     if let Some(fraction) = cursor_screen_fraction(&cursor, &map, &cameras) {
         if *panel_left && fraction < 0.4 {
             *panel_left = false;
@@ -118,7 +124,7 @@ pub fn draw_hud(
                     let corners = egui::CornerRadius { nw: 7, sw: 7, ne: 0, se: 0 };
                     match portraits.get(co_id) {
                         Some(texture) => {
-                            egui::Image::new((texture, rect.size())).uv(theme::portrait_uv(current != player))
+                            egui::Image::new((texture, rect.size())).uv(theme::portrait_uv(hud.battle_config.facing_left(current)))
                                 .corner_radius(corners).paint_at(ui, rect);
                         }
                         None => {
@@ -233,9 +239,9 @@ pub fn draw_inspect_card(
         return;
     }
 
-    let player = hud.battle_config.player_faction;
+    let viewer = hud.viewer();
     let unit = units.iter()
-        .find(|(_, _, f, p)| p.x == pos.x && p.y == pos.y && (f.faction == player || hud.visible_to_player(pos.x, pos.y)))
+        .find(|(_, _, f, p)| p.x == pos.x && p.y == pos.y && (hud.battle_config.allied(f.faction, viewer) || hud.visible_to_player(pos.x, pos.y)))
         .map(|(_, u, f, _)| (u, f.faction));
     let owner = tiles.iter().find(|t| t.position == pos).and_then(|t| t.owner);
     let game_data = &hud.game_data;
@@ -287,12 +293,17 @@ fn unit_panel(ui: &mut egui::Ui, hud: &HudContext, commanders: &Commanders, unit
     }
 
     ui.vertical(|ui| {
-        ui.label(theme::bold(game_data.unit_name(unit.unit_type), 16.0).color(theme::shade(color, 0.65)))
-            .on_hover_text(game_data.faction_name(faction));
+        ui.horizontal(|ui| {
+            ui.label(theme::bold(game_data.unit_name(unit.unit_type), 16.0).color(theme::shade(color, 0.65)))
+                .on_hover_text(game_data.faction_name(faction));
+            if unit.submerged {
+                ui.label(theme::body("submerged", 13.0).color(theme::SKY));
+            }
+        });
         ui.horizontal(|ui| {
             let hp = display_hp(unit.hp);
             // AW Sonja: the enemy can't read her units' HP
-            let hidden = faction != hud.battle_config.player_faction && bonuses.mods.hidden_hp;
+            let hidden = !hud.battle_config.allied(faction, hud.viewer()) && bonuses.mods.hidden_hp;
             let hp_color = if hidden { theme::INK_SOFT } else { level_color(hp as u32, 10) };
             figure(ui, Icon::Heart, if hidden { "?".into() } else { hp.to_string() }, hp_color, "HP");
             if stats.max_stamina > 0 {
@@ -383,7 +394,7 @@ pub fn draw_unit_tokens(
     }
     let Ok((camera, camera_transform)) = camera.single() else { return };
     let Ok(ctx) = contexts.ctx_mut() else { return };
-    let player = hud.battle_config.player_faction;
+    let viewer = hud.viewer();
     let game_data = &hud.game_data;
 
     egui::Area::new(egui::Id::new("unit_tokens"))
@@ -400,7 +411,7 @@ pub fn draw_unit_tokens(
             let right = camera_transform.right().as_vec3();
             let up = camera_transform.up().as_vec3();
             for (entity, unit, transform, faction, pos, has_sprite) in units.iter() {
-                if faction.faction != player && !hud.visible_to_player(pos.x, pos.y) {
+                if !hud.battle_config.allied(faction.faction, viewer) && !hud.visible_to_player(pos.x, pos.y) {
                     continue;
                 }
                 let Ok(screen) = camera.world_to_viewport(camera_transform, transform.translation()) else { continue };
@@ -427,7 +438,7 @@ pub fn draw_unit_tokens(
                 // HP 1-9 bottom right, like Advance Wars; full health shows nothing.
                 // AW Sonja's units show the enemy a "?" instead
                 let hp = display_hp(unit.hp);
-                let hidden = faction.faction != player
+                let hidden = !hud.battle_config.allied(faction.faction, viewer)
                     && commanders.get_bonuses(faction.faction, &hud.game_data).mods.hidden_hp;
                 if (1..10).contains(&hp) {
                     let glyph = if hidden { &ICON_HIDDEN } else { &DIGITS[hp as usize] };
@@ -737,9 +748,11 @@ pub fn draw_turn_banner(
     battle_config: Res<BattleConfig>,
     setup: Res<BattleSetupState>,
     portraits: Res<PortraitTextures>,
+    battle_map: Res<crate::game::BattleMap>,
+    hand_over: Res<crate::game::HandOver>,
 ) {
     let Some(faction) = banner.faction else { return };
-    if !banner.playing() || setup.needs_setup {
+    if !banner.playing() || setup.needs_setup || hand_over.faction.is_some() {
         return;
     }
     let Ok(ctx) = contexts.ctx_mut() else { return };
@@ -759,41 +772,48 @@ pub fn draw_turn_banner(
                 let fade_out = 1.0 - ease((t - (MATCH_INTRO_SECS - 0.4)) / 0.4);
                 let alpha = (ease(t / 0.3) * fade_out).clamp(0.0, 1.0);
                 painter.rect_filled(screen, 0, egui::Color32::from_black_alpha((alpha * 200.0) as u8));
-                let title = setup.selected_map.name();
+                let title = battle_map.name.as_str();
                 shadowed(painter, egui::pos2(screen.center().x, screen.top() + screen.height() * 0.11), egui::Align2::CENTER_CENTER,
                     title, egui::FontId::new(56.0, theme::title_family()), theme::PARCHMENT.gamma_multiply(alpha));
 
-                let sides = [
-                    (battle_config.player_faction, -1.0_f32),
-                    (battle_config.next_faction(battle_config.player_faction), 1.0),
-                ];
-                for (i, (army, side)) in sides.into_iter().enumerate() {
+                // Every army's commander, in turn order across the screen; the
+                // ones on the right face left, like their units
+                let armies: Vec<_> = battle_config.armies.iter().map(|a| a.faction).collect();
+                let count = armies.len().max(1) as f32;
+                // The portraits are the stars: as large as the screen allows
+                let size = (screen.height() * 0.42).min(screen.width() * if count > 2.0 { 0.8 / count - 0.03 } else { 0.25 });
+                let gap = if count > 2.0 { size + 70.0 } else { size + 140.0 };
+                for (i, army) in armies.iter().copied().enumerate() {
                     let enter = ease((t - 0.3 - i as f32 * 0.2) / 0.45);
                     // Fade last: shading an already faded colour makes it opaque and dark
                     let color = theme::faction_color(&game_data, army);
                     let co_id = commanders.get_active(army);
                     let co = game_data.commander(co_id);
-                    // The portraits are the stars: as large as the screen allows
-                    let size = (screen.height() * 0.42).min(screen.width() * 0.25);
+                    let offset = (i as f32 - (count - 1.0) / 2.0) * gap;
+                    let side = if offset < 0.0 { -1.0_f32 } else { 1.0 };
                     let center = egui::pos2(
-                        screen.center().x + side * (size / 2.0 + 70.0 + (1.0 - enter) * screen.width() * 0.6),
+                        screen.center().x + offset + side * (1.0 - enter) * screen.width() * 0.6,
                         screen.top() + screen.height() * 0.56,
                     );
                     let card = egui::Rect::from_center_size(center, egui::vec2(size + 40.0, size + 120.0));
                     painter.rect_filled(card, 10, theme::shade(color, 0.8).gamma_multiply(alpha));
                     painter.rect_stroke(card, 10, theme::stroke(4.0, theme::shade(color, 0.45).gamma_multiply(alpha)), egui::StrokeKind::Inside);
                     let portrait = egui::Rect::from_min_size(egui::pos2(card.left() + 20.0, card.top() + 20.0), egui::vec2(size, size));
-                    portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), alpha, side > 0.0);
+                    portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), alpha, battle_config.facing_left(army));
                     shadowed(painter, egui::pos2(card.center().x, portrait.bottom() + 36.0), egui::Align2::CENTER_CENTER,
                         &co.name, egui::FontId::new(34.0, theme::title_family()), theme::PARCHMENT.gamma_multiply(alpha));
                     painter.text(egui::pos2(card.center().x, portrait.bottom() + 74.0), egui::Align2::CENTER_CENTER,
                         game_data.faction_name(army), egui::FontId::new(17.0, theme::bold_family()),
                         theme::shade(theme::PARCHMENT, 0.85).gamma_multiply(alpha));
                 }
+                // "VS" between each pair of neighbours
                 let vs = ease((t - 0.8) / 0.3);
                 if vs > 0.0 {
-                    shadowed(painter, egui::pos2(screen.center().x, screen.top() + screen.height() * 0.56), egui::Align2::CENTER_CENTER, "VS",
-                        egui::FontId::new(40.0 + 30.0 * (1.0 - vs), theme::title_family()), theme::GOLD_LIGHT.gamma_multiply(vs * alpha));
+                    for k in 1..armies.len() {
+                        let x = screen.center().x + (k as f32 - count / 2.0) * gap;
+                        shadowed(painter, egui::pos2(x, screen.top() + screen.height() * 0.56), egui::Align2::CENTER_CENTER, "VS",
+                            egui::FontId::new(40.0 + 30.0 * (1.0 - vs), theme::title_family()), theme::GOLD_LIGHT.gamma_multiply(vs * alpha));
+                    }
                 }
                 return;
             }
@@ -821,7 +841,7 @@ pub fn draw_turn_banner(
             // A big portrait breaking out of the band above and below, as in Advance Wars
             // The first army's commander on the left facing right, the second's on
             // the right facing left, like their units
-            let second = faction != battle_config.player_faction;
+            let second = battle_config.facing_left(faction);
             let side = if second { 1.0 } else { -1.0 };
             let size = (band.height() * 1.6).min(screen.height() * 0.4);
             let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x + side * (150.0 + size / 2.0) + slide, band.center().y), egui::vec2(size, size));
@@ -901,7 +921,7 @@ pub fn draw_power_cut_in(
 
             // Portrait in a framed square: on the left facing right for the first
             // army, on the right facing left for the second
-            let second = faction != battle_config.player_faction;
+            let second = battle_config.facing_left(faction);
             let side = if second { 1.0 } else { -1.0 };
             let portrait = egui::Rect::from_center_size(egui::pos2(screen.center().x + side * 260.0 + slide, band.center().y), egui::vec2(136.0, 136.0));
             portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0, second);
@@ -921,4 +941,63 @@ pub fn draw_power_cut_in(
                 egui::FontId::new(18.0, theme::bold_family()), theme::shade(theme::PARCHMENT, 0.85));
         });
     ctx.request_repaint();
+}
+
+/// Hot seat with fog of war: an opaque cover between turns, so the next person
+/// takes the device before the board (and what their army sees) appears
+pub fn draw_hand_over(
+    mut contexts: EguiContexts,
+    mut hand_over: ResMut<crate::game::HandOver>,
+    battle_config: Res<BattleConfig>,
+    commanders: Res<Commanders>,
+    game_data: Res<GameData>,
+    portraits: Res<PortraitTextures>,
+    input: super::input::MenuInput,
+    time: Res<Time>,
+    mut shown: Local<bool>,
+) {
+    let Some(faction) = hand_over.faction else {
+        *shown = false;
+        return;
+    };
+    // The press that ended the last turn must not also lift the cover
+    let accept_input = std::mem::replace(&mut *shown, true);
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    let index = battle_config.armies.iter().position(|a| a.faction == faction).unwrap_or(0);
+    let player = battle_config.armies[..=index].iter().filter(|a| !a.ai).count();
+    let color = theme::faction_color(&game_data, faction);
+    let co_id = commanders.get_active(faction);
+    let co = game_data.commander(co_id);
+
+    let mut lift = accept_input && (input.confirm() || input.back());
+    egui::Area::new(egui::Id::new("hand_over"))
+        .fixed_pos(egui::Pos2::ZERO)
+        .order(egui::Order::Tooltip)
+        .show(ctx, |ui| {
+            let screen = ui.ctx().content_rect();
+            let response = ui.allocate_rect(screen, egui::Sense::click());
+            theme::forest_backdrop(ui.painter(), screen, time.elapsed_secs());
+            let painter = ui.painter();
+            let size = (screen.height() * 0.34).min(220.0);
+            let center = screen.center() - egui::vec2(0.0, 30.0);
+            let portrait = egui::Rect::from_center_size(center - egui::vec2(0.0, size * 0.35), egui::vec2(size, size));
+            painter.rect_filled(portrait.expand(8.0), 8, theme::shade(color, 0.45));
+            portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0, battle_config.facing_left(faction));
+            shadowed(painter, egui::pos2(center.x, portrait.bottom() + 44.0), egui::Align2::CENTER_CENTER,
+                &format!("Player {player}"), egui::FontId::new(48.0, theme::title_family()), theme::PARCHMENT);
+            painter.text(egui::pos2(center.x, portrait.bottom() + 86.0), egui::Align2::CENTER_CENTER,
+                format!("{} · {}", game_data.faction_name(faction), co.name),
+                egui::FontId::new(20.0, theme::display_family()), theme::shade(color, 1.3));
+            let pulse = 0.6 + 0.4 * (time.elapsed_secs() * 3.0).sin().abs();
+            painter.text(egui::pos2(center.x, portrait.bottom() + 126.0), egui::Align2::CENTER_CENTER,
+                format!("Hand the device to Player {player} · tap or press any button"),
+                egui::FontId::proportional(17.0), theme::GOLD_LIGHT.gamma_multiply(pulse));
+            ui.ctx().request_repaint();
+            if accept_input && response.clicked() {
+                lift = true;
+            }
+        });
+    if lift {
+        hand_over.faction = None;
+    }
 }

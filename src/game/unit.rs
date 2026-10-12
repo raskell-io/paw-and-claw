@@ -34,7 +34,7 @@ fn orient_unit_sprites(
     mut units: Query<(&FactionMember, &mut Transform), With<UnitSprite>>,
 ) {
     for (faction, mut transform) in units.iter_mut() {
-        let facing = if faction.faction == battle_config.player_faction { 1.0 } else { -1.0 };
+        let facing = if battle_config.facing_left(faction.faction) { -1.0 } else { 1.0 };
         if transform.scale.x != facing {
             transform.scale.x = facing;
         }
@@ -269,27 +269,32 @@ fn animate_unit_movement(
     }
 }
 
-/// System to darken exhausted units (like Advance Wars)
+/// System to darken exhausted units (like Advance Wars), and to show a
+/// submerged diver as a faint blue shape under the water
 fn update_moved_unit_visuals(
     units: Query<(&Unit, &UnitVisuals), Changed<Unit>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (unit, visuals) in units.iter() {
-        if let Some(material) = materials.get_mut(&visuals.material_handle) {
-            if unit.exhausted {
-                // Darken the unit while preserving hue
-                let base = visuals.base_color.to_srgba();
-                let darken_factor = 0.68; // dimmed but still readable
-                material.base_color = Color::srgba(
-                    base.red * darken_factor,
-                    base.green * darken_factor,
-                    base.blue * darken_factor,
-                    base.alpha,
-                );
-            } else {
-                // Restore original color
-                material.base_color = visuals.base_color;
-            }
+        let Some(material) = materials.get_mut(&visuals.material_handle) else { continue };
+        let base = visuals.base_color.to_srgba();
+        // Darken the unit while preserving hue: dimmed but still readable
+        let shade = if unit.exhausted { 0.68 } else { 1.0 };
+        let (tint, alpha) = if unit.submerged { ([0.55, 0.72, 1.0], 0.55) } else { ([1.0; 3], base.alpha) };
+        let color = Color::srgba(base.red * shade * tint[0], base.green * shade * tint[1], base.blue * shade * tint[2], alpha);
+        if material.base_color != color {
+            material.base_color = color;
+        }
+        // Sprites cut out their outline with a mask; see-through needs blending
+        let mode = if unit.submerged {
+            AlphaMode::Blend
+        } else if material.base_color_texture.is_some() {
+            AlphaMode::Mask(0.5)
+        } else {
+            AlphaMode::Blend
+        };
+        if material.alpha_mode != mode {
+            material.alpha_mode = mode;
         }
     }
 }
@@ -421,6 +426,9 @@ pub struct Unit {
     pub cargo: Vec<CargoUnit>,
     /// Hit by a paralyzing power (AW Von Bolt): skips its army's next turn
     pub paralyzed: bool,
+    /// Underwater (AW Sub dive): hidden in fog unless an enemy is adjacent,
+    /// hit only by units that hunt divers, burns more stamina a day
+    pub submerged: bool,
 }
 
 /// Represents a unit being carried by a transport
@@ -454,6 +462,7 @@ impl CargoUnit {
             exhausted: true,
             cargo: Vec::new(),
             paralyzed: false,
+            submerged: false,
         }
     }
 }
@@ -477,6 +486,7 @@ impl Unit {
             exhausted: false,
             cargo: Vec::new(),
             paralyzed: false,
+            submerged: false,
         }
     }
 

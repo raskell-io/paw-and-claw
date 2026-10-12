@@ -22,7 +22,8 @@ src/
 │   ├── weather.rs   # Weather effects
 │   ├── modding.rs   # Data loading
 │   ├── audio.rs     # Sound effects: PlaySfx, event-driven sounds, volume settings
-│   └── save.rs      # Save/load: slots + autosave, localStorage on web, backups
+│   ├── save.rs      # Save/load: slots + autosave, localStorage on web, backups
+│   └── custom_maps.rs # Maps from the editor, stored with the saves, offered in setup
 ├── ui/              # egui UI code
 │   ├── mod.rs       # Plugin, action menu, hover tracking
 │   ├── theme.rs     # Palette, fonts, shared widgets (cards, menu rows, meters)
@@ -30,7 +31,7 @@ src/
 │   ├── input.rs     # MenuInput: keyboard + gamepad menu navigation
 │   ├── boot.rs      # Opening: disclaimers, studio stamp, intro, "Press any button"
 │   ├── menu.rs      # Main menu
-│   ├── setup.rs     # Skirmish setup (faction, commander, map)
+│   ├── setup.rs     # Skirmish setup (armies: person/computer, teams; commanders; map)
 │   ├── hud.rs       # Battle HUD, inspect card, unit tokens
 │   ├── production.rs# Build menu
 │   ├── saves.rs     # Save/load slot screen, save toasts, F5/F9
@@ -59,6 +60,20 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 - COs copy AW2/DS COs: always-on abilities + CO Power + Super CO Power (stars, +20% per use);
   either power also gives every unit +10 attack and defense
 - Fog: forests and lily pads hide units except from neighbours; hidden enemies spring traps
+- Diving (AW Sub): units with `dive_stamina` in units.ron get Dive/Surface in the action menu.
+  Submerged they burn `dive_stamina` a day, only `hits_divers` units can hit them
+  (`GameData::weapon_vs`), and in fog they stay hidden unless an enemy is adjacent
+  (`FogOfWar::concealed`)
+- Armies: `BattleConfig.armies` (2-4, turn order), each with a faction, `ai` (person or computer)
+  and `team`. Use `allied()` for friend/foe (attacks, captures, powers, fog vision), `viewer()`
+  for whose eyes the board is seen through, `facing_left()` for art direction. Never assume one
+  opponent; `rival()` is only for screens that show a single one
+- An army is out when routed or its HQ falls; HQ capture hands its properties to the captor,
+  its units leave the field. The battle ends when one team is left
+- Hot seat: several people take turns on one device; with fog, `HandOver` covers the board
+  before each person's turn, and computer turns show the last person's view
+- Maps mark army slots with placeholder factions (`ARMY_SLOTS`: Eastern, Northern, Western,
+  Southern); `MapData::with_armies` hands them to the factions playing, unused slots go neutral
 - Turns end only through `EndTurnRequest` (handled by `turn::pass_turn`): from the map menu
   or the AI. The map menu (`ui/map_menu.rs`, Esc / right click / Start, or confirm on a tile
   with nothing to do) follows AW: Units, Intel, Commanders, powers, Options, End turn. Each turn opens with

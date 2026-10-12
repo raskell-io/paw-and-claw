@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{
-    reset_ai, spawn_map_from_data, spawn_unit_with_state, AiState, BattleConfig, BattleEntity, CargoUnit,
+    reset_ai, spawn_map_from_data, Army, spawn_unit_with_state, AiState, BattleConfig, BattleEntity, CargoUnit,
     CommanderId, Commanders, Faction, FactionFunds, FactionMember, FogOfWar, GameData, GameMap, GameResult,
     GridCursor, GridPosition, MapData, MapId, MapMenu, MovementHighlights, MovementPath, PendingAction,
     PowerLevel, ProductionState, PropertyOwnership, SpriteAssets, Terrain, Tile, TilesetTheme, TurnBanner,
@@ -34,7 +34,7 @@ impl Plugin for SavePlugin {
         app.add_message::<SaveGameEvent>()
             .add_message::<LoadGameEvent>()
             .add_message::<GameLoadedEvent>()
-            .init_resource::<BattleMapId>()
+            .init_resource::<BattleMap>()
             .init_resource::<PendingLoad>()
             .init_resource::<SaveNotice>()
             .init_resource::<ImportPending>()
@@ -110,13 +110,14 @@ pub struct LoadGameEvent {
 #[derive(Message)]
 pub struct GameLoadedEvent {
     pub map_id: Option<MapId>,
-    pub player_faction: Faction,
-    pub player_co: CommanderId,
 }
 
-/// The built-in map the battle is played on (saved so a load can name it)
-#[derive(Resource, Default, Clone, Copy)]
-pub struct BattleMapId(pub Option<MapId>);
+/// The map the battle is played on: a built-in one, or a custom map by name
+#[derive(Resource, Default, Clone)]
+pub struct BattleMap {
+    pub id: Option<MapId>,
+    pub name: String,
+}
 
 /// A save read from storage, waiting for the battle state and sprites
 #[derive(Resource, Default)]
@@ -192,8 +193,14 @@ pub struct SaveGame {
     /// Properties that are owned or half captured
     pub tiles: Vec<SavedTile>,
     pub units: Vec<SavedUnit>,
-    pub player_faction: Faction,
-    pub ai_faction: Faction,
+    /// Every army in turn order. Saves from before multi-army battles have
+    /// `player_faction` and `ai_faction` instead
+    #[serde(default)]
+    pub armies: Vec<Army>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_faction: Option<Faction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_faction: Option<Faction>,
     pub current_faction: Faction,
     pub funds: HashMap<Faction, u32>,
     pub commanders: SavedCommanders,
@@ -206,6 +213,16 @@ pub struct SaveGame {
 impl SaveGame {
     /// Saves from before this (the flat-board format) can't be loaded
     pub const VERSION: u32 = 2;
+
+    /// The battle's armies (one-on-one against the computer in older saves)
+    pub fn battle_config(&self) -> BattleConfig {
+        if self.armies.is_empty() {
+            let player = self.player_faction.unwrap_or(Faction::Western);
+            BattleConfig::new(player, self.ai_faction.unwrap_or(Faction::Northern))
+        } else {
+            BattleConfig::from_armies(self.armies.clone())
+        }
+    }
 }
 
 /// What a save menu shows about a slot
@@ -215,7 +232,7 @@ pub struct SaveSummary {
     pub saved_at: f64,
     pub map: String,
     pub day: u32,
-    /// Player first, then the opponent
+    /// Every army in turn order, with its commander
     pub armies: Vec<(Faction, CommanderId)>,
 }
 
@@ -244,6 +261,8 @@ pub struct SavedUnit {
     pub exhausted: bool,
     #[serde(default)]
     pub paralyzed: bool,
+    #[serde(default)]
+    pub submerged: bool,
     #[serde(default)]
     pub cargo: Vec<SavedCargoUnit>,
 }
@@ -338,6 +357,32 @@ pub fn remove_setting(name: &str) {
     }
 }
 
+/// Names of the stored documents that start with `prefix`
+pub fn list_settings(prefix: &str) -> Vec<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else { return Vec::new() };
+        let full = format!("paw_and_claw_{prefix}");
+        let count = storage.length().unwrap_or(0);
+        let mut names: Vec<String> = (0..count)
+            .filter_map(|i| storage.key(i).ok().flatten())
+            .filter(|key| key.starts_with(&full))
+            .map(|key| key["paw_and_claw_".len()..].to_string())
+            .collect();
+        names.sort();
+        names
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut names: Vec<String> = std::fs::read_dir("saves").into_iter().flatten().flatten()
+            .filter_map(|entry| entry.file_name().to_str()?.strip_suffix(".json").map(str::to_string))
+            .filter(|name| name.starts_with(prefix))
+            .collect();
+        names.sort();
+        names
+    }
+}
+
 /// Seconds since the Unix epoch
 pub fn now_secs() -> f64 {
     #[cfg(target_arch = "wasm32")]
@@ -370,7 +415,7 @@ pub fn time_ago(saved_at: f64) -> String {
 #[derive(SystemParam)]
 pub struct BattleSnapshot<'w, 's> {
     map: Res<'w, GameMap>,
-    map_id: Res<'w, BattleMapId>,
+    battle_map: Res<'w, BattleMap>,
     tiles: Query<'w, 's, &'static Tile>,
     units: Query<'w, 's, (&'static Unit, &'static GridPosition, &'static FactionMember)>,
     animating: Query<'w, 's, (), With<UnitAnimation>>,
@@ -405,18 +450,16 @@ impl BattleSnapshot<'_, '_> {
     }
 
     fn snapshot(&self, game_data: &GameData) -> SaveGame {
-        let player = self.config.player_faction;
-        let opponent = self.config.ai_faction;
-        let map_name = self.map_id.0.map_or("Custom Map", |id| id.name()).to_string();
+        let map_name = if self.battle_map.name.is_empty() { "Custom Map".to_string() } else { self.battle_map.name.clone() };
         SaveGame {
             version: SaveGame::VERSION,
             summary: SaveSummary {
                 saved_at: now_secs(),
                 map: map_name,
                 day: self.turn_state.turn_number,
-                armies: vec![(player, self.commanders.get_active(player)), (opponent, self.commanders.get_active(opponent))],
+                armies: self.config.armies.iter().map(|a| (a.faction, self.commanders.get_active(a.faction))).collect(),
             },
-            map_id: self.map_id.0,
+            map_id: self.battle_map.id,
             terrain: self.map.tiles.clone(),
             tiles: self.tiles.iter()
                 .filter(|t| t.owner.is_some() || t.capture_progress > 0 || game_data.terrain_capturable(t.terrain))
@@ -440,6 +483,7 @@ impl BattleSnapshot<'_, '_> {
                 attacked: u.attacked,
                 exhausted: u.exhausted,
                 paralyzed: u.paralyzed,
+                submerged: u.submerged,
                 cargo: u.cargo.iter().map(|c| SavedCargoUnit {
                     unit_type: c.unit_type,
                     hp: c.hp,
@@ -447,8 +491,9 @@ impl BattleSnapshot<'_, '_> {
                     ammo: c.ammo,
                 }).collect(),
             }).collect(),
-            player_faction: player,
-            ai_faction: opponent,
+            armies: self.config.armies.clone(),
+            player_faction: None,
+            ai_faction: None,
             current_faction: self.turn_state.current_faction,
             funds: Faction::all().iter().map(|&f| (f, self.funds.get(f))).collect(),
             commanders: SavedCommanders {
@@ -608,6 +653,7 @@ fn apply_pending_load(
         unit.attacked = saved.attacked;
         unit.exhausted = saved.exhausted;
         unit.paralyzed = saved.paralyzed;
+        unit.submerged = saved.submerged;
         unit.cargo = saved.cargo.iter().map(|c| CargoUnit {
             unit_type: c.unit_type,
             hp: c.hp,
@@ -620,8 +666,8 @@ fn apply_pending_load(
     commands.insert_resource(RestoreCaptures(save.tiles.iter().filter(|t| t.capture_progress > 0).cloned().collect()));
 
     let day = save.summary.day;
-    commands.insert_resource(BattleConfig::new(save.player_faction, save.ai_faction));
-    commands.insert_resource(BattleMapId(save.map_id));
+    commands.insert_resource(save.battle_config());
+    commands.insert_resource(BattleMap { id: save.map_id, name: save.summary.map.clone() });
     commands.insert_resource(TurnState { current_faction: save.current_faction, turn_number: day, phase: TurnPhase::Select });
     let mut funds = FactionFunds::default();
     for (&faction, &amount) in &save.funds {
@@ -660,9 +706,7 @@ fn apply_pending_load(
         .unwrap_or((width as i32 / 2, height as i32 / 2));
     commands.insert_resource(GridCursor { x: hq.0, y: hq.1, visible: true, follow: true });
 
-    let player_co = save.commanders.active.get(&save.player_faction).copied()
-        .unwrap_or_else(|| Commanders::default().get_active(save.player_faction));
-    loaded.write(GameLoadedEvent { map_id: save.map_id, player_faction: save.player_faction, player_co });
+    loaded.write(GameLoadedEvent { map_id: save.map_id });
     notice.show(format!("Day {day} · {}", save.summary.map), false);
     info!("Loaded a save: {} day {day}", save.summary.map);
 }
@@ -806,9 +850,10 @@ mod tests {
             terrain: vec![vec![Terrain::Grass; 3]; 2],
             tiles: vec![SavedTile { x: 1, y: 0, owner: Some(Faction::Western), capture_progress: 8, capturing_faction: Some(Faction::Northern) }],
             units: vec![SavedUnit { unit_type: UnitType::Scout, faction: Faction::Northern, x: 1, y: 0, hp: 60, stamina: 50,
-                ammo: 0, moved: true, attacked: false, exhausted: true, paralyzed: false, cargo: vec![] }],
-            player_faction: Faction::Western,
-            ai_faction: Faction::Northern,
+                ammo: 0, moved: true, attacked: false, exhausted: true, paralyzed: false, submerged: false, cargo: vec![] }],
+            armies: BattleConfig::new(Faction::Western, Faction::Northern).armies,
+            player_faction: None,
+            ai_faction: None,
             current_faction: Faction::Western,
             funds: HashMap::from([(Faction::Western, 4000)]),
             commanders: SavedCommanders {
@@ -842,6 +887,17 @@ mod tests {
         old["version"] = 1.into();
         assert!(parse_save(&old.to_string()).err().unwrap().contains("older"));
         assert!(parse_save("{not json").is_err());
+    }
+
+    #[test]
+    fn saves_from_before_multi_army_battles_still_load() {
+        let mut old = serde_json::to_value(sample()).unwrap();
+        old.as_object_mut().unwrap().remove("armies");
+        old["player_faction"] = "Southern".into();
+        old["ai_faction"] = "Eastern".into();
+        let config = parse_save(&old.to_string()).unwrap().battle_config();
+        assert_eq!(config.player_faction, Faction::Southern);
+        assert!(config.is_ai_faction(Faction::Eastern) && !config.is_ai_faction(Faction::Southern));
     }
 
     #[test]

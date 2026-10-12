@@ -879,6 +879,7 @@ fn analyze_game_state(
     units: &[(Entity, GridPosition, FactionMember, Unit)],
     tiles: &[(Entity, Tile)],
     ai_faction: Faction,
+    battle_config: &BattleConfig,
     game_data: &GameData,
 ) -> GameAnalysis {
     let mut ai_units = Vec::new();
@@ -901,7 +902,7 @@ fn analyze_game_state(
 
         if faction.faction == ai_faction {
             ai_units.push(info);
-        } else {
+        } else if !battle_config.allied(faction.faction, ai_faction) {
             enemy_units.push(info);
         }
     }
@@ -923,6 +924,8 @@ fn analyze_game_state(
         if game_data.terrain_capturable(tile.terrain) {
             if tile.owner == Some(ai_faction) {
                 our_properties.push(info.clone());
+            } else if tile.owner.is_some_and(|owner| battle_config.allied(owner, ai_faction)) {
+                // An ally's property: neither ours nor to take
             } else if tile.owner.is_some() && tile.owner != Some(ai_faction) {
                 enemy_properties.push(info.clone());
                 capturable_tiles.push(info);
@@ -1467,7 +1470,7 @@ fn plan_turn_advanced(
                         continue;
                     }
                     // Needs a weapon that hits this target (primary with ammo, or a machine gun)
-                    if game_data.weapon(ai_unit.unit.unit_type, ai_unit.unit.ammo, enemy.unit_type).is_none() {
+                    if game_data.weapon_vs(ai_unit.unit.unit_type, ai_unit.unit.ammo, enemy.unit_type, enemy.unit.submerged).is_none() {
                         continue;
                     }
 
@@ -1774,9 +1777,10 @@ fn ai_turn_system(
         return;
     }
 
-    let ai_faction = ai_res.battle_config.ai_faction;
+    // The AI plays whichever computer army's turn it is
+    let ai_faction = turn_state.current_faction;
 
-    if !ai_res.ai_state.enabled || turn_state.current_faction != ai_faction {
+    if !ai_res.ai_state.enabled || !ai_res.battle_config.is_ai_faction(ai_faction) {
         ai_res.ai_state.phase = AiTurnPhase::Waiting;
         return;
     }
@@ -1831,7 +1835,7 @@ fn ai_turn_system(
                 .collect();
 
             // Full analysis pipeline
-            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction, game_data);
+            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction, &ai_res.battle_config, game_data);
             let influence = build_influence_maps(&analysis, &map, &all_tiles, game_data, ai_faction);
             let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config, game_data);
             let predictions = predict_enemy_actions(&analysis, &influence, &ai_res.memory, &map, game_data);
@@ -1893,7 +1897,7 @@ fn ai_turn_system(
                 .map(|(e, t)| (e, t.clone()))
                 .collect();
 
-            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction, game_data);
+            let analysis = analyze_game_state(&all_units, &all_tiles, ai_faction, &ai_res.battle_config, game_data);
             let influence = build_influence_maps(&analysis, &map, &all_tiles, game_data, ai_faction);
             let goals = determine_strategic_goals(&analysis, &influence, &ai_res.memory, &config, game_data);
 
@@ -2031,6 +2035,17 @@ fn execute_action(
             if let Ok((_, _, _, _, mut unit)) = units.get_mut(entity) {
                 info!("AI: {:?} waits", unit.unit_type);
                 unit.exhausted = true;
+            }
+        }
+    }
+    // Divers stay under while they have stamina for a few days of it, and come
+    // up to save it when they run low
+    if let Ok((_, _, _, _, mut unit)) = units.get_mut(entity) {
+        let dive = game_data.unit_stats(unit.unit_type).dive_stamina;
+        if dive > 0 {
+            let submerge = unit.stamina > dive * 4;
+            if unit.submerged != submerge {
+                unit.submerged = submerge;
             }
         }
     }

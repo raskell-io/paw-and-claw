@@ -33,6 +33,8 @@ pub enum MenuAction {
     Resupply,
     Load((i32, i32)),  // Position of the transport the unit moved onto
     Unload(usize, (i32, i32)), // Which passenger, and where to put it
+    /// Dive (true) or surface (false), ending the unit's turn (AW Sub)
+    Dive(bool),
     Wait,
     Cancel,  // Undo move - return unit to original position
 }
@@ -98,22 +100,48 @@ pub struct ActionMenuContext<'w> {
     pub battle_config: Res<'w, BattleConfig>,
 }
 
-/// Resource to track battle setup (CO + Map selection)
+/// One army in skirmish setup
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArmySetup {
+    pub faction: Faction,
+    /// None: a random commander of the faction
+    pub co: Option<CommanderId>,
+    /// Played by a person (several people take turns on one device)
+    pub human: bool,
+}
+
+/// Skirmish setup choices; they carry over from one battle to the next
 #[derive(Resource)]
 pub struct BattleSetupState {
     pub needs_setup: bool,
-    pub player_faction: Faction,
-    pub player_co: Option<CommanderId>,
+    /// Four armies in turn order; the first `army_count` play
+    pub armies: [ArmySetup; 4],
+    pub army_count: usize,
+    /// Two teams (armies 1 & 3 against 2 & 4), with four armies
+    pub teams: bool,
     pub selected_map: MapId,
+    /// The army whose commander the Commander column shows
+    pub selected_army: usize,
+    /// The highlighted row in the Armies column
+    pub armies_cursor: Option<usize>,
 }
 
 impl Default for BattleSetupState {
     fn default() -> Self {
+        let army = |faction, human| ArmySetup { faction, co: None, human };
         Self {
             needs_setup: false,
-            player_faction: Faction::Western,
-            player_co: Some(CommanderId::Kira),  // Pre-select first CO
+            armies: [
+                ArmySetup { co: Some(CommanderId::Bandit), ..army(Faction::Western, true) },
+                army(Faction::Southern, false),
+                army(Faction::Northern, false),
+                army(Faction::Eastern, false),
+            ],
+            army_count: 2,
+            teams: false,
             selected_map: MapId::default(),
+            selected_army: 0,
+            armies_cursor: None,
         }
     }
 }
@@ -140,8 +168,8 @@ pub struct EditorState {
     pub selected_unit: UnitType,
     /// Selected faction for units/properties
     pub selected_faction: Faction,
-    /// Map name for saving
-    pub map_name: String,
+    /// The stored map a Delete click is waiting to be confirmed for
+    pub confirm_delete: Option<String>,
     /// Status message
     pub status: String,
 }
@@ -154,7 +182,7 @@ impl Default for EditorState {
             selected_terrain: Terrain::Grass,
             selected_unit: UnitType::Scout,
             selected_faction: Faction::Eastern,
-            map_name: "custom_map".to_string(),
+            confirm_delete: None,
             status: String::new(),
         }
     }
@@ -227,6 +255,7 @@ impl Plugin for UiPlugin {
                 hud::draw_menu_button.run_if(in_state(GameState::Battle)),
                 hud::draw_power_cut_in.run_if(in_state(GameState::Battle)),
                 hud::draw_turn_banner.run_if(in_state(GameState::Battle)),
+                hud::draw_hand_over.run_if(in_state(GameState::Battle)),
                 map_menu::draw_map_menu.run_if(in_state(GameState::Battle)),
                 hud::draw_inspect_card.run_if(in_state(GameState::Battle)),
                 production::draw_production_menu.run_if(in_state(GameState::Battle)),
@@ -539,14 +568,13 @@ fn draw_action_menu(
 
     // Get CO bonuses for damage calculation
     let attacker_co = ctx_res.commanders.get_bonuses(turn_state.current_faction, game_data);
-    // Defender faction - opposite of current
-    let defender_faction = ctx_res.battle_config.next_faction(turn_state.current_faction);
-    let defender_co = ctx_res.commanders.get_bonuses(defender_faction, game_data);
-
     // Collect target info with damage estimates (min-max range due to luck)
     let target_info: Vec<_> = pending_action.targets.iter()
         .filter_map(|&entity| {
-            units.get(entity).ok().map(|(unit, _faction, pos)| {
+            units.get(entity).ok().map(|(unit, faction, pos)| {
+                // Each target's own commander (several armies may be on the board)
+                let defender_faction = faction.map_or_else(|| ctx_res.battle_config.rival(turn_state.current_faction), |f| f.faction);
+                let defender_co = ctx_res.commanders.get_bonuses(defender_faction, game_data);
                 let pos_xy = pos.map(|p| (p.x, p.y)).unwrap_or((0, 0));
 
                 // Calculate damage estimate range (with CO bonuses and weather)
@@ -599,6 +627,7 @@ fn draw_action_menu(
     let mut load_target: Option<(i32, i32)> = None;  // Position of transport to load into
     let mut unload_position: Option<(usize, (i32, i32))> = None;
     let mut wait_clicked = false;
+    let mut dive_clicked: Option<bool> = None;
     let mut cancel_clicked = false;
 
     // Check if this is a Supplier unit that can resupply
@@ -619,6 +648,9 @@ fn draw_action_menu(
     let boarding = !adjacent_transport_info.is_empty();
     let is_transport_with_cargo = attacker_unit.is_transport(game_data) && attacker_unit.has_cargo() && !boarding;
     let is_supplier = is_supplier && !boarding;
+    // Divers can go under or come up instead of waiting
+    let dive_choice = (!boarding && game_data.unit_stats(attacker_unit.unit_type).dive_stamina > 0)
+        .then_some(!attacker_unit.submerged);
 
     // Unload options: each passenger onto each free, passable neighbouring tile
     let unload_positions: Vec<(usize, (i32, i32))> = if is_transport_with_cargo {
@@ -695,6 +727,9 @@ fn draw_action_menu(
         menu_state.actions.push(MenuAction::Unload(i, pos));
     }
 
+    if let Some(submerge) = dive_choice {
+        menu_state.actions.push(MenuAction::Dive(submerge));
+    }
     if !boarding {
         menu_state.actions.push(MenuAction::Wait);
     }
@@ -807,6 +842,16 @@ fn draw_action_menu(
                         unload_position = Some((i, (ux, uy)));
                     }
                 }
+                if let Some(submerge) = dive_choice {
+                    let (label, detail) = if submerge {
+                        ("Dive", "Hidden, hit only by galleys and divers · 5 stamina a day")
+                    } else {
+                        ("Surface", "Back up to 1 stamina a day")
+                    };
+                    if row(ui, Icon::Arrow, label, Some(detail), theme::Tone::Normal) {
+                        dive_clicked = Some(submerge);
+                    }
+                }
                 if !boarding && row(ui, Icon::Hourglass, "Wait", None, theme::Tone::Normal) {
                     wait_clicked = true;
                 }
@@ -914,10 +959,13 @@ fn draw_action_menu(
         turn_state.phase = TurnPhase::Select;
     } else if let Some((cargo_index, pos)) = unload_position {
         unload(&mut events, &mut units, &mut pending_action, &mut turn_state, acting_entity, cargo_index, pos);
-    } else if wait_clicked {
-        // Mark unit as exhausted when waiting
+    } else if wait_clicked || dive_clicked.is_some() {
+        // Mark unit as exhausted when waiting; a diver may go under or come up
         if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
             unit.exhausted = true;
+            if let Some(submerge) = dive_clicked {
+                unit.submerged = submerge;
+            }
         }
 
         pending_action.unit = None;
@@ -1017,9 +1065,12 @@ fn draw_action_menu(
             MenuAction::Unload(cargo_index, pos) => {
                 unload(&mut events, &mut units, &mut pending_action, &mut turn_state, acting_entity, cargo_index, pos);
             }
-            MenuAction::Wait => {
+            MenuAction::Wait | MenuAction::Dive(_) => {
                 if let Ok((mut unit, _, _)) = units.get_mut(acting_entity) {
                     unit.exhausted = true;
+                    if let MenuAction::Dive(submerge) = action {
+                        unit.submerged = submerge;
+                    }
                 }
                 pending_action.unit = None;
                 pending_action.targets.clear();
@@ -1101,11 +1152,10 @@ fn handle_fog_toggle(
 fn track_hovered_unit(
     pointer: Res<crate::game::BoardPointer>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    units: Query<(Entity, &GridPosition, &Unit, &FactionMember)>,
+    units: Query<(Entity, &GridPosition, &Unit)>,
     map: Res<GameMap>,
     mut hovered: ResMut<HoveredUnit>,
     fog: Res<FogOfWar>,
-    battle_config: Res<BattleConfig>,
 ) {
     let Ok((camera, camera_transform)) = cameras.single() else { return };
 
@@ -1124,10 +1174,11 @@ fn track_hovered_unit(
 
     // Find unit at this position
     hovered.entity = None;
-    for (entity, pos, _unit, faction) in units.iter() {
+    for (entity, pos, _unit) in units.iter() {
         if pos.x == grid_x && pos.y == grid_y {
             // Check fog of war - only show tooltip for visible units
-            if fog.enabled && faction.faction != battle_config.player_faction && !fog.is_visible(pos.x, pos.y) {
+            // (friendly units always stand in sight, so this only hides enemies)
+            if fog.enabled && !fog.is_visible(pos.x, pos.y) {
                 continue;
             }
             hovered.entity = Some(entity);

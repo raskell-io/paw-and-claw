@@ -89,7 +89,7 @@ fn damage_before_luck(
     game_data: &GameData,
 ) -> Option<(f32, f32)> {
     // The weapon it would fire: primary if it can hit and has ammo, else machine gun
-    let (base, _) = game_data.weapon(attacker.unit_type, attacker.ammo, defender.unit_type)?;
+    let (base, _) = game_data.weapon_vs(attacker.unit_type, attacker.ammo, defender.unit_type, defender.submerged)?;
     let base_damage_percent = base as f32;
 
     // CO firepower in AW2 points (100 = normal). As in Advance Wars, weather
@@ -187,7 +187,7 @@ pub fn can_attack(
     }
 
     // A weapon that can hit this target and has ammo, or a machine gun
-    if game_data.weapon(attacker.unit_type, attacker.ammo, defender.unit_type).is_none() {
+    if game_data.weapon_vs(attacker.unit_type, attacker.ammo, defender.unit_type, defender.submerged).is_none() {
         return false;
     }
 
@@ -213,6 +213,7 @@ fn process_attacks(
     mut funds: ResMut<super::FactionFunds>,
     weather: Res<Weather>,
     game_data: Res<GameData>,
+    battle_config: Res<super::BattleConfig>,
     mut defeated: MessageWriter<super::UnitDefeated>,
 ) {
     for event in events.read() {
@@ -226,8 +227,8 @@ fn process_attacks(
         let attacker_range = attacker_co.range(attacker_unit.unit_type, &game_data);
         let defender_range = defender_co.range(defender_unit.unit_type, &game_data);
 
-        // Verify attack is valid
-        if !can_attack(&attacker_unit, attacker_pos, attacker_faction, &defender_unit, defender_pos,
+        // Verify attack is valid (allies never fight)
+        if battle_config.allied(attacker_faction.faction, defender_faction.faction) || !can_attack(&attacker_unit, attacker_pos, attacker_faction, &defender_unit, defender_pos,
             defender_faction, attacker_range, &game_data)
         {
             warn!("Invalid attack!");
@@ -283,7 +284,7 @@ fn strike(
     weather: &Weather,
     game_data: &GameData,
 ) {
-    let uses_ammo = game_data.weapon(shooter.unit_type, shooter.ammo, target.unit_type)
+    let uses_ammo = game_data.weapon_vs(shooter.unit_type, shooter.ammo, target.unit_type, target.submerged)
         .is_some_and(|(_, uses_ammo)| uses_ammo);
     let damage = (calculate_damage(shooter, shooter_terrain, target, target_terrain, shooter_co, target_co, weather, game_data) as f32
         * multiplier).floor() as i32;
@@ -316,6 +317,7 @@ fn process_captures(
     game_data: Res<GameData>,
     commanders: Res<Commanders>,
     mut play: MessageWriter<super::PlaySfx>,
+    battle_config: Res<super::BattleConfig>,
 ) {
     for event in events.read() {
         let Ok((unit, faction_member)) = units.get(event.unit) else {
@@ -333,8 +335,8 @@ fn process_captures(
             continue;
         }
 
-        // Can't capture your own tiles
-        if tile.owner == Some(faction_member.faction) {
+        // Can't capture your own or an ally's tiles
+        if tile.owner.is_some_and(|owner| battle_config.allied(owner, faction_member.faction)) {
             warn!("Cannot capture your own tile!");
             continue;
         }
@@ -648,6 +650,7 @@ mod tests {
         let mut app = App::new();
         app.add_message::<CaptureEvent>()
             .add_message::<super::super::PlaySfx>()
+            .init_resource::<super::super::BattleConfig>()
             .insert_resource(Assets::<StandardMaterial>::default())
             .insert_resource({
                 let mut commanders = Commanders::default();
@@ -843,5 +846,25 @@ mod tests {
         // Artillery has a minimum range of 2
         assert!(!can_attack(&siege, &origin, &east, &scout, &GridPosition::new(1, 0), &north, 0, &gd));
         assert!(can_attack(&siege, &origin, &east, &scout, &GridPosition::new(2, 1), &north, 0, &gd));
+    }
+
+    #[test]
+    fn a_submerged_diver_is_hit_only_by_galleys_and_divers() {
+        let (gd, _, _) = setup();
+        let east = FactionMember { faction: Faction::Eastern };
+        let north = FactionMember { faction: Faction::Northern };
+        let (here, next) = (GridPosition::new(0, 0), GridPosition::new(1, 0));
+        let mut diver = unit(UnitType::Lurker, &gd);
+        let flagship = unit(UnitType::Dreadnought, &gd);
+        let galley = unit(UnitType::Frigate, &gd);
+        let hunter = unit(UnitType::Lurker, &gd);
+        let in_range = GridPosition::new(3, 0);
+        assert!(can_attack(&flagship, &here, &east, &diver, &in_range, &north, 0, &gd), "surfaced: anything that can hit boats");
+        diver.submerged = true;
+        assert!(!can_attack(&flagship, &here, &east, &diver, &in_range, &north, 0, &gd), "submerged: out of the flagship's reach");
+        assert!(can_attack(&galley, &here, &east, &diver, &next, &north, 0, &gd));
+        assert!(can_attack(&hunter, &here, &east, &diver, &next, &north, 0, &gd));
+        // A submerged diver still strikes from below
+        assert!(can_attack(&diver, &next, &north, &flagship, &here, &east, 0, &gd));
     }
 }

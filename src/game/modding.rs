@@ -112,6 +112,12 @@ pub struct UnitStatsData {
     /// How many units it carries at once
     #[serde(default)]
     pub capacity: u32,
+    /// Can dive (AW Sub): the daily stamina it burns while submerged. 0 = can't dive
+    #[serde(default)]
+    pub dive_stamina: u32,
+    /// Can hit a submerged diver (AW Cruiser and Sub); nothing else can
+    #[serde(default)]
+    pub hits_divers: bool,
 }
 
 /// Moddable terrain data
@@ -561,6 +567,15 @@ impl GameData {
     /// The weapon a unit attacks a defender type with, as in Advance Wars: its
     /// primary if that can hit and it has ammo for it, else its secondary.
     /// Returns (base damage, whether the shot uses ammo), or None if it can't attack.
+    /// The weapon that hits a defender that may be submerged: only units that
+    /// hunt divers can reach one underwater (AW Cruisers and Subs)
+    pub fn weapon_vs(&self, attacker_type: UnitType, ammo: u32, defender: UnitType, submerged: bool) -> Option<(u32, bool)> {
+        if submerged && !self.unit_stats(attacker_type).hits_divers {
+            return None;
+        }
+        self.weapon(attacker_type, ammo, defender)
+    }
+
     pub fn weapon(&self, attacker_type: UnitType, ammo: u32, defender: UnitType) -> Option<(u32, bool)> {
         let uses_ammo = self.unit_stats(attacker_type).max_ammo > 0;
         self.get_base_damage(attacker_type, defender)

@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
 
 use super::{Faction, Terrain, UnitType};
 
@@ -56,22 +54,44 @@ impl MapData {
         }
     }
 
-    /// Built-in maps are authored with Eastern as the first army and Northern as
-    /// the second. Reassign those two slots to the factions actually playing.
-    pub fn with_factions(&self, first: Faction, second: Faction) -> Self {
-        let remap = |faction: Faction| match faction {
-            Faction::Eastern => first,
-            Faction::Northern => second,
-            other => other,
+    /// The army slots a map has (2 to 4). Maps mark their armies with these
+    /// factions as placeholders: Eastern is the first army, Northern the
+    /// second, Western the third and Southern the fourth
+    pub fn army_count(&self) -> usize {
+        let used = |slot: Faction| self.properties.iter().any(|p| p.owner == slot) || self.units.iter().any(|u| u.faction == slot);
+        ARMY_SLOTS.iter().rposition(|&slot| used(slot)).map_or(2, |i| i + 1).max(2)
+    }
+
+    /// Hand the map's army slots to the factions actually playing, in slot
+    /// order. Slots with no army (a four-army map played by three) go neutral:
+    /// their properties stand empty and their units stay home.
+    pub fn with_armies(&self, armies: &[Faction]) -> Self {
+        let remap = |faction: Faction| -> Option<Faction> {
+            match ARMY_SLOTS.iter().position(|&slot| slot == faction) {
+                Some(i) => armies.get(i).copied(),
+                None => Some(faction),
+            }
         };
         let mut map = self.clone();
-        for unit in &mut map.units {
-            unit.faction = remap(unit.faction);
-        }
-        for property in &mut map.properties {
-            property.owner = remap(property.owner);
-        }
+        map.units = map.units.into_iter()
+            .filter_map(|mut u| remap(u.faction).map(|f| { u.faction = f; u }))
+            .collect();
+        map.properties = map.properties.into_iter()
+            .filter_map(|mut p| remap(p.owner).map(|f| { p.owner = f; p }))
+            .collect();
         map
+    }
+
+    /// A two-army battle: the first slot to `first`, the second to `second`
+    pub fn with_factions(&self, first: Faction, second: Faction) -> Self {
+        self.with_armies(&[first, second])
+    }
+
+    /// Where an army's HQ stands, if it has one
+    pub fn hq_of(&self, faction: Faction) -> Option<(i32, i32)> {
+        self.properties.iter()
+            .find(|p| p.owner == faction && self.get_terrain(p.x, p.y) == Some(Terrain::Base))
+            .map(|p| (p.x, p.y))
     }
 
     /// Get terrain at a position
@@ -92,25 +112,10 @@ impl MapData {
     pub fn add_property(&mut self, x: i32, y: i32, owner: Faction) {
         self.properties.push(PropertyOwnership { x, y, owner });
     }
-
-    /// Save map to JSON file
-    pub fn save_to_file(&self, path: &Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize map: {}", e))?;
-        fs::write(path, json)
-            .map_err(|e| format!("Failed to write map file: {}", e))?;
-        Ok(())
-    }
-
-    /// Load map from JSON file (for custom map loading, see ROADMAP)
-    #[allow(dead_code)]
-    pub fn load_from_file(path: &Path) -> Result<Self, String> {
-        let json = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read map file: {}", e))?;
-        serde_json::from_str(&json)
-            .map_err(|e| format!("Failed to parse map: {}", e))
-    }
 }
+
+/// The placeholder factions maps use for their army slots, in order
+pub const ARMY_SLOTS: [Faction; 4] = [Faction::Eastern, Faction::Northern, Faction::Western, Faction::Southern];
 
 /// Identifier for built-in maps
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -133,7 +138,8 @@ pub enum MapId {
     DuoFalls,
     ToilFerry,
     PointStormy,
-    #[allow(dead_code)] // Custom map loading, see ROADMAP
+    Crossroads,
+    /// A map made in the editor (the index into `CustomMaps`)
     Custom(usize),
 }
 
@@ -157,6 +163,7 @@ impl MapId {
             MapId::DuoFalls => "Duo Falls",
             MapId::ToilFerry => "Toil Ferry",
             MapId::PointStormy => "Point Stormy",
+            MapId::Crossroads => "Crossroads",
             MapId::Custom(_) => "Custom Map",
         }
     }
@@ -172,6 +179,7 @@ impl MapId {
             MapId::DuoFalls,
             MapId::ToilFerry,
             MapId::PointStormy,
+            MapId::Crossroads,
             MapId::Woodland,
             MapId::RiverCrossing,
             MapId::TwinBases,
@@ -208,6 +216,7 @@ pub fn get_builtin_map(id: MapId) -> MapData {
         MapId::DuoFalls => create_duo_falls_map(),
         MapId::ToilFerry => create_toil_ferry_map(),
         MapId::PointStormy => create_point_stormy_map(),
+        MapId::Crossroads => create_crossroads_map(),
         MapId::Custom(_) => create_woodland_map(), // Fallback
     };
     add_workshops_beside_hqs(&mut map);
@@ -1002,6 +1011,36 @@ fn map_from_rows(name: &str, rows: &[&str]) -> MapData {
 /// and the river is a creek. Each HQ is a base, factories are workshops and
 /// cities are storehouses. As in the original, both armies start with no
 /// units. Orange Star is the first army, Black Hole the second.
+/// Crossroads: a four-army map, one HQ in each corner of a walled meadow and
+/// a crossing of roads in the middle. Mirrored both ways so every army starts
+/// alike; it plays with two, three or four armies (empty corners stand neutral).
+fn create_crossroads_map() -> MapData {
+    // The north-west quarter, mirrored to the east and then to the south
+    let quarter = [
+        "wwwwwwwww",
+        "wB.F.S..T",
+        "w.=====..",
+        "wF=TT.S.o",
+        "w.=T..=..",
+        "wS=..o=TT",
+        "w..S.=...",
+        "wTo..=.S.",
+    ];
+    let half: Vec<String> = quarter.iter().map(|row| row.chars().chain(row.chars().rev()).collect()).collect();
+    let rows: Vec<&str> = half.iter().chain(half.iter().rev()).map(String::as_str).collect();
+    let mut map = map_from_rows("Crossroads", &rows);
+    map.description = "Four armies, four corners, one crossing in the middle. For two to four players.".to_string();
+    let (w, h) = (map.width as i32 - 1, map.height as i32 - 1);
+    for (slot, mirror) in ARMY_SLOTS.iter().zip([(false, false), (true, false), (false, true), (true, true)]) {
+        for (x, y) in [(1, 1), (3, 1), (1, 3), (5, 1)] {
+            let x = if mirror.0 { w - x } else { x };
+            let y = if mirror.1 { h - y } else { y };
+            map.add_property(x, y, *slot);
+        }
+    }
+    map
+}
+
 fn create_spann_island_map() -> MapData {
     let mut map = map_from_rows("Spann Island", &[
         "wwwwwwwwwwwwwwww",
@@ -1485,5 +1524,19 @@ mod tests {
         assert!(map.units.iter().any(|u| u.faction == Faction::Western));
         assert!(map.units.iter().any(|u| u.faction == Faction::Southern));
         assert!(map.properties.iter().all(|p| matches!(p.owner, Faction::Western | Faction::Southern)));
+    }
+
+    #[test]
+    fn crossroads_holds_four_armies_and_empty_slots_go_neutral() {
+        let map = get_builtin_map(MapId::Crossroads);
+        assert_eq!(map.army_count(), 4);
+        assert_eq!(get_builtin_map(MapId::SpannIsland).army_count(), 2);
+        let three = map.with_armies(&[Faction::Southern, Faction::Western, Faction::Eastern]);
+        let owners: std::collections::HashSet<Faction> = three.properties.iter().map(|p| p.owner).collect();
+        assert_eq!(owners, [Faction::Southern, Faction::Western, Faction::Eastern].into_iter().collect());
+        // Every army has its own HQ
+        for faction in [Faction::Southern, Faction::Western, Faction::Eastern] {
+            assert!(three.hq_of(faction).is_some(), "{faction:?} has no HQ");
+        }
     }
 }

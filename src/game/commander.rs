@@ -590,7 +590,7 @@ fn apply_power_effects(
     const AFTER_CUT_IN: f32 = 2.0;
     for event in events.read() {
         let faction = event.faction;
-        let enemy = battle_config.next_faction(faction);
+        let enemies = battle_config.enemies_of(faction);
         info!("{:?} power ({:?}): {} effects", faction, event.level, event.effects.len());
         for effect in &event.effects {
             match effect {
@@ -602,7 +602,7 @@ fn apply_power_effects(
                     }
                 }
                 PowerEffect::DamageEnemies(hp) => {
-                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| !battle_config.allied(f.faction, faction)) {
                         power_damage(&mut unit, *hp);
                         play.write(PlayEffect { kind: EffectKind::Blast, position: *pos, delay: AFTER_CUT_IN });
                     }
@@ -612,7 +612,7 @@ fn apply_power_effects(
                         .filter(|t| game_data.terrain_capturable(t.terrain))
                         .map(|t| (t.position.x, t.position.y))
                         .collect();
-                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                    for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| !battle_config.allied(f.faction, faction)) {
                         if properties.contains(&(pos.x, pos.y)) {
                             power_damage(&mut unit, *hp);
                             play.write(PlayEffect { kind: EffectKind::Blast, position: *pos, delay: AFTER_CUT_IN });
@@ -620,7 +620,7 @@ fn apply_power_effects(
                     }
                 }
                 PowerEffect::HalveEnemyStamina => {
-                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                    for (mut unit, _, _) in units.iter_mut().filter(|(_, f, _)| !battle_config.allied(f.faction, faction)) {
                         unit.stamina /= 2;
                     }
                 }
@@ -633,10 +633,12 @@ fn apply_power_effects(
                     funds.add(faction, (current as f32 * (factor - 1.0)).round() as u32);
                 }
                 PowerEffect::DrainEnemyPower(percent_per_5000) => {
-                    let full = commanders.power_cost(enemy, PowerLevel::Super, &game_data).unwrap_or(0);
-                    let drain = full * (funds.get(faction) / 5000) * (*percent_per_5000 as u32) / 100;
-                    let left = commanders.get_charge(enemy).saturating_sub(drain);
-                    commanders.power_meter.insert(enemy, left);
+                    for &enemy in &enemies {
+                        let full = commanders.power_cost(enemy, PowerLevel::Super, &game_data).unwrap_or(0);
+                        let drain = full * (funds.get(faction) / 5000) * (*percent_per_5000 as u32) / 100;
+                        let left = commanders.get_charge(enemy).saturating_sub(drain);
+                        commanders.power_meter.insert(enemy, left);
+                    }
                 }
                 PowerEffect::AttackPerFunds(percent_per_1000) => {
                     let bonus = (funds.get(faction) as f32 / 1000.0 * percent_per_1000).round() as i32;
@@ -680,7 +682,7 @@ fn apply_power_effects(
                         let delay = AFTER_CUT_IN + strike as f32 * 0.8;
                         // Aim where the most enemy value would be lost
                         let targets: Vec<(i32, i32, i32, u32)> = units.iter()
-                            .filter(|(_, f, _)| f.faction != faction)
+                            .filter(|(_, f, _)| !battle_config.allied(f.faction, faction))
                             .map(|(u, _, p)| (p.x, p.y, u.hp, game_data.unit_stats(u.unit_type).cost))
                             .collect();
                         let value_at = |cx: i32, cy: i32| -> u32 {
@@ -691,7 +693,7 @@ fn apply_power_effects(
                         };
                         let Some((cx, cy)) = targets.iter().map(|(x, y, ..)| (*x, *y)).max_by_key(|&(x, y)| value_at(x, y)) else { break };
                         play.write(PlayEffect { kind: EffectKind::Rockfall, position: GridPosition::new(cx, cy), delay });
-                        for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| f.faction != faction) {
+                        for (mut unit, _, pos) in units.iter_mut().filter(|(_, f, _)| !battle_config.allied(f.faction, faction)) {
                             if (pos.x - cx).abs() + (pos.y - cy).abs() <= *radius {
                                 power_damage(&mut unit, *damage);
                                 play.write(PlayEffect { kind: EffectKind::Blast, position: *pos, delay: delay + 0.3 });

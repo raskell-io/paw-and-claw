@@ -48,7 +48,8 @@ pub fn export_maps_if_asked() {
     std::fs::create_dir_all(&dir).expect("create map export dir");
     for id in crate::game::MapId::all_builtin() {
         let path = dir.join(format!("{id:?}.json"));
-        crate::game::get_builtin_map(id).save_to_file(&path).expect("write map");
+        let json = serde_json::to_string_pretty(&crate::game::get_builtin_map(id)).expect("serialize map");
+        std::fs::write(&path, json).expect("write map");
         println!("{}", path.display());
     }
     std::process::exit(0);

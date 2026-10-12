@@ -406,6 +406,7 @@
                 max_stamina: 99,
                 max_ammo: 9,
                 daily_stamina: 1,
+                hits_divers: true,
             ),
         ),
         // Sub: Cost 20000, Move 5, Vision 5, Fuel 60, Ammo 6
@@ -427,6 +428,9 @@
                 max_stamina: 70,
                 max_ammo: 6,
                 daily_stamina: 1,
+                // Submerged it burns 5 a day and only frigates and divers can hit it
+                dive_stamina: 5,
+                hits_divers: true,
             ),
         ),
         // Battleship: Cost 28000, Move 5, Vision 2, Fuel 99, Ammo 9, Range 2-6

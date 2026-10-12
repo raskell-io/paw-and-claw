@@ -71,8 +71,11 @@ pub fn draw_game_over(
         *selected = 0;
         return;
     };
-    let player = battle_config.player_faction;
-    let won = winner == player;
+    // The winning side (allies win together); it's a victory when a person
+    // is on it, or when only the computer was playing
+    let winners: Vec<_> = battle_config.armies.iter().map(|a| a.faction).filter(|&f| battle_config.allied(f, winner)).collect();
+    let anyone_playing = battle_config.armies.iter().any(|a| !a.ai);
+    let won = !anyone_playing || winners.iter().any(|&f| !battle_config.is_ai_faction(f));
     let message = match (game_result.victory_type, won) {
         (VictoryType::Elimination, true) => "Every enemy unit has been routed.",
         (VictoryType::Elimination, false) => "Your forces have been scattered to the winds.",
@@ -81,7 +84,6 @@ pub fn draw_game_over(
         (VictoryType::None, _) => "",
     };
     let survivors = |faction| units.iter().filter(|(_, f)| f.faction == faction).count();
-    let enemy = battle_config.next_faction(player);
 
     input.step_vertical(&mut selected, 2);
     let mut choice = input.confirm().then_some(*selected);
@@ -99,7 +101,9 @@ pub fn draw_game_over(
                     let pulse = 1.0 + 0.03 * (time.elapsed_secs() * 2.5).sin();
                     let (title, color) = if won { ("Victory!", theme::LEAF) } else { ("Defeat", theme::BERRY) };
                     ui.label(egui::RichText::new(title).font(egui::FontId::new(56.0 * pulse, theme::title_family())).color(color));
-                    ui.label(theme::display(format!("{} prevails", game_data.faction_name(winner)), 22.0)
+                    let names: Vec<&str> = winners.iter().map(|&f| game_data.faction_name(f)).collect();
+                    let verb = if names.len() > 1 { "prevail" } else { "prevails" };
+                    ui.label(theme::display(format!("{} {verb}", names.join(" & ")), 22.0)
                         .color(theme::shade(theme::faction_color(&game_data, winner), 0.75)));
                     ui.add_space(4.0);
                     ui.label(theme::body(message, 17.0).color(theme::INK_SOFT).italics());
@@ -114,18 +118,15 @@ pub fn draw_game_over(
                         });
                         ui.label(theme::bold(turn_state.turn_number.to_string(), 16.0));
                         ui.end_row();
-                        ui.horizontal(|ui| {
-                            super::icons::icon(ui, super::icons::Icon::Paw, 20.0);
-                            ui.label(theme::body(format!("{} units left", game_data.faction_name(player)), 16.0).color(theme::INK_SOFT));
-                        });
-                        ui.label(theme::bold(survivors(player).to_string(), 16.0));
-                        ui.end_row();
-                        ui.horizontal(|ui| {
-                            super::icons::icon(ui, super::icons::Icon::Swords, 20.0);
-                            ui.label(theme::body(format!("{} units left", game_data.faction_name(enemy)), 16.0).color(theme::INK_SOFT));
-                        });
-                        ui.label(theme::bold(survivors(enemy).to_string(), 16.0));
-                        ui.end_row();
+                        for army in &battle_config.armies {
+                            ui.horizontal(|ui| {
+                                let icon = if winners.contains(&army.faction) { super::icons::Icon::Paw } else { super::icons::Icon::Swords };
+                                super::icons::icon(ui, icon, 20.0);
+                                ui.label(theme::body(format!("{} units left", game_data.faction_name(army.faction)), 16.0).color(theme::INK_SOFT));
+                            });
+                            ui.label(theme::bold(survivors(army.faction).to_string(), 16.0));
+                            ui.end_row();
+                        }
                     });
                 });
                 ui.add_space(8.0);
