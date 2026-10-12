@@ -120,3 +120,5 @@ Drive the real game and capture screens with the dev script, e.g.:
 (steps: wait N, until menu|setup|board|turn (turn = banner done, input live), touch down|move|up X Y, key NAME, hold NAME N, click X Y, unit X Y FIELD VALUE, charge, co KEY, move X Y, shot NAME, gameover win|lose, quit;
 output goes to `screenshots/`, which is gitignored). Captures land a few frames after
 `shot`, so wait before sending the next input.
+`PAW_BARE=1` hides the title screen's UI, leaving only the diorama (website hero shots):
+`PAW_BARE=1 PAW_SCRIPT="until menu; wait 90; shot diorama; quit" cargo run`

@@ -42,6 +42,13 @@ fn entries(continue_detail: Option<&str>) -> Vec<MenuEntry> {
     entries
 }
 
+/// Whether `PAW_BARE` is set: the title screen then draws none of its UI (title,
+/// menu, forest frame, hints), only the live diorama behind it. Desktop dev aid
+fn bare_title() -> bool {
+    static BARE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *BARE.get_or_init(|| std::env::var_os("PAW_BARE").is_some())
+}
+
 pub fn draw_main_menu(
     mut contexts: EguiContexts,
     mut next_state: ResMut<NextState<GameState>>,
@@ -57,6 +64,10 @@ pub fn draw_main_menu(
     // The opening sequence comes first (ui/boot.rs); the load screen sits on top
     if boot.stage != crate::states::BootStage::Menu || save_menu.blocks_input() {
         *shown = false;
+        return;
+    }
+    // PAW_BARE=1 leaves the diorama on its own, for captures of the title screen
+    if bare_title() {
         return;
     }
     // The button that left the title screen must not also pick an entry

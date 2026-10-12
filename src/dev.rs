@@ -24,6 +24,8 @@
 //! - `gameover win|lose` - end the current battle immediately
 //! - `quit`       - exit the app
 //!
+//! `PAW_BARE=1` hides the title screen's UI so `shot` captures the bare diorama.
+//!
 //! Native builds only; inert unless `PAW_SCRIPT` is set.
 
 use bevy::input::keyboard::{Key, KeyboardInput};
