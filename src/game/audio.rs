@@ -66,13 +66,15 @@ struct LoadedSound {
     handle: Handle<AudioSource>,
     volume: f32,
     pitch_variance: f32,
-    looped: bool,
 }
 
 #[derive(Resource, Default)]
 struct SoundLibrary {
     sfx: HashMap<String, LoadedSound>,
-    music: HashMap<String, LoadedSound>,
+    /// Music is fetched the first time it's needed (on the web the game would
+    /// otherwise download every theme before it starts), then kept
+    music: HashMap<String, super::SoundData>,
+    music_handles: HashMap<String, Handle<AudioSource>>,
 }
 
 impl SoundLibrary {
@@ -93,10 +95,13 @@ fn load_sounds(mut commands: Commands, asset_server: Res<AssetServer>, game_data
             handle: asset_server.load(sound.file.clone()),
             volume: sound.volume,
             pitch_variance: sound.pitch_variance,
-            looped: sound.looped,
         }))
         .collect();
-    commands.insert_resource(SoundLibrary { sfx: load(&game_data.audio.sfx), music: load(&game_data.audio.music) });
+    commands.insert_resource(SoundLibrary {
+        sfx: load(&game_data.audio.sfx),
+        music: game_data.audio.music.clone(),
+        music_handles: HashMap::new(),
+    });
     commands.insert_resource(MusicCue::default());
 }
 
@@ -362,12 +367,13 @@ fn choose_music(
 fn play_music(
     mut commands: Commands,
     cue: Res<MusicCue>,
-    library: Option<Res<SoundLibrary>>,
+    library: Option<ResMut<SoundLibrary>>,
+    asset_server: Res<AssetServer>,
     settings: Res<AudioSettings>,
     time: Res<Time>,
     mut tracks: Query<(Entity, &mut MusicTrack, Option<&mut AudioSink>)>,
 ) {
-    let Some(library) = library else { return };
+    let Some(mut library) = library else { return };
     let step = time.delta_secs() / MUSIC_FADE_SECS;
     let mut cued_playing = false;
     for (entity, mut track, sink) in &mut tracks {
@@ -384,15 +390,18 @@ fn play_music(
     }
     if let Some(id) = &cue.0 {
         if !cued_playing {
-            let Some(sound) = library.music.get(id) else {
+            let Some(sound) = library.music.get(id).cloned() else {
                 warn_once!("No music '{id}' in audio.ron");
                 return;
             };
+            let handle = library.music_handles.entry(id.clone())
+                .or_insert_with(|| asset_server.load(sound.file.clone()))
+                .clone();
             // Themes fade in; a jingle starts at full volume and plays once
             let (playback, level) = if sound.looped { (PlaybackSettings::LOOP, 0.0) } else { (PlaybackSettings::ONCE, 1.0) };
             let volume = sound.volume * settings.master * settings.music * level;
             commands.spawn((
-                AudioPlayer(sound.handle.clone()),
+                AudioPlayer(handle),
                 playback.with_volume(Volume::Linear(volume)),
                 MusicTrack { id: id.clone(), level },
             ));

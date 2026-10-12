@@ -708,6 +708,46 @@ COMMANDERS = {
         [(1, .5), (5, .5), (4, .5), (5, .5), (8, 1), (7, .5), (5, .5), (6, 1), (5, .5), (4, .5), (3, 1), (None, 1)],
         [(7, .5), (8, .5), (9, .5), (7, .5), (4, 1), (5, .5), (6, .5), (7, 1), (4, 1), (2, 2)],
         [(5, .5), (4, .5), (3, .5), (2, .5), (1, 1), (4, 1), (0, 2), (None, 2)])),
+    # Clover plays like Nell: sunny and kind, a bright brass tune over arps
+    # and a rock beat
+    "clover": dict(army="western", personality="Aggressive", key="D5", scale="major", lead="bright_brass",
+                   counter="arp", drums="rock", motif=(
+        [(4, .5), (4, .5), (5, .5), (7, 1), (5, .5), (4, 1), (2, 1), (4, .5), (5, .5), (4, 2)],
+        [(2, .5), (2, .5), (4, .5), (5, 1), (4, .5), (2, 1), (0, 1), (1, .5), (2, .5), (1, 2)],
+        [(7, 1), (9, .5), (8, .5), (7, 1), (5, 1), (4, .5), (5, .5), (7, 1), (4, 2)],
+        [(5, .5), (4, .5), (2, .5), (4, .5), (1, 1), (2, 1), (0, 2), (None, 2)])),
+    # Shell plays like Hachi: an old merchant's easy blues, swung harmonica
+    # over a strum and a walking bass
+    "shell": dict(army="western", personality="Methodical", key="F5", scale="mixolydian", swing=0.3,
+                  lead="harmonica", counter="strum", drums="swing", bass=[0, 4, 7, 9, 12, 9, 7, 4], motif=(
+        [(0, 1), (2, .5), (3, .5), (4, 1), (6, .5), (4, .5), (2, 1), (0, 1), (None, 2)],
+        [(3, 1), (5, .5), (6, .5), (7, 1), (6, .5), (5, .5), (4, 1), (3, 1), (None, 2)],
+        [(7, .5), (6, .5), (4, 1), (6, .5), (4, .5), (2, 1), (4, .5), (2, .5), (1, 1), (0, 2)],
+        [(2, .5), (3, .5), (4, .5), (2, .5), (0, 1), (-1, 1), (0, 2), (None, 2)])),
+    # Ridge plays like Jake: a cool street groove, clipped pentatonic sax
+    # phrases with gaps over a rock beat
+    "ridge": dict(army="western", personality="Aggressive", key="A4", scale="minor_pentatonic", swing=0.15,
+                  lead="sax", drums="rock", bass=[0, 0, 12, 0, 0, 10, 12, 7], motif=(
+        [(0, .5), (None, .5), (0, .5), (1, .5), (2, 1), (None, .5), (2, .5), (3, .5), (2, .5), (1, 1), (0, 2)],
+        [(2, .5), (None, .5), (2, .5), (3, .5), (4, 1), (None, .5), (4, .5), (5, .5), (4, .5), (3, 1), (2, 2)],
+        [(5, 1), (4, .5), (3, .5), (2, 1), (3, .5), (4, .5), (5, 1), (4, 1), (None, 2)],
+        [(3, .5), (2, .5), (1, .5), (0, .5), (1, 1), (-1, 1), (0, 2), (None, 2)])),
+    # Hollis plays like Rachel: earnest and heroic, a leaping horn melody over
+    # a bright march
+    "hollis": dict(army="western", personality="Cautious", key="E5", bpm=132, scale="major", lead="horn_brass",
+                   drums="march", motif=(
+        [(0, 1), (4, 1), (5, .5), (4, .5), (2, 1), (4, 1.5), (5, .5), (7, 2)],
+        [(5, 1), (4, 1), (2, .5), (4, .5), (5, 1), (1, 1.5), (2, .5), (4, 2)],
+        [(7, 1), (8, .5), (9, .5), (7, 1), (5, 1), (4, 1), (5, .5), (4, .5), (2, 2)],
+        [(4, 1), (2, .5), (1, .5), (2, 1), (-1, 1), (0, 4)])),
+    # Cinder plays like Koal: a menacing military march, low brass hammering
+    # harmonic-minor steps
+    "cinder": dict(army="nether", personality="Aggressive", key="D5", bpm=124, scale="harmonic_minor",
+                   lead="low_brass", drums="military", motif=(
+        [(0, .5), (0, .5), (0, 1), (1, .5), (2, .5), (3, 1), (2, 1), (1, .5), (0, .5), (-1, 2)],
+        [(3, .5), (3, .5), (3, 1), (4, .5), (5, .5), (6, 1), (5, 1), (4, .5), (3, .5), (2, 2)],
+        [(7, 1), (6, .5), (5, .5), (6, 1), (4, 1), (5, .5), (4, .5), (3, 1), (4, 2)],
+        [(2, .5), (1, .5), (0, .5), (-1, .5), (0, 1), (4, 1), (0, 2), (None, 2)])),
 }
 
 # Each army's power theme: its first commander's motif, faster, a step
@@ -976,9 +1016,11 @@ def title_spec():
 
 
 def encode(wav_path, out_path):
-    """WAV -> mono OGG Vorbis with ffmpeg's built-in encoder (Bevy plays Vorbis)."""
+    """WAV -> OGG Vorbis with ffmpeg's built-in encoder (Bevy plays Vorbis). The
+    built-in encoder only writes stereo; quality 2 is plenty after the lo-fi
+    GBA output stage and keeps the web download small (~2.5x under 96 kbit/s)."""
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(wav_path),
-                    "-c:a", "vorbis", "-strict", "-2", "-ac", "2", "-b:a", "96k", str(out_path)], check=True)
+                    "-c:a", "vorbis", "-strict", "-2", "-ac", "2", "-q:a", "2", str(out_path)], check=True)
 
 
 def main():

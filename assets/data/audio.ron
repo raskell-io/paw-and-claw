@@ -73,6 +73,11 @@
         "co_rumble": (file: "audio/music/co_rumble.ogg", volume: 0.8),
         "co_sensei": (file: "audio/music/co_sensei.ogg", volume: 0.8),
         "co_burrower": (file: "audio/music/co_burrower.ogg", volume: 0.8),
+        "co_clover": (file: "audio/music/co_clover.ogg", volume: 0.8),
+        "co_shell": (file: "audio/music/co_shell.ogg", volume: 0.8),
+        "co_ridge": (file: "audio/music/co_ridge.ogg", volume: 0.8),
+        "co_hollis": (file: "audio/music/co_hollis.ogg", volume: 0.8),
+        "co_cinder": (file: "audio/music/co_cinder.ogg", volume: 0.8),
         // CO Power themes, one per army (a faster arrangement of a commander's theme)
         "power_western": (file: "audio/music/power_western.ogg", volume: 0.8),
         "power_northern": (file: "audio/music/power_northern.ogg", volume: 0.8),
