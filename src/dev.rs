@@ -26,6 +26,10 @@
 //!
 //! `PAW_BARE=1` hides the title screen's UI so `shot` captures the bare diorama.
 //!
+//! `PAW_EXPORT_MAPS=DIR` writes every built-in map to `DIR/<id>.json` (`MapData` as
+//! JSON, as the game sets it up) and exits without opening a window. The website
+//! (pawandclaw.raskell.io) builds its map pages from these.
+//!
 //! Native builds only; inert unless `PAW_SCRIPT` is set.
 
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -36,6 +40,19 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::window::{CursorMoved, PrimaryWindow};
 use std::collections::VecDeque;
 use std::path::PathBuf;
+
+/// `PAW_EXPORT_MAPS=DIR`: write each built-in map as JSON, then exit
+pub fn export_maps_if_asked() {
+    let Some(dir) = std::env::var_os("PAW_EXPORT_MAPS") else { return };
+    let dir = PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).expect("create map export dir");
+    for id in crate::game::MapId::all_builtin() {
+        let path = dir.join(format!("{id:?}.json"));
+        crate::game::get_builtin_map(id).save_to_file(&path).expect("write map");
+        println!("{}", path.display());
+    }
+    std::process::exit(0);
+}
 
 pub struct DevScriptPlugin;
 

@@ -13,6 +13,8 @@ use ui::UiPlugin;
 fn main() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
+    #[cfg(not(target_arch = "wasm32"))]
+    dev::export_maps_if_asked();
 
     let mut app = App::new();
     app
