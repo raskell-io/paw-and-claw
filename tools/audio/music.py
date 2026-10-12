@@ -604,6 +604,39 @@ COMMANDERS = {
         [(4, 1), (2, .5), (4, .5), (5, 1), (7, .5), (5, .5), (4, 2), (None, 2)],
         [(7, 1), (8, .5), (7, .5), (5, 1), (4, 1), (5, .5), (4, .5), (2, 1), (1, 2)],
         [(2, .5), (4, .5), (2, .5), (0, .5), (-1, 1), (0, 1), (1, 2), (None, 2)])),
+    # Bjorn plays like Colin: a light, cheerful, bouncy tune of short notes,
+    # flute over bells and a skipping bass
+    "bjorn": dict(army="northern", personality="Methodical", key="F5", bpm=144, scale="major", lead="flute",
+                  counter="bells", drums="march", bass=[0, 7, 12, 7, 0, 7, 12, 7], motif=(
+        [(0, .5), (2, .5), (4, .5), (2, .5), (5, 1), (4, .5), (2, .5), (4, 1), (None, .5), (4, .5), (5, .5), (7, .5), (9, 1)],
+        [(7, .5), (5, .5), (4, .5), (2, .5), (4, 1), (2, .5), (0, .5), (1, 1), (2, 1), (None, 2)],
+        [(4, .5), (4, .5), (5, .5), (7, .5), (9, 1), (7, .5), (5, .5), (4, 1), (5, .5), (4, .5), (2, 1), (None, 1)],
+        [(2, .5), (4, .5), (5, .5), (4, .5), (2, 1), (1, 1), (0, 2), (None, 2)])),
+    # Goro plays like Grimm: swaggering shuffle rock, a bluesy pentatonic riff
+    # on bright brass over a rock beat
+    "goro": dict(army="eastern", personality="Reckless", key="A4", scale="minor_pentatonic", swing=0.2,
+                 lead="bright_brass", drums="rock", bass=[0, 0, 12, 0, 10, 0, 7, 0],
+                 prog=[0, 0, 3, 0, 4, 3, 0, 4, 0, 0, 3, 0, 4, 4, 0, 4], motif=(
+        [(0, .5), (0, .5), (1, .5), (2, 1), (1, .5), (0, 1), (None, .5), (3, .5), (2, .5), (1, .5), (0, 1.5), (None, .5)],
+        [(2, .5), (2, .5), (3, .5), (4, 1), (3, .5), (2, 1), (None, .5), (4, .5), (5, 1), (4, 1.5), (None, .5)],
+        [(5, 1), (4, .5), (3, .5), (4, 1), (2, 1), (3, .5), (2, .5), (1, 1), (0, 1), (None, 1)],
+        [(0, .5), (1, .5), (2, .5), (3, .5), (4, 1), (3, .5), (2, .5), (0, 2), (None, 2)])),
+    # Carapace plays like Hawke: cold and menacing, a harmonic-minor line that
+    # coils around the leading tone over a driving low bass
+    "carapace": dict(army="nether", personality="Methodical", key="C5", bpm=128, scale="harmonic_minor",
+                     lead="horn_brass", motif=(
+        [(4, 1), (5, .5), (4, .5), (3, 1), (2, 1), (1, .5), (2, .5), (-1, 1), (0, 2)],
+        [(4, 1), (5, .5), (4, .5), (6, 1), (7, 1), (6, .5), (5, .5), (4, 3)],
+        [(7, .5), (6, .5), (5, .5), (4, .5), (5, 1), (3, 1), (4, .5), (3, .5), (2, 1), (1, 2)],
+        [(0, .5), (2, .5), (1, .5), (-1, .5), (0, 1), (4, 1), (5, .5), (4, .5), (-1, 1), (0, 2)])),
+    # Vesper plays like Von Bolt: slow, grand and ominous, long horn notes over
+    # the Nether's organ
+    "vesper": dict(army="nether", personality="Cautious", key="B4", bpm=96, scale="minor", lead="horn",
+                   counter="none", motif=(
+        [(0, 2), (2, 1), (1, 1), (0, 1.5), (-1, .5), (0, 2)],
+        [(4, 2), (5, 1), (4, 1), (3, 1.5), (2, .5), (1, 2)],
+        [(5, 1.5), (6, .5), (7, 2), (6, 1), (5, 1), (4, 2)],
+        [(3, 1), (2, 1), (1, 1), (0, 1), (-1, 2), (-3, 2)])),
 }
 
 # Each army's power theme: its first commander's motif, faster, a step

@@ -60,6 +60,10 @@
         "co_tanuki": (file: "audio/music/co_tanuki.ogg", volume: 0.8),
         "co_lionheart": (file: "audio/music/co_lionheart.ogg", volume: 0.8),
         "co_grimjaw": (file: "audio/music/co_grimjaw.ogg", volume: 0.8),
+        "co_bjorn": (file: "audio/music/co_bjorn.ogg", volume: 0.8),
+        "co_goro": (file: "audio/music/co_goro.ogg", volume: 0.8),
+        "co_carapace": (file: "audio/music/co_carapace.ogg", volume: 0.8),
+        "co_vesper": (file: "audio/music/co_vesper.ogg", volume: 0.8),
         // CO Power themes, one per army (a faster arrangement of a commander's theme)
         "power_western": (file: "audio/music/power_western.ogg", volume: 0.8),
         "power_northern": (file: "audio/music/power_northern.ogg", volume: 0.8),
