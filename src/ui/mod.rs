@@ -13,6 +13,7 @@ use crate::states::GameState;
 
 mod editor;
 mod boot;
+mod battle_scene;
 mod hud;
 mod icons;
 mod input;
@@ -268,6 +269,7 @@ impl Plugin for UiPlugin {
                 saves::draw_save_notice,
             ).run_if(egui_is_ready))
             .add_systems(Update, (saves::save_hotkeys, saves::on_game_loaded))
+            .add_systems(EguiPrimaryContextPass, battle_scene::draw_battle_scene.run_if(in_state(GameState::Battle)).run_if(egui_is_ready))
             // Action menu registered separately
             .add_systems(EguiPrimaryContextPass,
                 draw_action_menu.run_if(in_state(GameState::Battle)).run_if(egui_is_ready)
@@ -372,9 +374,11 @@ fn update_modal_state(
     map_menu: Res<crate::game::MapMenu>,
     banner: Res<crate::game::TurnBanner>,
     save_menu: Res<saves::SaveMenu>,
+    battle_scene: Res<crate::game::BattleScene>,
 ) {
     let open = *state.get() != GameState::Battle
         || save_menu.is_open()
+        || battle_scene.busy()
         || setup.needs_setup
         || production.active
         || map_menu.open

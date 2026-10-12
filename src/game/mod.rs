@@ -15,6 +15,7 @@ mod sprites;
 mod assets;
 mod save;
 mod custom_maps;
+mod battle_scene;
 mod modding;
 mod effects;
 mod audio;
@@ -36,6 +37,7 @@ pub use sprites::*;
 pub use assets::*;
 pub use save::*;
 pub use custom_maps::*;
+pub use battle_scene::*;
 pub use modding::*;
 pub use effects::*;
 pub use audio::*;
@@ -58,6 +60,7 @@ impl Plugin for GamePlugin {
             .add_plugins(GameAudioPlugin)
             .add_plugins(TouchControlsPlugin)
             .add_plugins(CustomMapsPlugin)
+            .add_plugins(BattleScenePlugin)
             .add_plugins(diorama::DioramaPlugin)
             .add_plugins(AiPlugin)
             .add_plugins(FogPlugin)

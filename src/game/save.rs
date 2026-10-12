@@ -429,6 +429,7 @@ pub struct BattleSnapshot<'w, 's> {
     ai: Res<'w, AiState>,
     banner: Res<'w, TurnBanner>,
     pending: Res<'w, PendingAction>,
+    battle_scene: Res<'w, super::BattleScene>,
 }
 
 impl BattleSnapshot<'_, '_> {
@@ -447,6 +448,7 @@ impl BattleSnapshot<'_, '_> {
             && self.pending.unit.is_none()
             && self.animating.is_empty()
             && !self.banner.playing()
+            && !self.battle_scene.busy()
     }
 
     fn snapshot(&self, game_data: &GameData) -> SaveGame {

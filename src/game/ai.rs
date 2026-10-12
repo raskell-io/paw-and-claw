@@ -21,6 +21,7 @@ struct AiResources<'w> {
     battle_config: Res<'w, BattleConfig>,
     weather: Res<'w, Weather>,
     banner: Res<'w, TurnBanner>,
+    battle_scene: Res<'w, super::BattleScene>,
 }
 
 pub struct AiPlugin;
@@ -1866,7 +1867,8 @@ fn ai_turn_system(
     }
 
     // Let the turn's "Day N" banner play out first
-    if turn_state.phase == TurnPhase::Action || ai_res.banner.playing() {
+    // ...and any battle scene too, so each attack plays out before the next
+    if turn_state.phase == TurnPhase::Action || ai_res.banner.playing() || ai_res.battle_scene.busy() {
         return;
     }
 

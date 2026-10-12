@@ -15,6 +15,7 @@ src/
 │   ├── faction.rs   # Factions
 │   ├── commander.rs # CO abilities
 │   ├── combat.rs    # Attack, capture, etc.
+│   ├── battle_scene.rs # Battle replays: reports, queue, timing, Full/Quick/Off
 │   ├── movement.rs  # Input, pathfinding
 │   ├── turn.rs      # Turn management
 │   ├── ai.rs        # AI opponents
@@ -35,6 +36,7 @@ src/
 │   ├── hud.rs       # Battle HUD, inspect card, unit tokens
 │   ├── production.rs# Build menu
 │   ├── saves.rs     # Save/load slot screen, save toasts, F5/F9
+│   ├── battle_scene.rs # Draws the side-view battle scene
 │   ├── map_menu.rs  # AW map menu: units, intel, commanders, options, end turn
 │   ├── overlays.rs  # Game over, battle teardown
 │   └── editor.rs    # Map editor
@@ -124,6 +126,10 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   `theme::pointer_selects` so a resting mouse doesn't steal keyboard focus
 - A screen opened by a keypress must ignore input on its first frame
 - Modals set `ModalOpen` (via `update_modal_state`) so the board ignores their input
+- Battle scenes (`game/battle_scene.rs` runs them, `ui/battle_scene.rs` draws them): combat
+  resolves at once and sends a `BattleReport`; reports queue and play after the attacker's walk,
+  the board/AI/saving wait while `BattleScene::busy()`. Full/Quick/Off in map menu Options
+  (`DisplaySettings`, saved); any button skips. Battle art is the map sprites for now
 - Saves: open `saves::SaveMenu` (never write save files from UI code); anything new that a battle
   needs to resume belongs in `SaveGame` (bump `SaveGame::VERSION` if old saves can't carry it)
 - Everything spawned for a battle gets `BattleEntity` (required by `Unit`, `Tile`, ...)

@@ -45,6 +45,7 @@ enum MainItem {
 enum OptionItem {
     SoundEffects,
     Music,
+    Battles,
     Fog,
     Controls,
     Save,
@@ -52,8 +53,8 @@ enum OptionItem {
     Title,
 }
 
-const OPTION_ITEMS: [OptionItem; 7] = [
-    OptionItem::SoundEffects, OptionItem::Music, OptionItem::Fog, OptionItem::Controls,
+const OPTION_ITEMS: [OptionItem; 8] = [
+    OptionItem::SoundEffects, OptionItem::Music, OptionItem::Battles, OptionItem::Fog, OptionItem::Controls,
     OptionItem::Save, OptionItem::Load, OptionItem::Title,
 ];
 
@@ -81,6 +82,7 @@ pub struct MenuActions<'w> {
     saves: ResMut<'w, SaveMenu>,
     cursor: ResMut<'w, GridCursor>,
     audio: ResMut<'w, crate::game::AudioSettings>,
+    display: ResMut<'w, crate::game::DisplaySettings>,
 }
 
 /// What the menu shows
@@ -309,6 +311,7 @@ pub fn draw_map_menu(
                         let (label, detail, tone) = match item {
                             OptionItem::SoundEffects => (format!("Sound effects: {}", volume_bar(actions.audio.sfx)), Some("←→ to adjust"), Tone::Normal),
                             OptionItem::Music => (format!("Music: {}", volume_bar(actions.audio.music)), Some("←→ to adjust"), Tone::Normal),
+                            OptionItem::Battles => (format!("Battle scenes: {}", actions.display.battle.name()), Some("Full, quick or off"), Tone::Normal),
                             OptionItem::Fog => (format!("Fog of war: {}", if actions.fog.enabled { "On" } else { "Off" }), None, Tone::Normal),
                             OptionItem::Controls => (format!("Controls: {}", actions.input_mode.name()), None, Tone::Normal),
                             OptionItem::Save if !info.players_turn() => ("Save game".to_string(), Some("On your turn"), Tone::Muted),
@@ -322,6 +325,7 @@ pub fn draw_map_menu(
                         let icon = match item {
                             OptionItem::SoundEffects => Icon::Bell,
                             OptionItem::Music => Icon::Note,
+                            OptionItem::Battles => Icon::Swords,
                             OptionItem::Fog => Icon::Cloud,
                             OptionItem::Controls => Icon::Gamepad,
                             OptionItem::Save => Icon::Book,
@@ -397,6 +401,7 @@ pub fn draw_map_menu(
         Page::Options => match OPTION_ITEMS[index] {
             OptionItem::SoundEffects => actions.audio.sfx = step_volume(actions.audio.sfx, 0.1, true),
             OptionItem::Music => actions.audio.music = step_volume(actions.audio.music, 0.1, true),
+            OptionItem::Battles => actions.display.battle = actions.display.battle.cycle(),
             OptionItem::Fog => actions.fog.enabled = !actions.fog.enabled,
             OptionItem::Controls => *actions.input_mode = actions.input_mode.cycle(),
             // Saving waits for the player's own turn

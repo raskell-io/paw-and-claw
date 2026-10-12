@@ -215,6 +215,7 @@ fn process_attacks(
     game_data: Res<GameData>,
     battle_config: Res<super::BattleConfig>,
     mut defeated: MessageWriter<super::UnitDefeated>,
+    mut reports: MessageWriter<super::BattleReport>,
 ) {
     for event in events.read() {
         let Ok([(mut attacker_unit, attacker_pos, attacker_faction),
@@ -238,6 +239,16 @@ fn process_attacks(
         let defender_terrain = map.get(defender_pos.x, defender_pos.y).unwrap_or(Terrain::Grass);
         let attacker_side = (attacker_terrain, &attacker_co, attacker_faction.faction);
         let defender_side = (defender_terrain, &defender_co, defender_faction.faction);
+        // What the battle scene replays
+        let combatant = |unit: &Unit, faction: &FactionMember, terrain| super::Combatant {
+            faction: faction.faction, unit_type: unit.unit_type, terrain, hp: unit.hp,
+        };
+        let mut report = super::BattleReport {
+            attacker: combatant(&attacker_unit, attacker_faction, attacker_terrain),
+            defender: combatant(&defender_unit, defender_faction, defender_terrain),
+            strikes: Vec::new(),
+        };
+        let ranged = attacker_pos.distance_to(defender_pos) > 1;
         let can_counter = |defender: &Unit, attacker: &Unit| {
             defender.hp > 0 && can_attack(defender, defender_pos, defender_faction, attacker, attacker_pos,
                 attacker_faction, defender_range, &game_data)
@@ -248,18 +259,22 @@ fn process_attacks(
         if counter_first {
             strike(&mut defender_unit, defender_side, &mut attacker_unit, attacker_side, defender_co.counter(),
                 &mut commanders, &mut funds, &weather, &game_data);
+            report.strikes.push(super::Strike { by_attacker: false, target_hp_after: attacker_unit.hp.max(0), ranged });
         }
         if attacker_unit.hp > 0 {
             strike(&mut attacker_unit, attacker_side, &mut defender_unit, defender_side, 1.0,
                 &mut commanders, &mut funds, &weather, &game_data);
+            report.strikes.push(super::Strike { by_attacker: true, target_hp_after: defender_unit.hp.max(0), ranged });
             attacker_unit.attacked = true;
             // Counter-attack: the defender survived and can reach the attacker
             // (indirect units never can: they can't fire at adjacent units)
             if !counter_first && can_counter(&defender_unit, &attacker_unit) {
                 strike(&mut defender_unit, defender_side, &mut attacker_unit, attacker_side, defender_co.counter(),
                     &mut commanders, &mut funds, &weather, &game_data);
+                report.strikes.push(super::Strike { by_attacker: false, target_hp_after: attacker_unit.hp.max(0), ranged });
             }
         }
+        reports.write(report);
 
         for (unit, pos, entity) in [(&defender_unit, defender_pos, event.defender), (&attacker_unit, attacker_pos, event.attacker)] {
             if unit.hp <= 0 {

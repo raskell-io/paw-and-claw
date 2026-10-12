@@ -202,6 +202,8 @@ fn unit_sounds(
 /// units falling, and power effects in step with their animations
 fn combat_sounds(
     mut attacks: MessageReader<AttackEvent>,
+    mut reports: MessageReader<super::BattleReport>,
+    display: Res<super::DisplaySettings>,
     mut defeated: MessageReader<UnitDefeated>,
     mut effects: MessageReader<PlayEffect>,
     mut powers: MessageReader<PowerActivatedEvent>,
@@ -210,18 +212,20 @@ fn combat_sounds(
     mut queue: ResMut<DelayedSounds>,
     mut play: MessageWriter<PlaySfx>,
 ) {
+    // With battle scenes on, the scene plays the strikes and losses in step
+    // with its animation instead
+    let scenes = display.battle != super::BattleAnimation::Off;
+    let in_battle = reports.read().count() > 0;
     for attack in attacks.read() {
         let Ok(unit) = units.get(attack.attacker) else { continue };
-        let (min_range, _) = game_data.unit_stats(unit.unit_type).attack_range;
-        let class = game_data.unit_class(unit.unit_type);
-        play.write(PlaySfx(match (min_range > 1, class) {
-            (true, UnitClass::Treads | UnitClass::Wheels) => "boom",
-            (true, _) => "shot",
-            _ => "hit",
-        }));
+        if !scenes {
+            play.write(PlaySfx(super::strike_sound(&game_data, unit.unit_type)));
+        }
     }
     for _ in defeated.read() {
-        queue.0.push((0.15, "defeat"));
+        if !(scenes && in_battle) {
+            queue.0.push((0.15, "defeat"));
+        }
     }
     for _ in powers.read() {
         play.write(PlaySfx("power"));
