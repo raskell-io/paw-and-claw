@@ -68,6 +68,11 @@
         "co_clank": (file: "audio/music/co_clank.ogg", volume: 0.8),
         "co_dredge": (file: "audio/music/co_dredge.ogg", volume: 0.8),
         "co_wriggle": (file: "audio/music/co_wriggle.ogg", volume: 0.8),
+        "co_sable": (file: "audio/music/co_sable.ogg", volume: 0.8),
+        "co_tusker": (file: "audio/music/co_tusker.ogg", volume: 0.8),
+        "co_rumble": (file: "audio/music/co_rumble.ogg", volume: 0.8),
+        "co_sensei": (file: "audio/music/co_sensei.ogg", volume: 0.8),
+        "co_burrower": (file: "audio/music/co_burrower.ogg", volume: 0.8),
         // CO Power themes, one per army (a faster arrangement of a commander's theme)
         "power_western": (file: "audio/music/power_western.ogg", volume: 0.8),
         "power_northern": (file: "audio/music/power_northern.ogg", volume: 0.8),

@@ -668,6 +668,46 @@ COMMANDERS = {
         [(4, .5), (5, .5), (6, .5), (5, .5), (4, 1), (3, 1), (4, .5), (6, .5), (7, 1), (6, 2)],
         [(7, 1), (6, .5), (5, .5), (4, 1), (3, .5), (2, .5), (1, 1), (2, .5), (3, .5), (4, 2)],
         [(3, .5), (2, .5), (1, .5), (0, .5), (-1, 1), (1, 1), (0, 2), (None, 2)])),
+    # Sable plays like Sasha: refined and elegant, a legato flute melody over
+    # bells and a gentle swing
+    "sable": dict(army="northern", personality="Cautious", key="A4", bpm=108, scale="major", lead="flute",
+                  counter="bells", drums="swing", motif=(
+        [(4, 1), (5, .5), (4, .5), (2, 1), (0, 1), (1, 1.5), (2, .5), (4, 2)],
+        [(5, 1), (7, .5), (5, .5), (4, 1), (2, 1), (3, 1.5), (2, .5), (1, 2)],
+        [(7, 1.5), (6, .5), (5, 1), (4, 1), (5, 1), (4, .5), (2, .5), (4, 2)],
+        [(2, 1), (1, .5), (0, .5), (1, 1), (-1, 1), (0, 4)])),
+    # Tusker plays like Drake: a jaunty sea shanty, mixolydian horns over
+    # strummed chords and a rolling march
+    "tusker": dict(army="southern", personality="Methodical", key="D5", scale="mixolydian", swing=0.3,
+                   lead="horn_brass", counter="strum", drums="march", motif=(
+        [(0, .5), (0, .5), (0, .5), (2, .5), (4, 1), (4, 1), (5, .5), (4, .5), (2, 1), (0, 2)],
+        [(1, .5), (1, .5), (1, .5), (3, .5), (5, 1), (5, 1), (6, .5), (5, .5), (4, 1), (2, 2)],
+        [(4, 1), (7, 1), (6, .5), (5, .5), (4, 1), (2, 1), (3, .5), (2, .5), (1, 2)],
+        [(0, .5), (2, .5), (4, .5), (2, .5), (1, 1), (-1, 1), (0, 2), (None, 2)])),
+    # Rumble plays like Jess: rugged and cool, a confident minor rock line on
+    # bright brass
+    "rumble": dict(army="southern", personality="Aggressive", key="B4", scale="minor", lead="bright_brass",
+                   drums="rock", motif=(
+        [(0, 1), (2, .5), (3, .5), (4, 1), (3, .5), (2, .5), (0, 1), (-1, 1), (0, 2)],
+        [(4, 1), (5, .5), (6, .5), (7, 1), (6, .5), (5, .5), (4, 1), (2, 1), (4, 2)],
+        [(7, .5), (7, .5), (6, 1), (5, .5), (4, .5), (3, 1), (4, .5), (3, .5), (2, 1), (1, 2)],
+        [(2, .5), (3, .5), (4, 1), (2, .5), (1, .5), (0, 1), (-1, .5), (0, 1.5), (None, 2)])),
+    # Sensei plays like Sensei: an old master's easy, jaunty stroll, a swung
+    # pentatonic flute
+    "sensei": dict(army="eastern", personality="Aggressive", key="G5", bpm=118, scale="pentatonic", swing=0.2,
+                   lead="flute", drums="swing", motif=(
+        [(0, .5), (1, .5), (2, 1), (4, .5), (2, .5), (1, 1), (0, 1), (1, .5), (0, .5), (-1, 2)],
+        [(2, .5), (3, .5), (4, 1), (5, .5), (4, .5), (3, 1), (2, 1), (3, .5), (2, .5), (1, 2)],
+        [(5, 1), (4, .5), (3, .5), (4, 1), (2, 1), (3, .5), (2, .5), (1, 1), (2, 2)],
+        [(1, .5), (0, .5), (-1, .5), (0, .5), (1, 1), (2, 1), (0, 2), (None, 2)])),
+    # Burrower plays like Lash: a mischievous little genius, leaping marimba
+    # figures with a skip in their step
+    "burrower": dict(army="nether", personality="Cautious", key="C5", bpm=120, scale="major", swing=0.15,
+                     lead="marimba", drums="swing", motif=(
+        [(0, .5), (4, .5), (3, .5), (4, .5), (7, 1), (6, .5), (4, .5), (5, 1), (4, .5), (3, .5), (2, 1), (None, 1)],
+        [(1, .5), (5, .5), (4, .5), (5, .5), (8, 1), (7, .5), (5, .5), (6, 1), (5, .5), (4, .5), (3, 1), (None, 1)],
+        [(7, .5), (8, .5), (9, .5), (7, .5), (4, 1), (5, .5), (6, .5), (7, 1), (4, 1), (2, 2)],
+        [(5, .5), (4, .5), (3, .5), (2, .5), (1, 1), (4, 1), (0, 2), (None, 2)])),
 }
 
 # Each army's power theme: its first commander's motif, faster, a step
