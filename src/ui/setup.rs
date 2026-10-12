@@ -8,7 +8,7 @@ use super::input::MenuInput;
 use super::theme::{self, Tone};
 use super::{BattleSetupState, PortraitTextures};
 use crate::game::{
-    get_builtin_map, spawn_map_from_data, spawn_units_from_data, BattleConfig, CommanderData, CommanderId,
+    get_builtin_map, spawn_map_from_data, spawn_units_from_data, BattleConfig, BattleMapId, CommanderData, CommanderId,
     Commanders, Faction, FactionFunds, GameData, GameMap, MapData, MapId, SpriteAssets, TilesetTheme,
     TurnPhase, TurnStartEvent, TurnState,
 };
@@ -72,6 +72,7 @@ impl BattleSpawner<'_, '_> {
         }
 
         self.commands.insert_resource(BattleConfig::new(player_faction, ai_faction));
+        self.commands.insert_resource(BattleMapId(Some(map_id)));
         self.commands.insert_resource(TurnState {
             current_faction: player_faction,
             turn_number: 1,

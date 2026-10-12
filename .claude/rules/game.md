@@ -22,7 +22,7 @@ src/
 │   ├── weather.rs   # Weather effects
 │   ├── modding.rs   # Data loading
 │   ├── audio.rs     # Sound effects: PlaySfx, event-driven sounds, volume settings
-│   └── save.rs      # Save/load
+│   └── save.rs      # Save/load: slots + autosave, localStorage on web, backups
 ├── ui/              # egui UI code
 │   ├── mod.rs       # Plugin, action menu, hover tracking
 │   ├── theme.rs     # Palette, fonts, shared widgets (cards, menu rows, meters)
@@ -33,6 +33,7 @@ src/
 │   ├── setup.rs     # Skirmish setup (faction, commander, map)
 │   ├── hud.rs       # Battle HUD, inspect card, unit tokens
 │   ├── production.rs# Build menu
+│   ├── saves.rs     # Save/load slot screen, save toasts, F5/F9
 │   ├── map_menu.rs  # AW map menu: units, intel, commanders, options, end turn
 │   ├── overlays.rs  # Game over, battle teardown
 │   └── editor.rs    # Map editor
@@ -108,6 +109,8 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   `theme::pointer_selects` so a resting mouse doesn't steal keyboard focus
 - A screen opened by a keypress must ignore input on its first frame
 - Modals set `ModalOpen` (via `update_modal_state`) so the board ignores their input
+- Saves: open `saves::SaveMenu` (never write save files from UI code); anything new that a battle
+  needs to resume belongs in `SaveGame` (bump `SaveGame::VERSION` if old saves can't carry it)
 - Everything spawned for a battle gets `BattleEntity` (required by `Unit`, `Tile`, ...)
   so `overlays::reset_battle` can tear it down
 

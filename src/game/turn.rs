@@ -241,6 +241,7 @@ impl Default for TurnState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnPhase {
     Select,     // Selecting a unit
+    #[allow(dead_code)] // selection goes straight to Action for now
     Move,       // Unit selected, choosing where to move
     Action,     // Unit moved, choosing action (attack/wait)
     Animating,  // Playing animation

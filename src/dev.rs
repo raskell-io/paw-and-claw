@@ -145,6 +145,8 @@ fn key_code(name: &str) -> KeyCode {
         "Enter" => KeyCode::Enter,
         "Escape" => KeyCode::Escape,
         "Tab" => KeyCode::Tab,
+        "F5" => KeyCode::F5,
+        "F9" => KeyCode::F9,
         "ArrowUp" => KeyCode::ArrowUp,
         "ArrowDown" => KeyCode::ArrowDown,
         "ArrowLeft" => KeyCode::ArrowLeft,
@@ -217,7 +219,7 @@ fn run_script(
             "setup" => *state.get() == GameState::Battle && setup.needs_setup,
             "board" => *state.get() == GameState::Battle && !setup.needs_setup && map.width > 0,
             // The board, once the match intro or "Day N" banner has played and input is live
-            "turn" => *state.get() == GameState::Battle && !setup.needs_setup && map.width > 0 && !banner.playing(),
+            "turn" => *state.get() == GameState::Battle && !setup.needs_setup && map.width > 0 && banner.faction.is_some() && !banner.playing(),
             other => panic!("unknown screen '{other}' for `until` (menu, setup, board, turn)"),
         };
         if ready {

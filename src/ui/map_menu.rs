@@ -12,11 +12,12 @@ use super::icons::Icon;
 use super::input::MenuInput;
 use super::setup::passive_bonuses;
 use super::theme::{self, Tone};
+use super::saves::{SaveMenu, SaveMode};
 use super::{BattleSetupState, PortraitTextures};
 use crate::game::{
     AiState, BattleConfig, Commanders, EndTurnRequest, Faction, FactionFunds, FactionMember, FogOfWar,
-    GameData, GameResult, GridCursor, GridPosition, InputMode, LoadGameEvent, MapMenu, PowerActivatedEvent,
-    PowerLevel, SaveGameEvent, Tile, TurnState, Unit, Weather,
+    GameData, GameResult, GridCursor, GridPosition, InputMode, MapMenu, PowerActivatedEvent,
+    PowerLevel, Tile, TurnState, Unit, Weather,
 };
 use crate::states::GameState;
 
@@ -77,8 +78,7 @@ pub struct MenuActions<'w> {
     next_state: ResMut<'w, NextState<GameState>>,
     fog: ResMut<'w, FogOfWar>,
     input_mode: ResMut<'w, InputMode>,
-    save: MessageWriter<'w, SaveGameEvent>,
-    load: MessageWriter<'w, LoadGameEvent>,
+    saves: ResMut<'w, SaveMenu>,
     cursor: ResMut<'w, GridCursor>,
     audio: ResMut<'w, crate::game::AudioSettings>,
 }
@@ -132,6 +132,10 @@ pub fn draw_map_menu(
     gamepads: Query<&Gamepad>,
     mut nav: Local<MenuNav>,
 ) {
+    // The save screen opened from here sits on top until it closes
+    if actions.saves.is_open() {
+        return;
+    }
     if info.setup.needs_setup || info.game_result.game_over {
         menu.open = false;
     } else if gamepads.iter().any(|pad| pad.just_pressed(GamepadButton::Start)) {
@@ -301,8 +305,9 @@ pub fn draw_map_menu(
                             OptionItem::Music => (format!("Music: {}", volume_bar(actions.audio.music)), Some("←→ to adjust"), Tone::Normal),
                             OptionItem::Fog => (format!("Fog of war: {}", if actions.fog.enabled { "On" } else { "Off" }), None, Tone::Normal),
                             OptionItem::Controls => (format!("Controls: {}", actions.input_mode.name()), None, Tone::Normal),
-                            OptionItem::Save => ("Save game".to_string(), Some("F5"), Tone::Normal),
-                            OptionItem::Load => ("Load game".to_string(), Some("F9"), Tone::Normal),
+                            OptionItem::Save if !info.players_turn() => ("Save game".to_string(), Some("On your turn"), Tone::Muted),
+                            OptionItem::Save => ("Save game".to_string(), Some("Three slots · F5"), Tone::Normal),
+                            OptionItem::Load => ("Load game".to_string(), Some("A slot or the autosave · F9"), Tone::Normal),
                             OptionItem::Title => ("Retreat to title".to_string(), Some("Abandons this battle"), Tone::Danger),
                         };
                         if *item == OptionItem::Title {
@@ -388,12 +393,14 @@ pub fn draw_map_menu(
             OptionItem::Music => actions.audio.music = step_volume(actions.audio.music, 0.1, true),
             OptionItem::Fog => actions.fog.enabled = !actions.fog.enabled,
             OptionItem::Controls => *actions.input_mode = actions.input_mode.cycle(),
+            // Saving waits for the player's own turn
+            OptionItem::Save if !info.players_turn() => {}
             OptionItem::Save => {
-                actions.save.write(SaveGameEvent { slot: 0 });
+                actions.saves.open(SaveMode::Save, true, None);
                 menu.open = false;
             }
             OptionItem::Load => {
-                actions.load.write(LoadGameEvent { slot: 0 });
+                actions.saves.open(SaveMode::Load, true, None);
                 menu.open = false;
             }
             OptionItem::Title => {

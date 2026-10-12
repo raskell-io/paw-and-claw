@@ -20,6 +20,7 @@ mod menu;
 mod map_menu;
 mod overlays;
 mod production;
+mod saves;
 mod setup;
 mod theme;
 
@@ -208,6 +209,7 @@ impl Plugin for UiPlugin {
             .init_resource::<UiScale>()
             .init_resource::<PortraitTextures>()
             .init_resource::<UnitTextures>()
+            .init_resource::<saves::SaveMenu>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(PreUpdate, update_modal_state)
             .add_systems(Update, scale_ui_to_window)
@@ -231,6 +233,12 @@ impl Plugin for UiPlugin {
                 overlays::draw_game_over.run_if(in_state(GameState::Battle)),
                 editor::draw_editor.run_if(in_state(GameState::Editor)),
             ).run_if(egui_is_ready))
+            // The save screen draws over the menus that open it, after them
+            .add_systems(EguiPrimaryContextPass, (
+                saves::draw_save_menu.after(menu::draw_main_menu).after(map_menu::draw_map_menu),
+                saves::draw_save_notice,
+            ).run_if(egui_is_ready))
+            .add_systems(Update, (saves::save_hotkeys, saves::on_game_loaded))
             // Action menu registered separately
             .add_systems(EguiPrimaryContextPass,
                 draw_action_menu.run_if(in_state(GameState::Battle)).run_if(egui_is_ready)
@@ -334,8 +342,10 @@ fn update_modal_state(
     game_result: Res<GameResult>,
     map_menu: Res<crate::game::MapMenu>,
     banner: Res<crate::game::TurnBanner>,
+    save_menu: Res<saves::SaveMenu>,
 ) {
     let open = *state.get() != GameState::Battle
+        || save_menu.is_open()
         || setup.needs_setup
         || production.active
         || map_menu.open
@@ -423,9 +433,10 @@ fn menu_key_sounds(
 }
 
 /// Trigger battle setup when entering battle state
-fn trigger_battle_setup(mut setup_state: ResMut<BattleSetupState>) {
-    // Faction, commander and map choices carry over from the last battle
-    setup_state.needs_setup = true;
+fn trigger_battle_setup(mut setup_state: ResMut<BattleSetupState>, pending_load: Res<crate::game::PendingLoad>) {
+    // Faction, commander and map choices carry over from the last battle; a
+    // battle started by loading a save skips setup
+    setup_state.needs_setup = pending_load.0.is_none();
 }
 
 /// Handle ESC key to toggle in-game menu
@@ -438,10 +449,11 @@ fn handle_ingame_menu_input(
     game_result: Res<GameResult>,
     production: Res<ProductionState>,
     mut map_menu: ResMut<crate::game::MapMenu>,
+    save_menu: Res<saves::SaveMenu>,
 ) {
     // Don't handle menu during setup or victory screen, or while another menu
     // is open (its own Esc closes it)
-    if setup_state.needs_setup || game_result.game_over || production.active || map_menu.open {
+    if setup_state.needs_setup || game_result.game_over || production.active || map_menu.open || save_menu.blocks_input() {
         return;
     }
 

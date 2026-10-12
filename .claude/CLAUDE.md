@@ -65,6 +65,17 @@ See `modding.md` for detailed documentation.
   Menu rows queue their own tick/confirm sounds (`theme::queue_sound`)
 - Music (one theme per CO, power themes) is planned: composed in code, rendered to OGG
 
+### Saves
+- `game/save.rs`: a save is a whole battle (`SaveGame`, versioned; older versions are refused).
+  Three manual slots plus an autosave (start of each human turn, after each of their units acts);
+  saving only at quiet moments of a human turn (`BattleSnapshot::can_save`)
+- Desktop: `saves/save_{auto,1,2,3}.json`. Web: localStorage `paw_and_claw_save_*` (the installed
+  home-screen app has its own storage, apart from the browser tab's), so the web build can export
+  every slot to one backup file and import it (`pawExportSaves`/`pawImportSaves` in `web/index.html`)
+- Loading sets `PendingLoad`; `apply_pending_load` (Battle state) rebuilds the board with the normal
+  spawn code and restores the state, then the turn resumes with its Day banner
+- UI: `ui/saves.rs` (slot screen, toasts, F5/F9), Continue on the title screen, map menu Options
+
 ### Sprites
 - `assets/sprites/manifest.json` is the source of truth for all generated sprites
   (style, faction palettes, one subject per unit/terrain/portrait)

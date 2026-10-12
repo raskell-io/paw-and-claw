@@ -113,7 +113,7 @@ impl MapData {
 }
 
 /// Identifier for built-in maps
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MapId {
     Woodland,
     RiverCrossing,

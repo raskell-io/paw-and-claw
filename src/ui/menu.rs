@@ -11,26 +11,33 @@ use crate::states::GameState;
 struct MenuEntry {
     icon: Icon,
     label: &'static str,
-    detail: &'static str,
+    detail: String,
     target: Option<MenuTarget>,
 }
 
 #[derive(Clone)]
 enum MenuTarget {
     State(GameState),
+    /// The load screen, on the newest save
+    Continue,
     Quit,
 }
 
-fn entries() -> Vec<MenuEntry> {
-    let mut entries = vec![
-        MenuEntry { icon: Icon::Swords, label: "Skirmish", detail: "Pick a faction, a commander and a map", target: Some(MenuTarget::State(GameState::Battle)) },
-        MenuEntry { icon: Icon::Quill, label: "Map Editor", detail: "Paint your own battlefield", target: Some(MenuTarget::State(GameState::Editor)) },
-        MenuEntry { icon: Icon::Banner, label: "Campaign", detail: "Coming soon", target: None },
-        MenuEntry { icon: Icon::Die, label: "Roguelike", detail: "Coming soon", target: None },
-    ];
+fn entries(continue_detail: Option<&str>) -> Vec<MenuEntry> {
+    let mut entries = Vec::new();
+    // Continue leads when there's a battle to go back to
+    if let Some(detail) = continue_detail {
+        entries.push(MenuEntry { icon: Icon::OpenBook, label: "Continue", detail: detail.to_string(), target: Some(MenuTarget::Continue) });
+    }
+    entries.extend([
+        MenuEntry { icon: Icon::Swords, label: "Skirmish", detail: "Pick a faction, a commander and a map".into(), target: Some(MenuTarget::State(GameState::Battle)) },
+        MenuEntry { icon: Icon::Quill, label: "Map Editor", detail: "Paint your own battlefield".into(), target: Some(MenuTarget::State(GameState::Editor)) },
+        MenuEntry { icon: Icon::Banner, label: "Campaign", detail: "Coming soon".into(), target: None },
+        MenuEntry { icon: Icon::Die, label: "Roguelike", detail: "Coming soon".into(), target: None },
+    ]);
     // Browsers own the tab lifecycle, so only offer Quit on native
     if cfg!(not(target_arch = "wasm32")) {
-        entries.push(MenuEntry { icon: Icon::Door, label: "Quit", detail: "Back to the burrow", target: Some(MenuTarget::Quit) });
+        entries.push(MenuEntry { icon: Icon::Door, label: "Quit", detail: "Back to the burrow".into(), target: Some(MenuTarget::Quit) });
     }
     entries
 }
@@ -42,17 +49,21 @@ pub fn draw_main_menu(
     input: MenuInput,
     time: Res<Time>,
     boot: Res<crate::states::BootSequence>,
+    mut save_menu: ResMut<super::saves::SaveMenu>,
+    save_index: Res<crate::game::SaveIndex>,
     mut selected: Local<usize>,
     mut shown: Local<bool>,
 ) {
-    // The opening sequence comes first (ui/boot.rs)
-    if boot.stage != crate::states::BootStage::Menu {
+    // The opening sequence comes first (ui/boot.rs); the load screen sits on top
+    if boot.stage != crate::states::BootStage::Menu || save_menu.blocks_input() {
         *shown = false;
         return;
     }
     // The button that left the title screen must not also pick an entry
     let accept_input = std::mem::replace(&mut *shown, true);
-    let entries = entries();
+    let newest = save_index.newest();
+    let continue_detail = newest.map(|(_, s)| format!("Day {} · {} · {}", s.day, s.map, crate::game::time_ago(s.saved_at)));
+    let entries = entries(continue_detail.as_deref());
     let enabled: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].target.is_some()).collect();
     // Keyboard/gamepad navigation skips disabled entries
     let mut pos = enabled.iter().position(|&i| i == *selected).unwrap_or(0);
@@ -88,7 +99,7 @@ pub fn draw_main_menu(
             theme::card().show(ui, |ui| {
                 ui.set_width(card_width - 28.0);
                 for (i, entry) in entries.iter().enumerate() {
-                    let response = theme::menu_item_icon(ui, Some(entry.icon), entry.label, Some(entry.detail), i == *selected,
+                    let response = theme::menu_item_icon(ui, Some(entry.icon), entry.label, Some(&entry.detail), i == *selected,
                         entry.target.is_some(), Tone::Normal);
                     if theme::pointer_selects(ui, &response) && entry.target.is_some() {
                         *selected = i;
@@ -115,6 +126,9 @@ pub fn draw_main_menu(
     if let Some(i) = activate {
         match entries[i].target.clone() {
             Some(MenuTarget::State(state)) => next_state.set(state),
+            Some(MenuTarget::Continue) => {
+                save_menu.open(super::saves::SaveMode::Load, false, newest.map(|(slot, _)| slot));
+            }
             Some(MenuTarget::Quit) => {
                 exit.write(AppExit::Success);
             }
