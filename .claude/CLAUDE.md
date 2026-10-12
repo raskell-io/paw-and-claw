@@ -63,7 +63,10 @@ See `modding.md` for detailed documentation.
   after editing a sound
 - `game/audio.rs` plays them: send `PlaySfx("id")`, or let it react to game events.
   Menu rows queue their own tick/confirm sounds (`theme::queue_sound`)
-- Music (one theme per CO, power themes) is planned: composed in code, rendered to OGG
+- Music is composed in code (`tools/audio/music.py NAME…` renders OGGs into `assets/audio/music/`):
+  CO themes (`co_<key>`, 10 so far; a CO without one plays another theme of its army), one CO Power
+  theme per army (`power_<army>`), the title, intro, battle-start, victory and defeat jingles.
+  `audio::choose_music` picks what plays
 
 ### Saves
 - `game/save.rs`: a save is a whole battle (`SaveGame`, versioned; older versions are refused).

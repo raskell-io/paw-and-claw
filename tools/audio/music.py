@@ -608,7 +608,10 @@ COMMANDERS = {
 
 # Each army's power theme: its first commander's motif, faster, a step
 # higher and over driving drums (AW plays a power theme while a CO Power runs)
-POWER = {}  # to come: one per army
+# CO Power themes: each army's power music is a faster, higher, harder-driving
+# arrangement of one of its commanders' themes (AW plays power music as the
+# battle's climax)
+POWER = {"western": "dusty", "northern": "grimjaw", "southern": "lionheart", "eastern": "kira", "nether": "hivemind"}
 
 
 def commander_spec(name, co, power=False):
@@ -641,10 +644,25 @@ def battle_start_spec():
                 progression=[0, 4])
 
 
+def victory_spec():
+    """Victory: a bright rising fanfare that lands on a long high tonic (about 4.5 s)."""
+    return dict(key=note_midi("C5"), bpm=126, scale="major",
+                melody=[(0, .5), (2, .5), (4, .5), (7, 1), (4, .5), (7, .5), (9, .5), (11, .5), (14, 3)])
+
+
+def defeat_spec():
+    """Defeat: a slow minor lament falling to a low, soft close (about 6 s)."""
+    return dict(key=note_midi("A4"), bpm=72, scale="minor", soft=True,
+                melody=[(4, 1), (3, .5), (2, .5), (1, 1), (0, .5), (-1, .5), (0, 3)])
+
+
 def jingle(spec):
     """Render a fanfare: melody over brass chord stabs, a timpani roll and a crash."""
     beat = 60.0 / spec["bpm"]
     key = spec["key"]
+    scale = spec.get("scale", "major")
+    if spec.get("soft"):
+        return lament(spec)
     buf = [0.0] * samples(8 * beat)
 
     def add(sound, pos):
@@ -656,17 +674,50 @@ def jingle(spec):
 
     pos = 0.0
     for d, length in spec["melody"]:
-        add(brass(midi_freq(key + degree_semis("major", d)), length * beat * 0.95, 0.4), pos)
+        add(brass(midi_freq(key + degree_semis(scale, d)), length * beat * 0.95, 0.4), pos)
         pos += length
-    for at, degree, length in ((0, 0, 0.4), (0.5, 0, 0.2), (0.75, 0, 0.2), (1, 0, 0.9), (2, 4, 0.9), (3, 0, 3)):
-        for t in chord("major", degree):
+    end = sum(length for _, length in spec["melody"])
+    stabs = ((0, 0, 0.4), (0.5, 0, 0.2), (0.75, 0, 0.2), (1, 0, 0.9), (2, 4, 0.9), (3, 0, 3))
+    if end > 6:
+        # Longer fanfares: hold the last chord under the final note
+        stabs = stabs[:-1] + ((3, 4, 0.9), (4, 0, end - 4 + 1))
+    for at, degree, length in stabs:
+        for t in chord(scale, degree):
             add(brass(midi_freq(key - 12 + t), length * beat, 0.16), at)
-        add(slap_bass(midi_freq(key - 24 + chord("major", degree)[0]), min(length, 1) * beat, 0.45), at)
+        add(slap_bass(midi_freq(key - 24 + chord(scale, degree)[0]), min(length, 1) * beat, 0.45), at)
     for k in range(12):
         add(kick(0.15, 110, 70, 0.25 + 0.03 * k, curve=2), 1.5 + k * 0.125)
     add(kick(0.5, 120, 40, 0.8), 3)
     add(crash(0.25, 2.5), 3)
     return gba(buf, gain=0.9)
+
+
+def lament(spec):
+    """A slow, soft minor phrase: horn melody over held low strings, no drums."""
+    beat = 60.0 / spec["bpm"]
+    key = spec["key"]
+    scale = spec.get("scale", "minor")
+    buf = []
+
+    def add(sound, pos):
+        start = samples(pos * beat)
+        if start + len(sound) > len(buf):
+            buf.extend([0.0] * (start + len(sound) - len(buf)))
+        for i, x in enumerate(sound):
+            buf[start + i] += x
+
+    pos = 0.0
+    for d, length in spec["melody"]:
+        add(horn(midi_freq(key + degree_semis(scale, d)), length * beat * 0.98, 0.34), pos)
+        pos += length
+    # Held chords: i, then iv, then i, the bass a slow fall
+    for at, degree, length in ((0, 0, 2), (2, 3, 2), (4, 0, pos - 4 + 1.5)):
+        freqs = [midi_freq(key - 12 + t) for t in chord("minor", degree)]
+        add(strings(freqs, length * beat, 0.14), at)
+        add(low_brass(midi_freq(key - 24 + chord("minor", degree)[0]), length * beat, 0.2), at)
+    add(tom(70, 0.35), 0)
+    add(tom(60, 0.3), pos - 3)
+    return gba(buf, gain=0.85)
 
 
 def all_pieces():
@@ -676,6 +727,8 @@ def all_pieces():
     for army, lead in POWER.items():
         pieces[f"power_{army}"] = lambda lead=lead: render(commander_spec(lead, COMMANDERS[lead], power=True))
     pieces["battle_start"] = lambda: jingle(battle_start_spec())
+    pieces["victory"] = lambda: jingle(victory_spec())
+    pieces["defeat"] = lambda: jingle(defeat_spec())
     pieces["title"] = lambda: render(title_spec())
     pieces["intro"] = lambda: intro_song()
     return pieces

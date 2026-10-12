@@ -60,5 +60,14 @@
         "co_tanuki": (file: "audio/music/co_tanuki.ogg", volume: 0.8),
         "co_lionheart": (file: "audio/music/co_lionheart.ogg", volume: 0.8),
         "co_grimjaw": (file: "audio/music/co_grimjaw.ogg", volume: 0.8),
+        // CO Power themes, one per army (a faster arrangement of a commander's theme)
+        "power_western": (file: "audio/music/power_western.ogg", volume: 0.8),
+        "power_northern": (file: "audio/music/power_northern.ogg", volume: 0.8),
+        "power_southern": (file: "audio/music/power_southern.ogg", volume: 0.8),
+        "power_eastern": (file: "audio/music/power_eastern.ogg", volume: 0.8),
+        "power_nether": (file: "audio/music/power_nether.ogg", volume: 0.8),
+        // Game over
+        "victory": (file: "audio/music/victory.ogg", volume: 0.85, looped: false),
+        "defeat": (file: "audio/music/defeat.ogg", volume: 0.85, looped: false),
     },
 )

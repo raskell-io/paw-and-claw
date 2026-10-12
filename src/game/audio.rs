@@ -310,6 +310,7 @@ fn choose_music(
     game_result: Res<super::GameResult>,
     game_data: Res<GameData>,
     boot: Res<crate::states::BootSequence>,
+    battle_config: Res<super::BattleConfig>,
     mut cue: ResMut<MusicCue>,
 ) {
     use crate::states::GameState;
@@ -324,13 +325,30 @@ fn choose_music(
         },
         // No map yet means the skirmish setup screen
         GameState::Battle if map.width == 0 => Some("title".to_string()),
-        GameState::Battle if game_result.game_over => None,
+        // Victory when a person is on the winning side (or only the computer played)
+        GameState::Battle if game_result.game_over => game_result.winner.map(|winner| {
+            let anyone = battle_config.armies.iter().any(|a| !a.ai);
+            let won = !anyone || battle_config.armies.iter()
+                .any(|a| !a.ai && battle_config.allied(a.faction, winner));
+            if won { "victory" } else { "defeat" }.to_string()
+        }),
         GameState::Battle if banner.intro && banner.elapsed < MATCH_INTRO_SECS => Some("battle_start".to_string()),
         GameState::Battle => {
-            let co = commanders.get_active(turn_state.current_faction);
-            let theme = format!("co_{}", super::commander_to_key(co));
-            // Commanders without a theme yet are silent
-            game_data.audio.music.contains_key(&theme).then_some(theme)
+            let faction = turn_state.current_faction;
+            let has = |theme: &String| game_data.audio.music.contains_key(theme);
+            // A CO Power is running: its army's power theme
+            let power = format!("power_{}", game_data.faction(faction).asset_folder);
+            let powered = commanders.power_active.get(&faction).is_some_and(|&level| level != super::PowerLevel::None);
+            if powered && has(&power) {
+                Some(power)
+            } else {
+                // The commander's own theme, else another theme from the same army
+                let own = format!("co_{}", super::commander_to_key(commanders.get_active(faction)));
+                let army = super::CommanderId::for_faction(faction, &game_data).into_iter()
+                    .map(|co| format!("co_{}", super::commander_to_key(co)))
+                    .find(|theme| has(theme));
+                if has(&own) { Some(own) } else { army }
+            }
         }
         _ => None,
     };
