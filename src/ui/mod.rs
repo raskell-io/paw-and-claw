@@ -125,6 +125,8 @@ pub struct BattleSetupState {
     pub selected_army: usize,
     /// The highlighted row in the Armies column
     pub armies_cursor: Option<usize>,
+    /// Advance Wars day limit (most properties wins), or none
+    pub day_limit: Option<u32>,
 }
 
 impl Default for BattleSetupState {
@@ -143,6 +145,7 @@ impl Default for BattleSetupState {
             selected_map: MapId::default(),
             selected_army: 0,
             armies_cursor: None,
+            day_limit: None,
         }
     }
 }

@@ -43,7 +43,11 @@ enum ArmyRow {
     Army(usize),
     Count,
     Teams,
+    DayLimit,
 }
+
+/// Day limits offered in setup
+const DAY_LIMITS: [Option<u32>; 4] = [None, Some(20), Some(30), Some(40)];
 
 /// Rows in the Commander column: a faction (random commander) or one commander
 #[derive(Clone, Copy, PartialEq)]
@@ -69,7 +73,7 @@ pub struct BattleSpawner<'w, 's> {
 impl BattleSpawner<'_, '_> {
     /// Start a battle: each army gets its commander (random when none is
     /// picked) and its slot on the map; armies on the right face left
-    fn start(&mut self, game_data: &GameData, armies: &[ArmySetup], teams: bool, map: &MapData, battle_map: BattleMap) {
+    fn start(&mut self, game_data: &GameData, armies: &[ArmySetup], teams: bool, day_limit: Option<u32>, map: &MapData, battle_map: BattleMap) {
         let factions: Vec<Faction> = armies.iter().map(|a| a.faction).collect();
         let map_data = map.with_armies(&factions);
         let mut config = Vec::new();
@@ -87,7 +91,9 @@ impl BattleSpawner<'_, '_> {
         info!("Battle started on {}", battle_map.name);
 
         let first = armies[0].faction;
-        self.commands.insert_resource(BattleConfig::from_armies(config));
+        let mut battle_config = BattleConfig::from_armies(config);
+        battle_config.day_limit = day_limit;
+        self.commands.insert_resource(battle_config);
         self.commands.insert_resource(battle_map);
         self.commands.insert_resource(TurnState { current_faction: first, turn_number: 1, phase: TurnPhase::Select });
         // Everyone starts broke; the first army collects Day 1 income from
@@ -166,6 +172,7 @@ pub fn draw_battle_setup(
     let army_rows: Vec<ArmyRow> = (0..count).map(ArmyRow::Army)
         .chain((max_armies > 2).then_some(ArmyRow::Count))
         .chain((count == 4).then_some(ArmyRow::Teams))
+        .chain(std::iter::once(ArmyRow::DayLimit))
         .collect();
     let commander_rows: Vec<CommanderRow> = PLAYABLE.iter()
         .flat_map(|&f| std::iter::once(CommanderRow::Random(f))
@@ -270,6 +277,10 @@ pub fn draw_battle_setup(
                                 }
                                 ArmyRow::Count => theme::menu_item_icon(ui, Some(Icon::Banner), &format!("Armies: {count}"),
                                     Some(&format!("This map holds up to {max_armies}")), focused, true, Tone::Normal),
+                                ArmyRow::DayLimit => theme::menu_item_icon(ui, Some(Icon::Hourglass),
+                                    &match setup.day_limit { Some(d) => format!("Day limit: {d}"), None => "Day limit: off".to_string() },
+                                    Some(if setup.day_limit.is_some() { "Most properties wins when time runs out" } else { "Play until an army falls" }),
+                                    focused, true, Tone::Normal),
                                 ArmyRow::Teams => theme::menu_item_icon(ui, Some(Icon::Swords),
                                     if setup.teams { "Teams: 2 vs 2" } else { "Teams: free for all" },
                                     Some(if setup.teams { "Armies 1 & 3 against 2 & 4" } else { "Every army for itself" }),
@@ -402,6 +413,10 @@ pub fn draw_battle_setup(
             setup.army_count = if setup.army_count >= max_armies { 2 } else { setup.army_count + 1 };
         }
         Some(ArmyRow::Teams) => setup.teams = !setup.teams,
+        Some(ArmyRow::DayLimit) => {
+            let i = DAY_LIMITS.iter().position(|&d| d == setup.day_limit).unwrap_or(0);
+            setup.day_limit = DAY_LIMITS[(i + 1) % DAY_LIMITS.len()];
+        }
         None => {}
     }
     if let Some(row) = pick {
@@ -434,7 +449,7 @@ pub fn draw_battle_setup(
             builtin => BattleMap { id: Some(*builtin), name: builtin.name().to_string() },
         };
         let armies = setup.armies[..count].to_vec();
-        spawner.start(&game_data, &armies, setup.teams, map, battle_map);
+        spawner.start(&game_data, &armies, setup.teams, setup.day_limit, map, battle_map);
         setup.needs_setup = false;
     }
 }

@@ -221,7 +221,7 @@ pub fn draw_map_menu(
                 Page::Main => {
                     ui.set_width(300.0);
                     ui.vertical_centered(|ui| {
-                        ui.label(theme::display(format!("Day {}", info.turn_state.turn_number), 28.0).color(theme::WOOD_DARK));
+                        ui.label(theme::display(info.battle_config.day_label(info.turn_state.turn_number), 28.0).color(theme::WOOD_DARK));
                         ui.label(theme::body(format!("{} · {} {}", info.battle_map.name,
                             info.weather.current.icon(), info.weather.current.name()), 14.0).color(theme::INK_SOFT));
                     });

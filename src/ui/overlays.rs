@@ -81,6 +81,8 @@ pub fn draw_game_over(
         (VictoryType::Elimination, false) => "Your forces have been scattered to the winds.",
         (VictoryType::HQCapture, true) => "Your banner flies over the enemy headquarters.",
         (VictoryType::HQCapture, false) => "The enemy has taken your headquarters.",
+        (VictoryType::DayLimit, true) => "Time is up, and the woods are yours: you hold the most ground.",
+        (VictoryType::DayLimit, false) => "Time is up. The enemy holds more of the woods.",
         (VictoryType::None, _) => "",
     };
     let survivors = |faction| units.iter().filter(|(_, f)| f.faction == faction).count();

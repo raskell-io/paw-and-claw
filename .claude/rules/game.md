@@ -70,6 +70,8 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   and `team`. Use `allied()` for friend/foe (attacks, captures, powers, fog vision), `viewer()`
   for whose eyes the board is seen through, `facing_left()` for art direction. Never assume one
   opponent; `rival()` is only for screens that show a single one
+- Day limit (setup, `BattleConfig::day_limit`): after the last day the team holding the most
+  properties wins (unit HP breaks a tie), `VictoryType::DayLimit`; the HUD shows "Day N / limit"
 - An army is out when routed or its HQ falls; HQ capture hands its properties to the captor,
   its units leave the field. The battle ends when one team is left
 - Hot seat: several people take turns on one device; with fog, `HandOver` covers the board

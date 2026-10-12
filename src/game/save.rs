@@ -206,6 +206,8 @@ pub struct SaveGame {
     pub commanders: SavedCommanders,
     pub weather: SavedWeather,
     pub fog: bool,
+    #[serde(default)]
+    pub day_limit: Option<u32>,
     /// Armies that have fielded units (see `GameResult::fielded`)
     pub fielded: Vec<Faction>,
 }
@@ -216,12 +218,14 @@ impl SaveGame {
 
     /// The battle's armies (one-on-one against the computer in older saves)
     pub fn battle_config(&self) -> BattleConfig {
-        if self.armies.is_empty() {
+        let mut config = if self.armies.is_empty() {
             let player = self.player_faction.unwrap_or(Faction::Western);
             BattleConfig::new(player, self.ai_faction.unwrap_or(Faction::Northern))
         } else {
             BattleConfig::from_armies(self.armies.clone())
-        }
+        };
+        config.day_limit = self.day_limit;
+        config
     }
 }
 
@@ -512,6 +516,7 @@ impl BattleSnapshot<'_, '_> {
                 change_chance: self.weather.change_chance,
             },
             fog: self.fog.enabled,
+            day_limit: self.config.day_limit,
             fielded: self.result.fielded.clone(),
         }
     }
@@ -867,6 +872,7 @@ mod tests {
             },
             weather: SavedWeather { current: WeatherType::Rain, turns_remaining: 2, dynamic_weather: true, change_chance: 20 },
             fog: true,
+            day_limit: Some(30),
             fielded: vec![Faction::Western, Faction::Northern],
         }
     }

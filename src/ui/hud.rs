@@ -141,7 +141,7 @@ pub fn draw_hud(
                         ui.horizontal(|ui| {
                             ui.label(theme::display(&co.name, 22.0).color(theme::WOOD_DARK));
                             ui.add_space(12.0);
-                            ui.label(theme::display(format!("Day {}", turn_state.turn_number), 18.0).color(theme::shade(color, 0.7)));
+                            ui.label(theme::display(hud.battle_config.day_label(turn_state.turn_number), 18.0).color(theme::shade(color, 0.7)));
                         });
                         star_meter(ui, charge as f32 / per_star, power_stars, co.super_power.stars, active != PowerLevel::None);
                         ui.horizontal(|ui| {
@@ -848,7 +848,7 @@ pub fn draw_turn_banner(
             painter.rect_filled(portrait.expand(9.0).translate(egui::vec2(6.0, 6.0)), 8, egui::Color32::from_black_alpha(90));
             portrait_square(painter, portrait, color, &co.name, portraits.get(co_id), 1.0, second);
             let (text_x, align) = if second { (portrait.left() - 36.0, egui::Align2::RIGHT_CENTER) } else { (portrait.right() + 36.0, egui::Align2::LEFT_CENTER) };
-            shadowed(painter, egui::pos2(text_x, band.center().y - 10.0), align, &format!("Day {}", banner.day),
+            shadowed(painter, egui::pos2(text_x, band.center().y - 10.0), align, &battle_config.day_label(banner.day),
                 egui::FontId::new(72.0, theme::title_family()), theme::PARCHMENT);
             painter.text(egui::pos2(text_x, band.center().y + 46.0), align,
                 format!("{} · {}", game_data.faction_name(faction), co.name),

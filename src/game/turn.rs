@@ -44,6 +44,9 @@ pub struct Army {
 #[derive(Resource, Clone, Debug)]
 pub struct BattleConfig {
     pub armies: Vec<Army>,
+    /// Advance Wars versus rule: when this many days have passed, the side
+    /// holding the most properties wins
+    pub day_limit: Option<u32>,
     /// The home perspective: the first army a person plays (or the first army
     /// when only the computer plays). Single-player screens show this side.
     pub player_faction: Faction,
@@ -66,7 +69,7 @@ impl BattleConfig {
 
     pub fn from_armies(armies: Vec<Army>) -> Self {
         let player_faction = armies.iter().find(|a| !a.ai).or(armies.first()).map_or(Faction::Eastern, |a| a.faction);
-        Self { armies, player_faction }
+        Self { armies, player_faction, day_limit: None }
     }
 
     pub fn army(&self, faction: Faction) -> Option<&Army> {
@@ -118,6 +121,14 @@ impl BattleConfig {
         let n = self.armies.len();
         let at = self.armies.iter().position(|a| a.faction == current).unwrap_or(0);
         (1..=n).map(|step| &self.armies[(at + step) % n]).find(|a| !a.defeated).map_or(current, |a| a.faction)
+    }
+
+    /// "Day 12" or "Day 12 / 30" with a day limit
+    pub fn day_label(&self, day: u32) -> String {
+        match self.day_limit {
+            Some(limit) => format!("Day {day} / {limit}"),
+            None => format!("Day {day}"),
+        }
     }
 
     /// Whose eyes the board is seen through on this army's turn: its own when a
@@ -282,6 +293,7 @@ pub enum VictoryType {
     None,
     Elimination,   // All enemy units destroyed
     HQCapture,     // Enemy HQ (base) captured
+    DayLimit,      // Held the most properties when the day limit ran out
 }
 
 /// Event fired when a faction's turn starts
@@ -347,6 +359,7 @@ impl TurnState {
 }
 
 fn check_victory_condition(
+    turn_state: Res<TurnState>,
     mut commands: Commands,
     units: Query<(Entity, &Unit, &FactionMember, &GridPosition)>,
     mut tiles: Query<&mut Tile>,
@@ -411,6 +424,25 @@ fn check_victory_condition(
                 commands.entity(entity).despawn();
             }
         }
+    }
+
+    // Day limit: once the last day is over, the team holding the most
+    // properties wins (army value breaks a tie)
+    if battle_config.day_limit.is_some_and(|limit| turn_state.turn_number > limit) {
+        let mut best: Option<(u8, (usize, u32), Faction)> = None;
+        for army in battle_config.alive() {
+            let team: Vec<Faction> = battle_config.alive().filter(|a| a.team == army.team).map(|a| a.faction).collect();
+            let properties = tiles.iter().filter(|t| t.owner.is_some_and(|o| team.contains(&o))).count();
+            let value: u32 = units.iter().filter(|(_, _, m, _)| team.contains(&m.faction)).map(|(_, u, _, _)| u.hp.max(0) as u32).sum();
+            if best.is_none_or(|(_, score, _)| (properties, value) > score) {
+                best = Some((army.team, (properties, value), army.faction));
+            }
+        }
+        game_result.game_over = true;
+        game_result.winner = best.map(|(_, _, faction)| faction);
+        game_result.victory_type = VictoryType::DayLimit;
+        info!("Day limit reached: {:?} wins on properties", game_result.winner);
+        return;
     }
 
     // The battle ends when only one team is left standing
@@ -566,6 +598,38 @@ mod tests {
         assert_eq!(config.viewer(Faction::Northern), Faction::Western);
         assert_eq!(config.viewer(Faction::Eastern), Faction::Southern);
         assert_eq!(config.viewer(Faction::Southern), Faction::Southern);
+    }
+
+    #[test]
+    fn when_the_day_limit_runs_out_the_most_properties_win() {
+        let data = GameData::load_defaults();
+        let mut config = BattleConfig::new(Faction::Western, Faction::Southern);
+        config.day_limit = Some(5);
+        let mut app = App::new();
+        app.add_message::<super::super::UnitDefeated>()
+            .insert_resource(config)
+            .insert_resource(TurnState { current_faction: Faction::Western, turn_number: 5, phase: TurnPhase::Select })
+            .init_resource::<GameResult>()
+            .add_systems(Update, check_victory_condition);
+        let tile = |x: i32, owner: Faction, terrain: Terrain| Tile {
+            terrain, position: IVec2::new(x, 0), owner: Some(owner), capture_progress: 0, capturing_faction: None,
+        };
+        for (x, owner, terrain) in [(0, Faction::Western, Terrain::Base), (1, Faction::Western, Terrain::Outpost),
+            (2, Faction::Western, Terrain::Outpost), (3, Faction::Southern, Terrain::Base)] {
+            app.world_mut().spawn(tile(x, owner, terrain));
+        }
+        for (x, faction) in [(0, Faction::Western), (3, Faction::Southern)] {
+            app.world_mut().spawn((Unit::new(UnitType::Scout, &data), FactionMember { faction }, GridPosition::new(x, 1)));
+        }
+        // Still within the limit: play on
+        app.update();
+        assert!(!app.world().resource::<GameResult>().game_over);
+        // The last day is over
+        app.world_mut().resource_mut::<TurnState>().turn_number = 6;
+        app.update();
+        let result = app.world().resource::<GameResult>();
+        assert!(result.game_over);
+        assert_eq!((result.winner, result.victory_type), (Some(Faction::Western), VictoryType::DayLimit));
     }
 
     #[test]
