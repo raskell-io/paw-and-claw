@@ -279,7 +279,7 @@ fn build_influence_maps(
             &enemy.pos,
             actual_movement,
             map,
-            &analysis.unit_positions,
+            &analysis.blockers_for_enemies(),
             stats.class,
             game_data,
         );
@@ -728,7 +728,7 @@ fn predict_enemy_actions(
             &enemy.pos,
             actual_movement,
             map,
-            &analysis.unit_positions,
+            &analysis.blockers_for_enemies(),
             stats.class,
             game_data,
         );
@@ -873,6 +873,19 @@ struct TileInfo {
     owner: Option<Faction>,
     capture_progress: i32,
     capturing_faction: Option<Faction>,
+}
+
+impl GameAnalysis {
+    /// Tiles our units can't pass: every unit not in our army
+    fn blockers_for_us(&self) -> HashMap<(i32, i32), Entity> {
+        let ours: HashSet<Entity> = self.ai_units.iter().map(|u| u.entity).collect();
+        self.unit_positions.iter().filter(|(_, e)| !ours.contains(e)).map(|(p, e)| (*p, *e)).collect()
+    }
+
+    /// Tiles enemy units can't pass when predicting their moves: ours
+    fn blockers_for_enemies(&self) -> HashMap<(i32, i32), Entity> {
+        self.ai_units.iter().map(|u| ((u.pos.x, u.pos.y), u.entity)).collect()
+    }
 }
 
 fn analyze_game_state(
@@ -1287,6 +1300,32 @@ fn score_move_action(
         _ => {}
     }
 
+    // === KEEP FACTORIES FREE ===
+    // A unit parked on our own workshop, dock or roost stops it building
+    // (property defense made every unit want to sit on one)
+    let stats = game_data.unit_stats(unit.unit.unit_type);
+    let on_factory = analysis.our_properties.iter()
+        .any(|t| (t.pos.x, t.pos.y) == move_to && !game_data.terrain(t.terrain).builds.is_empty());
+    let needs_supplies = unit.unit.stamina <= stats.max_stamina / 3
+        || (stats.max_ammo > 0 && unit.unit.ammo <= stats.max_ammo / 3)
+        || unit.unit.hp <= stats.max_hp / 2;
+    if on_factory && !needs_supplies {
+        score -= 45.0;
+    }
+
+    // === ADVANCE ===
+    // Fighting units always lean toward the nearest enemy (or enemy property),
+    // whatever the goal, so the army doesn't idle at home
+    let nearest_target = analysis.enemy_units.iter().map(|e| (e.pos.x, e.pos.y))
+        .chain(analysis.enemy_properties.iter().map(|t| (t.pos.x, t.pos.y)))
+        .map(|(x, y)| ((move_to.0 - x).abs() + (move_to.1 - y).abs()) as f32)
+        .min_by(|a, b| a.partial_cmp(b).unwrap());
+    if let (Some(dist), true) = (nearest_target, stats.attack > 0) {
+        // Ranged units like to stand just outside reach, at their longest range
+        let ideal = if unit.is_indirect { stats.attack_range.1 as f32 } else { 1.0 };
+        score += 12.0 - (dist - ideal).abs() * 1.2;
+    }
+
     // === STRATEGIC GOAL ALIGNMENT ===
     match goal {
         StrategicGoal::Attack { priority } => {
@@ -1295,7 +1334,7 @@ fn score_move_action(
                 .map(|e| ((move_to.0 - e.pos.x).abs() + (move_to.1 - e.pos.y).abs()) as f32)
                 .min_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(100.0);
-            score += (20.0 - dist_to_enemy * 1.5) * (priority / 100.0);
+            score += (30.0 - dist_to_enemy * 2.0) * (priority / 100.0);
 
             // Move toward frontline
             let frontline = influence.get_frontline(move_to.0, move_to.1);
@@ -1361,6 +1400,12 @@ fn score_move_action(
         }
         // Extra safety for artillery
         score += UtilityCurves::position_safety(threat, unit.unit.hp) * 0.5 * config.risk_tolerance();
+        // Next to an enemy it can't fire at all (minimum range), so keep a gap
+        let adjacent_enemy = analysis.enemy_units.iter()
+            .any(|e| (move_to.0 - e.pos.x).abs() + (move_to.1 - e.pos.y).abs() <= 1);
+        if adjacent_enemy {
+            score -= 30.0;
+        }
     }
 
     // === RESUPPLY SEEKING ===
@@ -1433,6 +1478,7 @@ fn plan_turn_advanced(
 
     // Collect all possible actions with scores
     let mut all_possible: Vec<(Entity, AiAction, f32)> = Vec::new();
+    let blockers = analysis.blockers_for_us();
 
     for ai_unit in &analysis.ai_units {
         if ai_unit.unit.moved {
@@ -1442,14 +1488,23 @@ fn plan_turn_advanced(
         let stats = game_data.unit_stats(ai_unit.unit.unit_type);
         // Same movement as a player's unit: CO bonus, weather, limited by stamina
         let actual_movement = effective_movement(co.total_movement(ai_unit.unit.unit_type, weather, game_data), ai_unit.unit.stamina);
+        // Units pass through their own army, as a player's do; only other
+        // armies' units block the way (no tile can be shared at the end)
         let moves = calculate_movement_range(
             &ai_unit.pos,
             actual_movement,
             map,
-            &analysis.unit_positions,
+            &blockers,
             stats.class,
             game_data,
         );
+        // Our workshops, docks and roosts stay free to build, unless the unit
+        // needs the repair and supplies they give
+        let needs_supplies = ai_unit.unit.stamina <= stats.max_stamina / 3
+            || (stats.max_ammo > 0 && ai_unit.unit.ammo <= stats.max_ammo / 3)
+            || ai_unit.unit.hp <= stats.max_hp / 2;
+        let factory = |x: i32, y: i32| !needs_supplies && analysis.our_properties.iter()
+            .any(|t| (t.pos.x, t.pos.y) == (x, y) && !game_data.terrain(t.terrain).builds.is_empty());
 
         for (mx, my) in &moves {
             if analysis.unit_positions.contains_key(&(*mx, *my))
@@ -1499,15 +1554,21 @@ fn plan_turn_advanced(
                 }
             }
 
-            // Evaluate moves
+            // Evaluate moves (never to park on a free factory)
+            if factory(*mx, *my) {
+                continue;
+            }
             let action = AiAction::Move { move_to: (*mx, *my) };
             let score = score_action(ai_unit, &action, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
             all_possible.push((ai_unit.entity, action, score));
         }
 
-        // Wait action
+        // Wait action (staying on a factory only when nothing else is possible)
         let wait = AiAction::Wait;
-        let score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
+        let mut score = score_action(ai_unit, &wait, analysis, influence, goals, predictions, map, config, game_data, ai_faction);
+        if factory(ai_unit.pos.x, ai_unit.pos.y) {
+            score -= 200.0;
+        }
         all_possible.push((ai_unit.entity, wait, score));
     }
 
@@ -1587,7 +1648,10 @@ fn smart_production(
     let our_scouts = analysis.ai_units.iter().filter(|u| u.unit_type == UnitType::Scout).count();
     let _our_combat = analysis.ai_units.iter().filter(|u| u.unit_type != UnitType::Scout).count();
     let enemy_tanks = analysis.enemy_units.iter().filter(|u| u.unit_type == UnitType::Ironclad).count();
-    let enemy_artillery = analysis.enemy_units.iter().filter(|u| u.is_indirect).count();
+    // Siege engines (not foot archers) are what fast raiders are for
+    let enemy_artillery = analysis.enemy_units.iter()
+        .filter(|u| u.is_indirect && !matches!(game_data.unit_class(u.unit_type), super::UnitClass::Foot | super::UnitClass::Mech))
+        .count();
 
     let primary_goal = goals.first();
 
@@ -1678,13 +1742,13 @@ fn smart_production(
         .filter(|u| matches!(game_data.unit_class(u.unit_type), super::UnitClass::Foot | super::UnitClass::Mech))
         .count();
     if enemy_foot > 3 {
-        build_list.push((UnitType::Archer, 60.0 + enemy_foot as f32 * 4.0));
+        build_list.push((UnitType::Archer, (60.0 + enemy_foot as f32 * 4.0).min(85.0)));
     }
     if enemy_tanks > 1 {
         build_list.push((UnitType::Shocktrooper, 75.0 + enemy_tanks as f32 * 10.0));
     }
     if enemy_artillery > 1 {
-        build_list.push((UnitType::Recon, 70.0 + enemy_artillery as f32 * 15.0));
+        build_list.push((UnitType::Recon, (70.0 + enemy_artillery as f32 * 15.0).min(95.0)));
     }
 
     // Personality adjustments
@@ -1707,6 +1771,12 @@ fn smart_production(
         }
     }
 
+    // A mixed army: each unit of a type we already field makes another less
+    // wanted (a single favourite used to take over the whole production)
+    for (unit_type, priority) in build_list.iter_mut() {
+        let owned = analysis.ai_units.iter().filter(|u| u.unit_type == *unit_type).count();
+        *priority -= owned as f32 * 9.0;
+    }
     build_list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     for (x, y, terrain) in empty_bases {

@@ -15,6 +15,8 @@ fn main() {
     console_error_panic_hook::set_once();
     #[cfg(not(target_arch = "wasm32"))]
     dev::export_maps_if_asked();
+    #[cfg(not(target_arch = "wasm32"))]
+    find_assets();
 
     let mut app = App::new();
     app
@@ -40,7 +42,7 @@ fn main() {
             ..default()
         }))
         .init_state::<GameState>()
-        .init_resource::<states::BootSequence>()
+        .insert_resource(states::BootSequence::at_launch())
         .add_plugins(GamePlugin)
         .add_plugins(UiPlugin)
         .add_systems(Startup, (setup_camera, setup_lighting));
@@ -98,4 +100,25 @@ fn setup_lighting(mut commands: Commands) {
             0.0,
         )),
     ));
+}
+
+/// Point Bevy at the `assets` folder wherever the game is started from. Bevy
+/// looks next to the executable unless run through `cargo run`, so starting
+/// `target/debug/paw-and-claw` directly (or from another folder) found no art,
+/// sound or fonts. Try the executable's folder, the current folder, then the
+/// project the game was built from.
+#[cfg(not(target_arch = "wasm32"))]
+fn find_assets() {
+    if std::env::var_os("BEVY_ASSET_ROOT").is_some() || std::env::var_os("CARGO_MANIFEST_DIR").is_some() {
+        return;
+    }
+    let candidates = [
+        std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.to_path_buf())),
+        std::env::current_dir().ok(),
+        Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))),
+    ];
+    if let Some(root) = candidates.into_iter().flatten().find(|dir| dir.join("assets").is_dir()) {
+        // Set before any other thread starts
+        std::env::set_var("BEVY_ASSET_ROOT", root);
+    }
 }

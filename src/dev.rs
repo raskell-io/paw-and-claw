@@ -63,9 +63,13 @@ impl Plugin for DevScriptPlugin {
         let steps = parse(&script);
         let out_dir = PathBuf::from(std::env::var("PAW_SHOT_DIR").unwrap_or_else(|_| "screenshots".into()));
         std::fs::create_dir_all(&out_dir).expect("create screenshot dir");
-        // Scripts start at the main menu; PAW_BOOT=1 keeps the opening sequence
-        if std::env::var("PAW_BOOT").is_err() {
-            app.insert_resource(crate::states::BootSequence { stage: crate::states::BootStage::Menu, ..default() });
+        // Scripts start at the main menu; PAW_BOOT=1 plays the whole opening
+        // sequence, even when it has been seen before; PAW_BOOT=launch starts
+        // the way a real launch does
+        match std::env::var("PAW_BOOT").as_deref() {
+            Err(_) => { app.insert_resource(crate::states::BootSequence { stage: crate::states::BootStage::Menu, ..default() }); }
+            Ok("launch") => {}
+            Ok(_) => { app.insert_resource(crate::states::BootSequence::default()); }
         }
         app.insert_resource(DevScript { steps, wait: 0, release: None, held: None, out_dir })
             .add_systems(First, run_script);

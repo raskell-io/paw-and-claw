@@ -385,8 +385,8 @@ impl UnitType {
     pub fn all() -> &'static [UnitType] {
         &[
             UnitType::Scout,
-            UnitType::Archer,
             UnitType::Shocktrooper,
+            UnitType::Archer,
             UnitType::Recon,
             UnitType::Ironclad,
             UnitType::Juggernaut,

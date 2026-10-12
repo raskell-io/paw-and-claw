@@ -23,6 +23,9 @@ pub enum BootStage {
     Menu,
 }
 
+/// Settings name remembering that the opening sequence has played once
+pub const OPENING_SEEN: &str = "opening_seen";
+
 /// Where the opening sequence is, and how long the current stage has run
 #[derive(Resource, Debug, Default)]
 pub struct BootSequence {
@@ -34,6 +37,16 @@ pub struct BootSequence {
 }
 
 impl BootSequence {
+    /// The first launch plays the whole opening; after that the game opens on
+    /// the title ("Press any button"), like a console game you've played before
+    pub fn at_launch() -> Self {
+        if crate::game::read_setting(OPENING_SEEN).is_some() {
+            BootSequence { stage: BootStage::Title, elapsed: 0.0, skipped_intro: true }
+        } else {
+            BootSequence::default()
+        }
+    }
+
     pub fn intro_skipped(&self) -> bool {
         self.skipped_intro
     }

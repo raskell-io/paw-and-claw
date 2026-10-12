@@ -95,6 +95,8 @@ pub fn draw_boot(
         BootStage::Intro if t > INTRO_SECS || (pressed && t > 0.3) => {
             boot.skipped_intro = t <= INTRO_SECS;
             boot.go(BootStage::Title);
+            // From now on the game opens on the title
+            let _ = crate::game::write_setting(crate::states::OPENING_SEEN, "true");
         }
         BootStage::Title if pressed && t > 0.8 => {
             theme::queue_sound(ctx, "menu_confirm");

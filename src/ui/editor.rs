@@ -20,8 +20,24 @@ const PALETTE: [Terrain; 17] = [
     Terrain::Base, Terrain::Workshop, Terrain::Dock, Terrain::Roost, Terrain::Outpost, Terrain::Storehouse,
 ];
 
-const PLACEABLE_UNITS: [UnitType; 6] =
-    [UnitType::Scout, UnitType::Shocktrooper, UnitType::Archer, UnitType::Recon, UnitType::Ironclad, UnitType::Siege];
+/// The unit palette in groups, as (heading, units)
+fn unit_groups(game_data: &GameData) -> Vec<(&'static str, Vec<UnitType>)> {
+    use crate::game::UnitClass::*;
+    let group = |classes: &[crate::game::UnitClass]| -> Vec<UnitType> {
+        UnitType::all().iter().copied().filter(|&u| classes.contains(&game_data.unit_class(u))).collect()
+    };
+    vec![
+        ("Foot", group(&[Foot, Mech])),
+        ("Ground", group(&[Wheels, Treads, Transport])),
+        ("Air", group(&[Air, AirTransport])),
+        ("Sea", group(&[Naval, NavalTransport])),
+    ]
+}
+
+/// Whether a unit can stand on a terrain (boats on water, fliers anywhere)
+fn can_stand(game_data: &GameData, unit_type: UnitType, terrain: Terrain) -> bool {
+    game_data.movement_cost(terrain, game_data.unit_class(unit_type)) < crate::game::IMPASSABLE
+}
 
 /// Start every editor session from a blank map
 pub fn setup_editor(mut editor_state: ResMut<EditorState>) {
@@ -34,6 +50,7 @@ pub fn draw_editor(
     mut next_state: ResMut<NextState<GameState>>,
     game_data: Res<GameData>,
     mut custom_maps: ResMut<CustomMaps>,
+    unit_textures: Res<super::UnitTextures>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
 
@@ -44,7 +61,7 @@ pub fn draw_editor(
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 10)).show(ui, |ui| {
-                    tools_panel(ui, &mut editor, &mut next_state, &game_data, &mut custom_maps)
+                    tools_panel(ui, &mut editor, &mut next_state, &game_data, &mut custom_maps, &unit_textures)
                 });
             });
         });
@@ -54,7 +71,7 @@ pub fn draw_editor(
 }
 
 fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut NextState<GameState>, game_data: &GameData,
-               custom_maps: &mut CustomMaps) {
+               custom_maps: &mut CustomMaps, unit_textures: &super::UnitTextures) {
     ui.label(theme::display("Map Editor", 28.0).color(theme::WOOD_DARK));
     ui.add_space(6.0);
 
@@ -99,11 +116,20 @@ fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut Nex
         EditorMode::Units => {
             army_picker(ui, editor, game_data);
             ui.add_space(4.0);
-            for unit_type in PLACEABLE_UNITS {
-                let detail = format!("Symbol {}", game_data.unit(unit_type).symbol);
-                if theme::menu_item(ui, game_data.unit_name(unit_type), Some(&detail), editor.selected_unit == unit_type, true, Tone::Normal).clicked() {
-                    editor.selected_unit = unit_type;
-                }
+            for (heading, units) in unit_groups(game_data) {
+                ui.label(theme::bold(heading, 14.0).color(theme::INK_SOFT));
+                egui::Grid::new(heading).num_columns(2).spacing([6.0, 4.0]).show(ui, |ui| {
+                    for (i, unit_type) in units.iter().copied().enumerate() {
+                        let texture = unit_textures.get(editor.selected_faction, unit_type);
+                        if unit_button(ui, game_data, unit_type, texture, editor.selected_unit == unit_type).clicked() {
+                            editor.selected_unit = unit_type;
+                        }
+                        if i % 2 == 1 {
+                            ui.end_row();
+                        }
+                    }
+                });
+                ui.add_space(2.0);
             }
         }
         EditorMode::Properties => {
@@ -202,7 +228,7 @@ fn tools_panel(ui: &mut egui::Ui, editor: &mut EditorState, next_state: &mut Nex
 }
 
 fn army_picker(ui: &mut egui::Ui, editor: &mut EditorState, game_data: &GameData) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         for (faction, label) in ARMIES {
             let color = theme::faction_color(game_data, faction);
             let selected = editor.selected_faction == faction;
@@ -214,6 +240,27 @@ fn army_picker(ui: &mut egui::Ui, editor: &mut EditorState, game_data: &GameData
             }
         }
     });
+}
+
+/// A palette button with the unit's sprite (first idle frame) in the army's colours
+fn unit_button(ui: &mut egui::Ui, game_data: &GameData, unit_type: UnitType, texture: Option<(egui::TextureId, u32)>,
+               selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(118.0, 34.0), egui::Sense::click());
+    let painter = ui.painter();
+    let hot = selected || response.hovered();
+    painter.rect(rect, 6, if hot { theme::GOLD_LIGHT } else { theme::PARCHMENT_DEEP },
+        theme::stroke(if selected { 1.5 } else { 0.0 }, theme::WOOD), egui::StrokeKind::Inside);
+    let icon = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, 1.0), egui::vec2(32.0, 32.0));
+    if let Some((texture, frames)) = texture {
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0 / frames.max(1) as f32, 1.0));
+        painter.image(texture, icon, uv, egui::Color32::WHITE);
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(game_data.unit_name(unit_type).to_string(),
+        egui::FontId::new(13.0, theme::bold_family()), theme::INK);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.right() - icon.right() - 6.0);
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    ui.painter().galley(egui::pos2(icon.right() + 2.0, rect.center().y - galley.size().y / 2.0), galley, theme::INK);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn swatch_button(ui: &mut egui::Ui, game_data: &GameData, terrain: Terrain, selected: bool) -> egui::Response {
@@ -300,9 +347,16 @@ fn apply_brush(editor: &mut EditorState, game_data: &GameData, x: i32, y: i32, e
             if !game_data.terrain_capturable(terrain) {
                 editor.map.properties.retain(|p| p.x != x || p.y != y);
             }
+            // A unit that can't stand on the new terrain goes (a scout under fresh water)
+            editor.map.units.retain(|u| u.x != x || u.y != y || can_stand(game_data, u.unit_type, terrain));
         }
         // Placing units and owners is per click, not per drag
         EditorMode::Units if fresh_press => {
+            let terrain = editor.map.get_terrain(x, y).unwrap_or(Terrain::Grass);
+            if !erase && !can_stand(game_data, editor.selected_unit, terrain) {
+                editor.status = format!("{} can't stand on {}", game_data.unit_name(editor.selected_unit), game_data.terrain_name(terrain));
+                return;
+            }
             editor.map.units.retain(|u| u.x != x || u.y != y);
             if !erase {
                 editor.map.units.push(UnitPlacement { unit_type: editor.selected_unit, faction: editor.selected_faction, x, y });
