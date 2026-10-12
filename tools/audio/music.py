@@ -637,6 +637,37 @@ COMMANDERS = {
         [(4, 2), (5, 1), (4, 1), (3, 1.5), (2, .5), (1, 2)],
         [(5, 1.5), (6, .5), (7, 2), (6, 1), (5, 1), (4, 2)],
         [(3, 1), (2, 1), (1, 1), (0, 1), (-1, 2), (-3, 2)])),
+    # Velvet plays like Kindle: a haughty diva's strut, dorian sax over a
+    # light swinging rock beat
+    "velvet": dict(army="nether", personality="Aggressive", key="E5", bpm=132, scale="dorian", swing=0.1,
+                   lead="sax", drums="rock", motif=(
+        [(0, .5), (2, .5), (4, 1), (3, .5), (2, .5), (4, 1), (6, 1), (4, .5), (2, .5), (0, 2)],
+        [(4, .5), (5, .5), (7, 1), (6, .5), (5, .5), (4, 1), (2, 1), (3, .5), (2, .5), (1, 2)],
+        [(7, 1), (9, .5), (7, .5), (6, 1), (4, 1), (5, .5), (4, .5), (2, 1), (4, 2)],
+        [(2, .5), (4, .5), (2, .5), (1, .5), (0, 1), (-1, 1), (0, 2), (None, 2)])),
+    # Clank plays like Jugger: clockwork staccato on marimba, machine-like
+    # repeated notes and gaps over a driving octave bass
+    "clank": dict(army="nether", personality="Reckless", key="G4", scale="minor", lead="marimba", drums="drive",
+                  bass=[0, 12, 0, 12, 0, 12, 7, 12], motif=(
+        [(0, .5), (0, .5), (0, .5), (2, .5), (4, .5), (4, .5), (3, .5), (2, .5), (0, 1), (None, 1), (4, .5), (3, .5), (2, 1)],
+        [(4, .5), (4, .5), (4, .5), (5, .5), (7, .5), (7, .5), (6, .5), (5, .5), (4, 1), (None, 1), (2, .5), (1, .5), (0, 1)],
+        [(7, .5), (None, .5), (7, .5), (None, .5), (6, .5), (5, .5), (4, 1), (5, .5), (None, .5), (5, .5), (None, .5), (4, .5), (3, .5), (2, 1)],
+        [(0, .5), (2, .5), (4, .5), (2, .5), (0, .5), (-1, .5), (0, 1), (4, 1), (0, 1), (None, 2)])),
+    # Dredge plays like Flak: a brute's heavy stomp, a low pentatonic riff on
+    # low brass over the Nether's heavy drums
+    "dredge": dict(army="nether", personality="Reckless", key="E5", scale="minor_pentatonic", lead="low_brass", motif=(
+        [(0, 1), (0, .5), (1, .5), (2, 1), (0, 1), (3, 1.5), (2, .5), (0, 2)],
+        [(0, 1), (0, .5), (1, .5), (2, 1), (4, 1), (3, 1.5), (2, .5), (1, 2)],
+        [(5, 1), (4, 1), (3, 1), (2, 1), (3, .5), (2, .5), (1, 1), (0, 2)],
+        [(0, .5), (0, .5), (2, 1), (0, .5), (0, .5), (3, 1), (2, 1), (0, 1), (None, 2)])),
+    # Wriggle plays like Adder: sly and slithering, a chromatic-feeling
+    # harmonic-minor sax line with a heavy swing
+    "wriggle": dict(army="nether", personality="Aggressive", key="D5", scale="harmonic_minor", swing=0.25,
+                    lead="sax", drums="swing", motif=(
+        [(0, .5), (1, .5), (2, .5), (1, .5), (0, 1), (-1, 1), (0, .5), (2, .5), (4, 1), (3, 2)],
+        [(4, .5), (5, .5), (6, .5), (5, .5), (4, 1), (3, 1), (4, .5), (6, .5), (7, 1), (6, 2)],
+        [(7, 1), (6, .5), (5, .5), (4, 1), (3, .5), (2, .5), (1, 1), (2, .5), (3, .5), (4, 2)],
+        [(3, .5), (2, .5), (1, .5), (0, .5), (-1, 1), (1, 1), (0, 2), (None, 2)])),
 }
 
 # Each army's power theme: its first commander's motif, faster, a step
