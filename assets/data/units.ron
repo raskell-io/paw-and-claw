@@ -6,6 +6,7 @@
 //
 //   scout         Militia      -> Infantry
 //   shocktrooper  Halberdier   -> Mech
+//   archer        Bowmen       -> (none: light foot artillery)
 //   recon         Outrider     -> Recon
 //   ironclad      Charger      -> Tank
 //   juggernaut    Warbeast     -> Md Tank
@@ -66,6 +67,28 @@
                 class: Mech,
                 max_stamina: 70,
                 max_ammo: 3,
+            ),
+        ),
+
+        // Bowmen (no AW counterpart): light foot artillery. Unarmored like
+        // infantry, fires at range 2-3 but can't move and fire, can't capture
+        "archer": (
+            name: "Bowmen",
+            description: "Foot archers who loose volleys over the front line",
+            symbol: 'Y',
+            asset_name: "archer",
+            stats: (
+                max_hp: 100,
+                attack: 50,
+                defense: 100,
+                movement: 3,
+                attack_range: (2, 3),
+                vision: 2,
+                can_capture: false,
+                cost: 3000,
+                class: Foot,
+                max_stamina: 99,
+                max_ammo: 6,
             ),
         ),
 
@@ -153,7 +176,7 @@
         // Anti-Air: Cost 8000, Move 6, Vision 2, Fuel 60, Ammo 9
         "flak": (
             name: "Hawkbane",
-            description: "Archers who shoot down flyers and shred infantry",
+            description: "Mounted slingers who bring down flyers and shred infantry",
             symbol: 'A',
             asset_name: "flak",
             stats: (

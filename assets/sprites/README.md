@@ -21,7 +21,8 @@ manifest.json ──render──▶ prompts ──generate (PixelLab)──▶ P
 ## Art direction (decided)
 
 - **Medieval woodland.** Redwall/Root feel, with no guns or engines. Advance Wars
-  roles map to medieval equivalents: tanks become armored war-beasts, artillery
+  roles map to medieval equivalents: tanks become armored war-beasts with a rider
+  (every Advance Wars vehicle that fights is a mounted unit), artillery
   becomes catapults and trebuchets, missiles become ballistae, aircraft become
   birds with riders, ships become rafts, galleys and longships.
 - **Anthropomorphic animals**, each faction with its own species and motifs
@@ -51,13 +52,14 @@ manifest (`check` enforces this).
 
 | ID | Name | Role | Eastern | Northern | Western | Southern | Nether |
 |---|---|---|---|---|---|---|---|
-| scout | Militia | Cheap infantry, captures | tanuki | hedgehog | raccoon | meerkat | mole |
-| shocktrooper | Halberdier | Anti-armor infantry | snow monkey | badger | opossum | hyena | stag beetle |
+| scout | Militia | Cheap infantry with a sword (Northern: an axe), captures | tanuki | hedgehog | raccoon | meerkat | mole |
+| archer | Bowmen | Unarmored light foot artillery, range 2-3 | red panda | stoat | squirrel | mongoose | shrew |
+| shocktrooper | Halberdier | Anti-armor infantry, halberd held level | snow monkey | badger | opossum | hyena | stag beetle |
 | recon | Outrider | Fast scout | fox on sika deer | stoat on hare | coyote on pronghorn | meerkat on cheetah | mole on centipede |
 | ironclad | Charger | Main war-beast | boar | brown bear | armadillo | warthog | rhino beetle |
 | juggernaut | Warbeast | Heavy war-beast | water buffalo | elk | bison | rhinoceros | soldier ant |
 | behemoth | Colossus | Strongest ground unit | pagoda tortoise | mammoth fortress | watchtower tortoise | war elephant | armored earthworm |
-| flak | Hawkbane | Anti-air archers | crane | hedgehog | raccoon | secretary bird | bombardier beetle |
+| flak | Hawkbane | Anti-air slinger on a mount | crane on sika deer | hedgehog on reindeer | raccoon on pronghorn | meerkat on zebra | skunk on shrew |
 | siege | Catapult | Indirect fire, short | red panda | badger | opossum | hyena | mole rat |
 | barrage | Trebuchet | Indirect fire, long | snow monkey | brown bear | coyote | baboon | scorpion |
 | stinger | Skylance | Long-range anti-air | fox | fox | raccoon | meerkat | mole |

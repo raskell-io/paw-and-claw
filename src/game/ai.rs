@@ -1623,6 +1623,7 @@ fn smart_production(
             // Balanced, cost-effective units
             build_list.push((UnitType::Shocktrooper, 80.0));
             build_list.push((UnitType::Siege, 75.0)); // Artillery for safe damage
+            build_list.push((UnitType::Archer, 72.0)); // Cheap ranged support
             if our_scouts < 2 {
                 build_list.push((UnitType::Scout, 70.0));
             }
@@ -1632,12 +1633,13 @@ fn smart_production(
             build_list.push((UnitType::Scout, 95.0));
             build_list.push((UnitType::Scout, 90.0));
             build_list.push((UnitType::Shocktrooper, 85.0));
-            build_list.push((UnitType::Shocktrooper, 80.0));
+            build_list.push((UnitType::Archer, 82.0));
         }
         AiStrategy::Fortress => {
             // Defensive units
             build_list.push((UnitType::Siege, 85.0)); // Artillery
             build_list.push((UnitType::Ironclad, 80.0)); // Tanks to hold ground
+            build_list.push((UnitType::Archer, 75.0)); // Volleys from behind the line
             build_list.push((UnitType::Shocktrooper, 70.0));
             if our_scouts < 1 {
                 build_list.push((UnitType::Scout, 60.0));
@@ -1656,6 +1658,7 @@ fn smart_production(
                 }
                 Some(StrategicGoal::Defend { .. }) => {
                     build_list.push((UnitType::Siege, 70.0));
+                    build_list.push((UnitType::Archer, 66.0));
                     build_list.push((UnitType::Shocktrooper, 65.0));
                 }
                 Some(StrategicGoal::Expand { .. }) => {
@@ -1669,7 +1672,14 @@ fn smart_production(
         }
     }
 
-    // Counter enemy composition (applies to all strategies)
+    // Counter enemy composition (applies to all strategies): soldiers in the
+    // open are what arrows are for
+    let enemy_foot = analysis.enemy_units.iter()
+        .filter(|u| matches!(game_data.unit_class(u.unit_type), super::UnitClass::Foot | super::UnitClass::Mech))
+        .count();
+    if enemy_foot > 3 {
+        build_list.push((UnitType::Archer, 60.0 + enemy_foot as f32 * 4.0));
+    }
     if enemy_tanks > 1 {
         build_list.push((UnitType::Shocktrooper, 75.0 + enemy_tanks as f32 * 10.0));
     }
@@ -1690,7 +1700,7 @@ fn smart_production(
         AiPersonality::Cautious | AiPersonality::Methodical => {
             // Prefer defensive units
             for (unit_type, priority) in build_list.iter_mut() {
-                if *unit_type == UnitType::Siege {
+                if matches!(unit_type, UnitType::Siege | UnitType::Archer) {
                     *priority += 10.0;
                 }
             }

@@ -20,8 +20,8 @@ const PALETTE: [Terrain; 17] = [
     Terrain::Base, Terrain::Workshop, Terrain::Dock, Terrain::Roost, Terrain::Outpost, Terrain::Storehouse,
 ];
 
-const PLACEABLE_UNITS: [UnitType; 5] =
-    [UnitType::Scout, UnitType::Shocktrooper, UnitType::Recon, UnitType::Ironclad, UnitType::Siege];
+const PLACEABLE_UNITS: [UnitType; 6] =
+    [UnitType::Scout, UnitType::Shocktrooper, UnitType::Archer, UnitType::Recon, UnitType::Ironclad, UnitType::Siege];
 
 /// Start every editor session from a blank map
 pub fn setup_editor(mut editor_state: ResMut<EditorState>) {

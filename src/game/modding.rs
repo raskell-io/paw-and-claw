@@ -653,6 +653,7 @@ fn unit_type_to_key(unit_type: UnitType) -> &'static str {
     match unit_type {
         UnitType::Scout => "scout",
         UnitType::Shocktrooper => "shocktrooper",
+        UnitType::Archer => "archer",
         UnitType::Recon => "recon",
         UnitType::Ironclad => "ironclad",
         UnitType::Juggernaut => "juggernaut",

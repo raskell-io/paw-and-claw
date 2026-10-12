@@ -331,6 +331,8 @@ pub enum UnitType {
     Scout,
     /// Shocktrooper - Heavy foot soldier, anti-armor capability
     Shocktrooper,
+    /// Archer - Bowmen: unarmored foot soldiers that shoot over others at range 2-3
+    Archer,
 
     // === GROUND VEHICLES ===
     /// Recon - Fast wheeled vehicle, good vision
@@ -383,6 +385,7 @@ impl UnitType {
     pub fn all() -> &'static [UnitType] {
         &[
             UnitType::Scout,
+            UnitType::Archer,
             UnitType::Shocktrooper,
             UnitType::Recon,
             UnitType::Ironclad,

@@ -12,9 +12,12 @@ Western gets the same treatment, so its sage green becomes the same vivid kind
 of team color as the others. Brown leather, fur, skin, gold trim and the dark
 outline keep their colors.
 
-An army that gets its own generated roster later (its own animals) is left out
-by dropping it from --factions; its sprites are then built from its own
-originals instead (see assets/sprites/README.md).
+A single unit can differ for one army: a raw sprite in
+`assets/sprites/originals/units/{faction}/{id}.png` (say the Northern militia
+with an axe instead of a sword) is used for that army instead of the Western
+one, recolored the same way. An army that gets its own generated roster later
+(its own animals) is left out by dropping it from --factions; its sprites are
+then built from its own originals instead (see assets/sprites/README.md).
 
 Buildings work the same way: the raw war-camp buildings in
 `assets/sprites/originals/features/` (canvas and flags in team green) become a
@@ -121,8 +124,14 @@ def center_horizontally(w, h, pixels):
     return out
 
 
+def source_for(unit_id, faction):
+    """The army's own raw sprite for this unit if it has one, else the Western roster's"""
+    own = SOURCE.parent / faction / f"{unit_id}.png"
+    return own if faction != "western" and own.exists() else SOURCE / f"{unit_id}.png"
+
+
 def build(unit_id, faction, target):
-    w, h, pixels = read_png(SOURCE / f"{unit_id}.png")
+    w, h, pixels = read_png(source_for(unit_id, faction))
     pixels = center_horizontally(w, h, [recolor(p, target) for p in pixels])
     rows = [y for y in range(h) if any(pixels[y * w + x][3] for x in range(w))]
     shift = 0 if unit_id in AIR else max(0, GROUND_ROW - rows[-1])

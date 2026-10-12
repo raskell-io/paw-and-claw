@@ -6,7 +6,7 @@
 // `secondary` holds machine guns and similar, which never use ammo
 //
 // Unit Mappings (Paw & Claw -> AW2):
-//   scout -> Infantry, shocktrooper -> Mech
+//   scout -> Infantry, shocktrooper -> Mech, archer -> (light foot artillery, takes hits like Infantry)
 //   recon -> Recon, ironclad -> Tank, juggernaut -> Md Tank, behemoth -> Neotank
 //   flak -> Anti-Air, siege -> Artillery, barrage -> Rockets, stinger -> Missiles
 //   carrier/supplier -> APC, ferrier -> T Copter
@@ -18,6 +18,7 @@
         // Machine gun only - weak against everything armored
         "scout": {
             "scout": 55,
+            "archer": 55,
             "shocktrooper": 45,
             "recon": 12,
             "ironclad": 5,
@@ -29,6 +30,25 @@
             "stinger": 26,
             "carrier": 14,
             "supplier": 14,
+        },
+
+        // ========== BOWMEN (Archer) ==========
+        // Arrow volleys (ammo): deadly to soldiers in the open, a scratch on armor,
+        // can't reach fliers or boats at sea
+        "archer": {
+            "scout": 60,
+            "archer": 60,
+            "shocktrooper": 50,
+            "recon": 25,
+            "ironclad": 8,
+            "juggernaut": 4,
+            "behemoth": 2,
+            "flak": 20,
+            "siege": 35,
+            "barrage": 35,
+            "stinger": 35,
+            "carrier": 25,
+            "supplier": 25,
         },
 
         // ========== MECH (Shocktrooper) ==========
@@ -50,6 +70,7 @@
         // Machine gun only
         "recon": {
             "scout": 70,
+            "archer": 70,
             "shocktrooper": 65,
             "recon": 35,
             "ironclad": 6,
@@ -114,6 +135,7 @@
         // Vulcan cannon - excellent vs air, decent vs soft targets
         "flak": {
             "scout": 105,
+            "archer": 105,
             "shocktrooper": 105,
             "recon": 60,
             "ironclad": 25,
@@ -136,6 +158,7 @@
         // Indirect fire - cannot attack adjacent (range 2-3)
         "siege": {
             "scout": 90,
+            "archer": 90,
             "shocktrooper": 85,
             "recon": 80,
             "ironclad": 70,
@@ -153,6 +176,7 @@
         // Long-range indirect fire (range 3-5)
         "barrage": {
             "scout": 95,
+            "archer": 95,
             "shocktrooper": 90,
             "recon": 90,
             "ironclad": 80,
@@ -204,6 +228,7 @@
         // Bombs - devastating vs ground, cannot attack air
         "talon": {
             "scout": 110,
+            "archer": 110,
             "shocktrooper": 110,
             "recon": 105,
             "ironclad": 105,
@@ -242,6 +267,7 @@
         // Massive indirect bombardment (range 2-6)
         "dreadnought": {
             "scout": 95,
+            "archer": 95,
             "shocktrooper": 90,
             "recon": 90,
             "ironclad": 80,
@@ -270,6 +296,7 @@
         // MECH (Shocktrooper): machine gun
         "shocktrooper": {
             "scout": 65,
+            "archer": 65,
             "shocktrooper": 55,
             "skywing": 9,
             "ferrier": 35,
@@ -278,6 +305,7 @@
         // TANK (Ironclad): machine gun
         "ironclad": {
             "scout": 75,
+            "archer": 75,
             "shocktrooper": 70,
             "skywing": 10,
             "ferrier": 40,
@@ -286,6 +314,7 @@
         // MD TANK (Juggernaut): machine gun
         "juggernaut": {
             "scout": 105,
+            "archer": 105,
             "shocktrooper": 95,
             "skywing": 12,
             "ferrier": 45,
@@ -294,6 +323,7 @@
         // NEOTANK (Behemoth): machine gun
         "behemoth": {
             "scout": 125,
+            "archer": 125,
             "shocktrooper": 115,
             "skywing": 22,
             "ferrier": 55,
@@ -302,6 +332,7 @@
         // B COPTER (Skywing): machine gun
         "skywing": {
             "scout": 75,
+            "archer": 75,
             "shocktrooper": 75,
             "skywing": 65,
             "ferrier": 95,
