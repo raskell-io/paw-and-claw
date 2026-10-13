@@ -3,14 +3,14 @@
 
 The manifest (assets/sprites/manifest.json) is the single source of truth for
 every generated sprite: shared style, faction palettes, and a short subject per
-unit / terrain / portrait. Full prompts are rendered from those parts so the
+unit / terrain / commander (its portrait and full-body figure). Full prompts are rendered from those parts so the
 whole set stays consistent.
 
 Commands:
   render              Rebuild every "prompt" field from style + subject (rewrites the manifest)
   check               Verify the manifest matches the game data and prompts are up to date
   status [--faction F]  Show which sprite files exist and which are missing
-  prompts [--faction F] [--kind units|battle|tiles|features|portraits] [--missing]
+  prompts [--faction F] [--kind units|battle|tiles|features|portraits|figures] [--missing]
                       Print prompts (with target path and size) ready to paste into the generator
 
 Standard library only. Run from anywhere: paths are resolved from the repo root.
@@ -71,10 +71,12 @@ def entries(manifest):
         yield "features", feature["id"], None, feature, styles["features"], ASSETS / "sprites" / "terrain" / "features" / f"{feature['id']}.png"
     for co in manifest["commanders"]:
         yield "portraits", co["id"], co["faction"], co, styles["portraits"], ASSETS / "sprites" / "portraits" / f"{co['id']}.png"
+        # The full-body intro art: the same subject, styled by the commander's own portrait
+        yield "figures", co["id"], co["faction"], co, styles["figures"], ASSETS / "sprites" / "figures" / f"{co['id']}.png"
 
 
 def prompt_field(kind):
-    return "battle_prompt" if kind == "battle" else "prompt"
+    return {"battle": "battle_prompt", "figures": "figure_prompt"}.get(kind, "prompt")
 
 
 def expected_prompt(manifest, kind, fkey, entry, style):
@@ -235,12 +237,12 @@ def main():
     sub.add_parser("check").set_defaults(func=cmd_check)
     status = sub.add_parser("status")
     status.add_argument("--faction")
-    status.add_argument("--kind", choices=["units", "battle", "tiles", "features", "portraits"])
+    status.add_argument("--kind", choices=["units", "battle", "tiles", "features", "portraits", "figures"])
     status.add_argument("-v", "--verbose", action="store_true", help="list missing files")
     status.set_defaults(func=cmd_status)
     prompts = sub.add_parser("prompts")
     prompts.add_argument("--faction")
-    prompts.add_argument("--kind", choices=["units", "battle", "tiles", "features", "portraits"])
+    prompts.add_argument("--kind", choices=["units", "battle", "tiles", "features", "portraits", "figures"])
     prompts.add_argument("--missing", action="store_true", help="only sprites without a file yet")
     prompts.set_defaults(func=cmd_prompts)
     args = parser.parse_args()

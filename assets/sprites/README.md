@@ -147,7 +147,9 @@ style image (all "Copy from style image" boxes on, so face and colours match).
 Describe the whole outfit and a pose that shows the character, and end with
 "Same character as the style image: same face, colours and outfit … No text,
 no ground, no shadow". The game mirrors them for the second army. So far:
-the Western Frontier and Northern Realm commanders.
+the Western Frontier and Northern Realm commanders; the intro skips the
+others. `manifest.py prompts --kind figures --missing` prints the rest (the
+portrait's subject, so name the pose in the prompt when pasting).
 
 Keep every design grounded, like Root or Redwall: practical medieval clothing,
 leather, iron and cloth, no magic, glowing effects or bone armour. The Nether

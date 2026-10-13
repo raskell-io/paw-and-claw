@@ -128,9 +128,10 @@ impl SpriteAssets {
     }
 }
 
-/// Whether a sprite file is worth requesting. Native builds skip files that
-/// don't exist so the log isn't flooded with "path not found" errors; the web
-/// build can't check, so it requests everything and missing files just fail.
+/// Whether a sprite file is worth requesting, so missing art (a commander
+/// without a figure yet) doesn't fill the log with "path not found" errors.
+/// Native builds look at the disk; the web build can't, so it checks the list
+/// of sprite files that build.rs made at compile time.
 fn sprite_exists(path: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -138,8 +139,7 @@ fn sprite_exists(path: &str) -> bool {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = path;
-        true
+        include_str!(concat!(env!("OUT_DIR"), "/sprite_files.txt")).lines().any(|file| file == path)
     }
 }
 
