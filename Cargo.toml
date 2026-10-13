@@ -7,9 +7,22 @@ license = "MIT"
 repository = "https://github.com/raskell-io/paw-and-claw"
 
 [dependencies]
-bevy = { version = "0.17", features = ["wayland", "wav"] }
-bevy_ecs_tilemap = "0.17"
-bevy_egui = "0.38"
+# Only the engine parts the game uses (a smaller web download): 3D board with
+# StandardMaterial, Text2d HP numbers, gizmos, gamepads, OGG/WAV audio, PNG
+# sprites. No glTF, scenes, animation, Bevy UI or picking (the UI is egui)
+bevy = { version = "0.17", default-features = false, features = [
+    "std", "async_executor", "multi_threaded",
+    "bevy_asset", "bevy_audio", "vorbis", "wav", "bevy_image", "png",
+    "bevy_color", "bevy_core_pipeline", "bevy_render", "bevy_pbr", "bevy_mesh",
+    "bevy_camera", "bevy_light", "bevy_shader", "bevy_gizmos",
+    "bevy_text", "default_font", "bevy_sprite", "bevy_sprite_render",
+    "tonemapping_luts", "ktx2", "zstd_rust",
+    "bevy_gilrs", "bevy_log", "bevy_state", "bevy_window", "bevy_winit",
+    "x11", "wayland", "webgl2",
+] }
+bevy_egui = { version = "0.38", default-features = false, features = [
+    "render", "default_fonts", "manage_clipboard", "open_url",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ron = "0.8"
