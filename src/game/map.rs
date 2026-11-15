@@ -20,11 +20,12 @@ pub enum TilesetTheme {
 impl TilesetTheme {
     pub fn ground_color(&self) -> Color {
         match self {
-            TilesetTheme::Woodland => Color::srgb(0.35, 0.25, 0.15),
-            TilesetTheme::Steppe => Color::srgb(0.55, 0.45, 0.30),
-            TilesetTheme::Desert => Color::srgb(0.70, 0.55, 0.35),
-            TilesetTheme::Tundra => Color::srgb(0.45, 0.45, 0.50),
-            TilesetTheme::Swamp => Color::srgb(0.25, 0.20, 0.15),
+            // Warm, sunlit earth like the cliff edges of AW maps, not shadowed soil
+            TilesetTheme::Woodland => Color::srgb(0.66, 0.46, 0.27),
+            TilesetTheme::Steppe => Color::srgb(0.76, 0.62, 0.40),
+            TilesetTheme::Desert => Color::srgb(0.86, 0.72, 0.48),
+            TilesetTheme::Tundra => Color::srgb(0.66, 0.68, 0.74),
+            TilesetTheme::Swamp => Color::srgb(0.50, 0.40, 0.28),
         }
     }
 }
@@ -337,9 +338,10 @@ fn tile_cuboid(width: f32, height: f32) -> Mesh {
             [(along + half) / width, (height / 2.0 - p[1]) / width]
         }
     }).collect();
-    // Sides are shaded darker and warmer, like the earthen banks of AW terrain
+    // Sides are shaded a little darker and warmer, like the earthen banks of
+    // AW terrain: enough to read as an edge, not so much the board looks grim
     let colors: Vec<[f32; 4]> = normals.iter().map(|n| {
-        if n[1] > 0.5 { [1.0, 1.0, 1.0, 1.0] } else { [0.62, 0.52, 0.46, 1.0] }
+        if n[1] > 0.5 { [1.0, 1.0, 1.0, 1.0] } else { [0.80, 0.70, 0.62, 1.0] }
     }).collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);

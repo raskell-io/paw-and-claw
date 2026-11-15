@@ -184,8 +184,9 @@ fn update_fog_of_war(
 fn fog_shade(visibility: TileVisibility) -> f32 {
     match visibility {
         TileVisibility::Visible => 1.0,
-        TileVisibility::Fogged => 0.55,
-        TileVisibility::Unexplored => 0.4,
+        // A grey veil, as in Advance Wars: out of sight, but still readable
+        TileVisibility::Fogged => 0.7,
+        TileVisibility::Unexplored => 0.58,
     }
 }
 

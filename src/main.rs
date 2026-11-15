@@ -20,8 +20,8 @@ fn main() {
 
     let mut app = App::new();
     app
-        // Deep forest floor around the board
-        .insert_resource(ClearColor(Color::srgb_u8(0x1F, 0x2B, 0x21)))
+        // A clear daytime sky around the board, as bright as Advance Wars
+        .insert_resource(ClearColor(Color::srgb_u8(0xA4, 0xDA, 0xF2)))
         // Pixel-art sprites must stay crisp when scaled up
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(AssetPlugin {
             // Assets have no .meta files; on the web, asking for them would cost a
@@ -70,6 +70,10 @@ fn setup_camera(mut commands: Commands) {
     // 3D camera looking down at the game board at ~35 degree angle
     commands.spawn((
         Camera3d::default(),
+        // Terrain and sprites are unlit pixel art with hand-picked palettes:
+        // a tonemapper would only grey and darken them (it turned the plains'
+        // #7CC85A into #71A955), so colors reach the screen as drawn
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
         Transform::from_xyz(0.0, 400.0, 350.0)
             .looking_at(Vec3::ZERO, Vec3::Y),
         Projection::Perspective(PerspectiveProjection {

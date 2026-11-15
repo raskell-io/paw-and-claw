@@ -35,8 +35,6 @@ pub const LEAF: Color32 = Color32::from_rgb(0x4E, 0x7F, 0x2E);
 pub const BERRY: Color32 = Color32::from_rgb(0xB0, 0x3E, 0x2A);
 /// Informational accents
 pub const SKY: Color32 = Color32::from_rgb(0x3F, 0x72, 0x9B);
-/// Full-screen menu backdrop (deep forest)
-pub const FOREST_NIGHT: Color32 = Color32::from_rgb(0x1B, 0x26, 0x1D);
 
 
 /// Stroke with a concrete f32 width (egui's `Stroke::new` is generic over the width)
@@ -478,42 +476,40 @@ pub fn backdrop(ctx: &egui::Context, id: &str, alpha: u8) {
 /// band at the top so the title reads, the nearer pine silhouettes along the
 /// bottom, and the middle left open onto the battle
 pub fn forest_frame(painter: &egui::Painter, rect: egui::Rect, time: f32) {
-    // A soft darkening over everything, deepest at the top
-    let steps = 24;
-    for i in 0..steps {
-        let t0 = i as f32 / steps as f32;
-        let t1 = (i + 1) as f32 / steps as f32;
-        let band = egui::Rect::from_min_max(
-            egui::pos2(rect.left(), egui::lerp(rect.top()..=rect.bottom(), t0)),
-            egui::pos2(rect.right(), egui::lerp(rect.top()..=rect.bottom(), t1) + 1.0),
-        );
-        let alpha = (200.0 * (1.0 - t0 / 0.42).max(0.0) + 40.0) as u8;
-        painter.rect_filled(band, 0.0, Color32::from_rgba_unmultiplied(0x16, 0x1F, 0x17, alpha));
-    }
+    // Shade behind the title only, fading out above the menu: the bright
+    // battlefield below stays as it is
+    let shade_bottom = egui::lerp(rect.top()..=rect.bottom(), 0.42);
+    vertical_gradient(painter, egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), shade_bottom)),
+        Color32::from_rgba_unmultiplied(0x1C, 0x3A, 0x52, 150), Color32::from_rgba_unmultiplied(0x1C, 0x3A, 0x52, 0));
     pine_layers(painter, rect, time, &[
-        (0.84, 105.0, Color32::from_rgb(0x24, 0x34, 0x26), 37.0),
-        (0.94, 140.0, Color32::from_rgb(0x17, 0x21, 0x18), 71.0),
+        (0.84, 105.0, Color32::from_rgb(0x3C, 0x74, 0x3A), 37.0),
+        (0.94, 140.0, Color32::from_rgb(0x2A, 0x55, 0x2C), 71.0),
     ]);
 }
 
+/// A smooth top-to-bottom gradient over a rectangle (one mesh, so there are
+/// no seams where bands would overlap)
+fn vertical_gradient(painter: &egui::Painter, rect: egui::Rect, top: Color32, bottom: Color32) {
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), top);
+    mesh.colored_vertex(rect.right_top(), top);
+    mesh.colored_vertex(rect.left_bottom(), bottom);
+    mesh.colored_vertex(rect.right_bottom(), bottom);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 pub fn forest_backdrop(painter: &egui::Painter, rect: egui::Rect, time: f32) {
-    // Sky-to-forest vertical gradient
-    let steps = 24;
-    for i in 0..steps {
-        let t0 = i as f32 / steps as f32;
-        let t1 = (i + 1) as f32 / steps as f32;
-        let band = egui::Rect::from_min_max(
-            egui::pos2(rect.left(), egui::lerp(rect.top()..=rect.bottom(), t0)),
-            egui::pos2(rect.right(), egui::lerp(rect.top()..=rect.bottom(), t1) + 1.0),
-        );
-        painter.rect_filled(band, 0.0, lerp_color(Color32::from_rgb(0x3E, 0x52, 0x3C), FOREST_NIGHT, t0));
-    }
+    // Sky-to-forest vertical gradient: a dusky blue sky over green woods,
+    // deep enough for the parchment headings to read on it
+    vertical_gradient(painter, rect, Color32::from_rgb(0x3A, 0x6A, 0x86), Color32::from_rgb(0x24, 0x4A, 0x2E));
 
     // Three layers of pine silhouettes, nearer layers darker and larger
     pine_layers(painter, rect, time, &[
-        (0.62, 70.0, Color32::from_rgb(0x2F, 0x42, 0x31), 0.0),
-        (0.74, 95.0, Color32::from_rgb(0x24, 0x34, 0x26), 37.0),
-        (0.88, 130.0, Color32::from_rgb(0x17, 0x21, 0x18), 71.0),
+        (0.62, 70.0, Color32::from_rgb(0x3F, 0x76, 0x44), 0.0),
+        (0.74, 95.0, Color32::from_rgb(0x30, 0x60, 0x36), 37.0),
+        (0.88, 130.0, Color32::from_rgb(0x22, 0x4A, 0x28), 71.0),
     ]);
 }
 
@@ -560,7 +556,3 @@ fn pine_layers(painter: &egui::Painter, rect: egui::Rect, time: f32, layers: &[(
     }
 }
 
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-    let l = |x: u8, y: u8| egui::lerp(x as f32..=y as f32, t) as u8;
-    Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
-}
