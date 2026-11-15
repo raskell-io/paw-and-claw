@@ -110,6 +110,8 @@ pub struct LoadGameEvent {
 #[derive(Message)]
 pub struct GameLoadedEvent {
     pub map_id: Option<MapId>,
+    /// The battle is a campaign mission
+    pub mission: bool,
 }
 
 /// The map the battle is played on: a built-in one, or a custom map by name
@@ -117,6 +119,8 @@ pub struct GameLoadedEvent {
 pub struct BattleMap {
     pub id: Option<MapId>,
     pub name: String,
+    /// The campaign mission being played (its key), if the battle is one
+    pub mission: Option<String>,
 }
 
 /// A save read from storage, waiting for the battle state and sprites
@@ -208,6 +212,12 @@ pub struct SaveGame {
     pub fog: bool,
     #[serde(default)]
     pub day_limit: Option<u32>,
+    /// The army a holdout mission is about (see `BattleConfig::holdout`)
+    #[serde(default)]
+    pub holdout: Option<Faction>,
+    /// The campaign mission this battle is, by key
+    #[serde(default)]
+    pub mission: Option<String>,
     /// Armies that have fielded units (see `GameResult::fielded`)
     pub fielded: Vec<Faction>,
 }
@@ -225,6 +235,7 @@ impl SaveGame {
             BattleConfig::from_armies(self.armies.clone())
         };
         config.day_limit = self.day_limit;
+        config.holdout = self.holdout;
         config
     }
 }
@@ -517,6 +528,8 @@ impl BattleSnapshot<'_, '_> {
             },
             fog: self.fog.enabled,
             day_limit: self.config.day_limit,
+            holdout: self.config.holdout,
+            mission: self.battle_map.mission.clone(),
             fielded: self.result.fielded.clone(),
         }
     }
@@ -674,7 +687,7 @@ fn apply_pending_load(
 
     let day = save.summary.day;
     commands.insert_resource(save.battle_config());
-    commands.insert_resource(BattleMap { id: save.map_id, name: save.summary.map.clone() });
+    commands.insert_resource(BattleMap { id: save.map_id, name: save.summary.map.clone(), mission: save.mission.clone() });
     commands.insert_resource(TurnState { current_faction: save.current_faction, turn_number: day, phase: TurnPhase::Select });
     let mut funds = FactionFunds::default();
     for (&faction, &amount) in &save.funds {
@@ -713,7 +726,7 @@ fn apply_pending_load(
         .unwrap_or((width as i32 / 2, height as i32 / 2));
     commands.insert_resource(GridCursor { x: hq.0, y: hq.1, visible: true, follow: true });
 
-    loaded.write(GameLoadedEvent { map_id: save.map_id });
+    loaded.write(GameLoadedEvent { map_id: save.map_id, mission: save.mission.is_some() });
     notice.show(format!("Day {day} · {}", save.summary.map), false);
     info!("Loaded a save: {} day {day}", save.summary.map);
 }
@@ -873,6 +886,8 @@ mod tests {
             weather: SavedWeather { current: WeatherType::Rain, turns_remaining: 2, dynamic_weather: true, change_chance: 20 },
             fog: true,
             day_limit: Some(30),
+            holdout: None,
+            mission: Some("first_light".to_string()),
             fielded: vec![Faction::Western, Faction::Northern],
         }
     }

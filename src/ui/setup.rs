@@ -70,29 +70,42 @@ pub struct BattleSpawner<'w, 's> {
     turn_start_events: MessageWriter<'w, TurnStartEvent>,
 }
 
+/// One army as a battle starts
+#[derive(Debug, Clone, Copy)]
+pub struct ArmyStart {
+    pub faction: Faction,
+    pub co: CommanderId,
+    pub human: bool,
+    pub team: u8,
+}
+
 impl BattleSpawner<'_, '_> {
-    /// Start a battle: each army gets its commander (random when none is
-    /// picked) and its slot on the map; armies on the right face left
-    fn start(&mut self, game_data: &GameData, armies: &[ArmySetup], teams: bool, day_limit: Option<u32>, map: &MapData, battle_map: BattleMap) {
+    /// Start a battle: each army gets its commander and its slot on the map;
+    /// armies on the right face left. With `holdout`, that army wins by
+    /// lasting until the day limit (campaign missions).
+    pub fn start(&mut self, game_data: &GameData, armies: &[ArmyStart], day_limit: Option<u32>, holdout: Option<Faction>,
+                 map: &MapData, battle_map: BattleMap) {
         let factions: Vec<Faction> = armies.iter().map(|a| a.faction).collect();
         let map_data = map.with_armies(&factions);
         let mut config = Vec::new();
         for (i, army) in armies.iter().enumerate() {
-            let co = army.co.unwrap_or_else(|| {
-                let cos = CommanderId::for_faction(army.faction, game_data);
-                cos.get(rand::random::<usize>() % cos.len().max(1)).copied().unwrap_or(CommanderId::Kira)
+            self.commanders.set_commander(army.faction, army.co);
+            // By its HQ, else by where its units stand
+            let home = map_data.hq_of(army.faction).map(|(x, _)| x as f32).or_else(|| {
+                let xs: Vec<f32> = map_data.units.iter().filter(|u| u.faction == army.faction).map(|u| u.x as f32).collect();
+                (!xs.is_empty()).then(|| xs.iter().sum::<f32>() / xs.len() as f32)
             });
-            self.commanders.set_commander(army.faction, co);
-            let facing_left = map_data.hq_of(army.faction).map_or(i % 2 == 1, |(x, _)| x as f32 >= map_data.width as f32 / 2.0);
-            config.push(Army { faction: army.faction, ai: !army.human, team: if teams { (i % 2) as u8 } else { i as u8 },
-                defeated: false, facing_left });
-            info!("Army {}: {:?} led by {:?} ({})", i + 1, army.faction, co, if army.human { "person" } else { "computer" });
+            let facing_left = home.map_or(i % 2 == 1, |x| x >= map_data.width as f32 / 2.0);
+            config.push(Army { faction: army.faction, ai: !army.human, team: army.team, defeated: false, facing_left });
+            info!("Army {}: {:?} led by {} ({})", i + 1, army.faction, game_data.commander_name(army.co),
+                if army.human { "person" } else { "computer" });
         }
         info!("Battle started on {}", battle_map.name);
 
         let first = armies[0].faction;
         let mut battle_config = BattleConfig::from_armies(config);
         battle_config.day_limit = day_limit;
+        battle_config.holdout = holdout;
         self.commands.insert_resource(battle_config);
         self.commands.insert_resource(battle_map);
         self.commands.insert_resource(TurnState { current_faction: first, turn_number: 1, phase: TurnPhase::Select });
@@ -106,6 +119,20 @@ impl BattleSpawner<'_, '_> {
             &self.sprite_assets, &self.images, game_data, &map_data);
 
         self.turn_start_events.write(TurnStartEvent { faction: first });
+    }
+
+    /// For what a battle sets up on top of `start` (funds, fog, weather)
+    pub fn insert_resource(&mut self, resource: impl Resource) {
+        self.commands.insert_resource(resource);
+    }
+
+    pub fn sprites_ready(&self) -> bool {
+        self.sprite_assets.loading_complete
+    }
+
+    /// No board is up (the last battle's is gone)
+    pub fn board_clear(&self) -> bool {
+        self.game_map.width == 0
     }
 }
 
@@ -146,7 +173,8 @@ pub fn draw_battle_setup(
     mut maps: Local<(usize, Vec<(MapId, MapData, Option<String>)>)>,
     mut shown: Local<bool>,
 ) {
-    if !setup.needs_setup {
+    // The campaign's mission list takes this screen's place (ui/campaign.rs)
+    if !setup.needs_setup || setup.campaign {
         *shown = false;
         return;
     }
@@ -445,11 +473,20 @@ pub fn draw_battle_setup(
     if start && sprites_ready && map_ok {
         let (id, map, _) = &maps[map_index];
         let battle_map = match id {
-            MapId::Custom(_) => BattleMap { id: None, name: map.name.clone() },
-            builtin => BattleMap { id: Some(*builtin), name: builtin.name().to_string() },
+            MapId::Custom(_) => BattleMap { id: None, name: map.name.clone(), mission: None },
+            builtin => BattleMap { id: Some(*builtin), name: builtin.name().to_string(), mission: None },
         };
-        let armies = setup.armies[..count].to_vec();
-        spawner.start(&game_data, &armies, setup.teams, setup.day_limit, map, battle_map);
+        // A random commander for armies that didn't pick one
+        let armies: Vec<ArmyStart> = setup.armies[..count].iter().enumerate().map(|(i, army)| ArmyStart {
+            faction: army.faction,
+            co: army.co.unwrap_or_else(|| {
+                let cos = CommanderId::for_faction(army.faction, &game_data);
+                cos.get(rand::random::<usize>() % cos.len().max(1)).copied().unwrap_or(CommanderId::Kira)
+            }),
+            human: army.human,
+            team: if setup.teams { (i % 2) as u8 } else { i as u8 },
+        }).collect();
+        spawner.start(&game_data, &armies, setup.day_limit, None, map, battle_map);
         setup.needs_setup = false;
     }
 }
@@ -514,7 +551,7 @@ fn faction_heading(ui: &mut egui::Ui, game_data: &GameData, faction: Faction, de
 }
 
 /// A titled card for one setup column; gold border when it has input focus
-fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused: bool, add: impl FnOnce(&mut egui::Ui)) {
+pub fn column_card(ui: &mut egui::Ui, width: f32, height: f32, title: &str, focused: bool, add: impl FnOnce(&mut egui::Ui)) {
     let icon = match title {
         "Armies" => Some(Icon::Banner),
         t if t.ends_with("commander") => Some(Icon::Crown),

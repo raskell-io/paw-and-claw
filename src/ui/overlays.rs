@@ -1,5 +1,6 @@
 //! Game-over screen and battle teardown
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
@@ -50,6 +51,40 @@ pub fn cleanup_battle_on_exit(
     reset_battle(&mut commands, &entities, fog.enabled, ai.enabled);
 }
 
+/// What the result screen needs beyond the battle itself: the campaign
+/// (which mission this was, what comes next) and what a fresh board keeps
+#[derive(SystemParam)]
+pub struct ResultContext<'w> {
+    battle_map: Res<'w, crate::game::BattleMap>,
+    dialogue: Res<'w, crate::game::Dialogue>,
+    progress: Res<'w, crate::game::CampaignProgress>,
+    missions: ResMut<'w, super::campaign::MissionSelect>,
+    fog: Res<'w, FogOfWar>,
+    ai: Res<'w, AiState>,
+}
+
+/// Where the result screen can lead
+#[derive(Clone, Copy, PartialEq)]
+enum After {
+    PlayAgain,
+    NextMission,
+    TryAgain,
+    Missions,
+    Title,
+}
+
+impl After {
+    fn label(self) -> &'static str {
+        match self {
+            After::PlayAgain => "Play again",
+            After::NextMission => "Next mission",
+            After::TryAgain => "Try again",
+            After::Missions => "Mission list",
+            After::Title => "Return to title",
+        }
+    }
+}
+
 pub fn draw_game_over(
     mut contexts: EguiContexts,
     game_result: Res<GameResult>,
@@ -61,16 +96,24 @@ pub fn draw_game_over(
     mut next_state: ResMut<NextState<GameState>>,
     mut commands: Commands,
     entities: Query<Entity, With<BattleEntity>>,
-    fog: Res<FogOfWar>,
-    ai: Res<AiState>,
+    mut context: ResultContext,
     input: MenuInput,
     time: Res<Time>,
     mut selected: Local<usize>,
+    mut shown: Local<bool>,
 ) {
     let (true, Some(winner)) = (game_result.game_over, game_result.winner) else {
         *selected = 0;
+        *shown = false;
         return;
     };
+    // A mission's closing lines come first
+    if context.dialogue.active() {
+        *shown = false;
+        return;
+    }
+    // The press that ended the dialogue must not also pick an option
+    let accept_input = std::mem::replace(&mut *shown, true);
     // The winning side (allies win together); it's a victory when a person
     // is on it, or when only the computer was playing
     let winners: Vec<_> = battle_config.armies.iter().map(|a| a.faction).filter(|&f| battle_config.allied(f, winner)).collect();
@@ -83,12 +126,27 @@ pub fn draw_game_over(
         (VictoryType::HQCapture, false) => "The enemy has taken your headquarters.",
         (VictoryType::DayLimit, true) => "Time is up, and the woods are yours: you hold the most ground.",
         (VictoryType::DayLimit, false) => "Time is up. The enemy holds more of the woods.",
+        (VictoryType::Holdout, true) => "The last day has passed, and the line still stands.",
+        (VictoryType::Holdout, false) => "The enemy held out to the last day.",
         (VictoryType::None, _) => "",
     };
     let survivors = |faction| units.iter().filter(|(_, f)| f.faction == faction).count();
 
-    input.step_vertical(&mut selected, 2);
-    let mut choice = input.confirm().then_some(*selected);
+    // A campaign mission leads on to the next one (or back for another try)
+    let campaign = &game_data.campaign;
+    let mission = context.battle_map.mission.as_deref().and_then(|key| campaign.index_of(key));
+    let options: Vec<After> = match mission {
+        None => vec![After::PlayAgain, After::Title],
+        Some(i) if won && i + 1 < campaign.missions.len() => vec![After::NextMission, After::Missions, After::Title],
+        Some(_) if won => vec![After::Missions, After::Title],
+        Some(_) => vec![After::TryAgain, After::Missions, After::Title],
+    };
+    let mut choice = None;
+    if accept_input {
+        input.step_vertical(&mut selected, options.len());
+        choice = input.confirm().then_some(*selected);
+    }
+    *selected = (*selected).min(options.len() - 1);
 
     let Ok(ctx) = contexts.ctx_mut() else { return };
     theme::backdrop(ctx, "game_over_backdrop", 170);
@@ -103,12 +161,18 @@ pub fn draw_game_over(
                     let pulse = 1.0 + 0.03 * (time.elapsed_secs() * 2.5).sin();
                     let (title, color) = if won { ("Victory!", theme::LEAF) } else { ("Defeat", theme::BERRY) };
                     ui.label(egui::RichText::new(title).font(egui::FontId::new(56.0 * pulse, theme::title_family())).color(color));
+                    if let Some(i) = mission {
+                        ui.label(theme::bold(format!("Mission {} · {}", i + 1, campaign.missions[i].name), 16.0).color(theme::WOOD_DARK));
+                    }
                     let names: Vec<&str> = winners.iter().map(|&f| game_data.faction_name(f)).collect();
                     let verb = if names.len() > 1 { "prevail" } else { "prevails" };
                     ui.label(theme::display(format!("{} {verb}", names.join(" & ")), 22.0)
                         .color(theme::shade(theme::faction_color(&game_data, winner), 0.75)));
                     ui.add_space(4.0);
                     ui.label(theme::body(message, 17.0).color(theme::INK_SOFT).italics());
+                    if won && mission.is_some_and(|i| i + 1 == campaign.missions.len()) {
+                        ui.label(theme::body("That was the last mission, for now.", 15.0).color(theme::INK_SOFT));
+                    }
                 });
                 ui.add_space(10.0);
                 theme::well().show(ui, |ui| {
@@ -118,8 +182,18 @@ pub fn draw_game_over(
                             super::icons::icon(ui, super::icons::Icon::Sun, 20.0);
                             ui.label(theme::body("Days fought", 16.0).color(theme::INK_SOFT));
                         });
-                        ui.label(theme::bold(turn_state.turn_number.to_string(), 16.0));
+                        // A holdout ends as the day after its last one begins
+                        let days = battle_config.day_limit.map_or(turn_state.turn_number, |limit| turn_state.turn_number.min(limit));
+                        ui.label(theme::bold(days.to_string(), 16.0));
                         ui.end_row();
+                        if let Some(best) = mission.filter(|_| won).and_then(|i| context.progress.best(&campaign.missions[i].key)) {
+                            ui.horizontal(|ui| {
+                                super::icons::icon(ui, super::icons::Icon::Star, 20.0);
+                                ui.label(theme::body("Best", 16.0).color(theme::INK_SOFT));
+                            });
+                            ui.label(theme::bold(format!("{best} day{}", if best == 1 { "" } else { "s" }), 16.0));
+                            ui.end_row();
+                        }
                         for army in &battle_config.armies {
                             ui.horizontal(|ui| {
                                 let icon = if winners.contains(&army.faction) { super::icons::Icon::Paw } else { super::icons::Icon::Swords };
@@ -132,8 +206,8 @@ pub fn draw_game_over(
                     });
                 });
                 ui.add_space(8.0);
-                for (i, label) in ["Play again", "Return to title"].iter().enumerate() {
-                    let response = theme::menu_item(ui, label, None, i == *selected, true, Tone::Normal);
+                for (i, option) in options.iter().enumerate() {
+                    let response = theme::menu_item(ui, option.label(), None, i == *selected, true, Tone::Normal);
                     if theme::pointer_selects(ui, &response) {
                         *selected = i;
                     }
@@ -144,13 +218,20 @@ pub fn draw_game_over(
             });
         });
 
-    match choice {
-        Some(0) => {
-            // Same state, fresh board: reopen setup with the last choices kept
-            reset_battle(&mut commands, &entities, fog.enabled, ai.enabled);
-            setup.needs_setup = true;
-        }
-        Some(_) => next_state.set(GameState::Menu),
-        None => {}
+    let Some(after) = choice.and_then(|i| options.get(i).copied()) else { return };
+    if after == After::Title {
+        next_state.set(GameState::Menu);
+        return;
     }
+    // Same state, fresh board: back to setup (skirmish keeps the last
+    // choices) or to the mission list, which starts a waiting mission itself
+    reset_battle(&mut commands, &entities, context.fog.enabled, context.ai.enabled);
+    setup.needs_setup = true;
+    setup.campaign = after != After::PlayAgain;
+    let key = |i: usize| campaign.missions.get(i).map(|m| m.key.clone());
+    context.missions.launch = match (after, mission) {
+        (After::NextMission, Some(i)) => key(i + 1),
+        (After::TryAgain, Some(i)) => key(i),
+        _ => None,
+    };
 }

@@ -24,6 +24,7 @@ src/
 │   ├── modding.rs   # Data loading
 │   ├── audio.rs     # Sound effects: PlaySfx, event-driven sounds, volume settings
 │   ├── save.rs      # Save/load: slots + autosave, localStorage on web, backups
+│   ├── campaign.rs  # Story missions: data, progress, dialogue
 │   └── custom_maps.rs # Maps from the editor, stored with the saves, offered in setup
 ├── ui/              # egui UI code
 │   ├── mod.rs       # Plugin, action menu, hover tracking
@@ -33,6 +34,7 @@ src/
 │   ├── boot.rs      # Opening: disclaimers, studio stamp, intro, "Press any button"
 │   ├── menu.rs      # Main menu
 │   ├── setup.rs     # Skirmish setup (armies: person/computer, teams; commanders; map)
+│   ├── campaign.rs  # Campaign mission list and the story dialogue box
 │   ├── hud.rs       # Battle HUD, inspect card, unit tokens
 │   ├── production.rs# Build menu
 │   ├── saves.rs     # Save/load slot screen, save toasts, F5/F9
@@ -85,7 +87,10 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
   the board is modal and the AI waits, and the cursor jumps to the army's HQ
 
 ## Rendering
-- 3D perspective camera looking down at board
+- 3D perspective camera looking down at board, over a bright daytime sky (`ClearColor`)
+- Bright Advance Wars palette: terrain and sprites are unlit and the camera has
+  `Tonemapping::None`, so PNG colors reach the screen as drawn. Keep it that way
+  (a tonemapper greys them); brighten art at its source (`tools/sprites/ground_tiles.py`)
 - Tiles are flat quads on XZ plane
 - Units are 2D sprites billboarded toward camera
 - Grid coordinates: (x, y) maps to world (x, 0, z)
@@ -131,7 +136,7 @@ Rules follow Advance Wars 2 / Dual Strike; check there before inventing a rule.
 - Battle scenes (`game/battle_scene.rs` runs them, `ui/battle_scene.rs` draws them): combat
   resolves at once and sends a `BattleReport`; reports queue and play after the attacker's walk,
   the board/AI/saving wait while `BattleScene::busy()`. Full/Quick/Off in map menu Options
-  (`DisplaySettings`, saved); any button skips. Battle art is the map sprites for now
+  (`DisplaySettings`, saved); any button skips. Units use their 64x64 battle sprites
 - Saves: open `saves::SaveMenu` (never write save files from UI code); anything new that a battle
   needs to resume belongs in `SaveGame` (bump `SaveGame::VERSION` if old saves can't carry it)
 - Everything spawned for a battle gets `BattleEntity` (required by `Unit`, `Tile`, ...)

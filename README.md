@@ -88,7 +88,7 @@ Animal kingdoms from across the world clash in strategic warfare. Each faction b
 
 - **Skirmish** - 2 to 4 armies, free-for-all or 2 vs 2, against the computer or friends on one device
 - **Roguelike** - Procedural campaign with persistent progression
-- **Campaign** - Story-driven missions (planned)
+- **Campaign** - "The Hollow Roads": six story missions, from a first skirmish to fog, a holdout and allied battles (`assets/data/campaign.ron`)
 - **Map Editor** - Create and share custom battlefields
 
 ## Building

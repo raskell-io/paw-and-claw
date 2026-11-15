@@ -35,6 +35,9 @@ The game uses RON files for moddable content. For WASM builds, data is embedded 
 - `damage_tables.ron` - attacker vs defender base damage (missing entry = can't attack)
 - `movement_costs.ron` - movement cost per terrain and unit class
 - `audio.ron` - sound effects and music by id (files under `assets/audio/`)
+- `campaign.ron` - story missions in order: armies and COs, a map drawn as text (or a built-in
+  map), objective (`Defeat` or `Survive(days)`), fog/weather, and briefing/day/victory/defeat
+  dialogue. A mod's file replaces missions by `key` and appends new ones
 
 ### Core Module
 - `src/game/modding.rs` - Data structures, loading, validation
@@ -78,6 +81,16 @@ See `modding.md` for detailed documentation.
 - Loading sets `PendingLoad`; `apply_pending_load` (Battle state) rebuilds the board with the normal
   spawn code and restores the state, then the turn resumes with its Day banner
 - UI: `ui/saves.rs` (slot screen, toasts, F5/F9), Continue on the title screen, map menu Options
+
+### Campaign
+- `game/campaign.rs`: `CampaignData` (in `GameData`, checked by `validate`), `CampaignProgress`
+  (cleared missions and best days, stored as `campaign` with the saves; `PAW_UNLOCK=1` opens
+  every mission), `Dialogue` (story lines; while one runs the board is modal and the turn banner,
+  so the AI too, waits)
+- A mission is an ordinary battle: `BattleMap::mission` holds its key, so it saves and loads
+  like any other. `Survive(days)` sets `BattleConfig::holdout` (`VictoryType::Holdout`)
+- UI: `ui/campaign.rs` (mission list in place of skirmish setup when `BattleSetupState::campaign`,
+  dialogue box); the result screen offers Next mission / Try again / Mission list
 
 ### Battles and maps
 - Skirmish: 2-4 armies, each played by a person (hot seat) or the computer, free-for-all or

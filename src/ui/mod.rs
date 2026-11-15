@@ -14,6 +14,7 @@ use crate::states::GameState;
 mod editor;
 mod boot;
 mod battle_scene;
+mod campaign;
 mod hud;
 mod icons;
 mod input;
@@ -127,6 +128,8 @@ pub struct BattleSetupState {
     pub armies_cursor: Option<usize>,
     /// Advance Wars day limit (most properties wins), or none
     pub day_limit: Option<u32>,
+    /// The setup screen is the campaign's mission list (ui/campaign.rs)
+    pub campaign: bool,
 }
 
 impl Default for BattleSetupState {
@@ -146,6 +149,7 @@ impl Default for BattleSetupState {
             selected_army: 0,
             armies_cursor: None,
             day_limit: None,
+            campaign: false,
         }
     }
 }
@@ -242,6 +246,7 @@ impl Plugin for UiPlugin {
             .init_resource::<PortraitTextures>()
             .init_resource::<UnitTextures>()
             .init_resource::<saves::SaveMenu>()
+            .init_resource::<campaign::MissionSelect>()
             .add_systems(Update, increment_egui_frame_counter)
             .add_systems(PreUpdate, update_modal_state)
             .add_systems(Update, scale_ui_to_window)
@@ -253,6 +258,7 @@ impl Plugin for UiPlugin {
                 boot::draw_boot.run_if(in_state(GameState::Menu)),
                 menu::draw_main_menu.run_if(in_state(GameState::Menu)),
                 setup::draw_battle_setup.run_if(in_state(GameState::Battle)),
+                campaign::draw_campaign.run_if(in_state(GameState::Battle)),
                 hud::draw_weather_overlay.run_if(in_state(GameState::Battle)),
                 hud::draw_unit_tokens.run_if(in_state(GameState::Battle)),
                 hud::draw_hud.run_if(in_state(GameState::Battle)),
@@ -273,6 +279,9 @@ impl Plugin for UiPlugin {
             ).run_if(egui_is_ready))
             .add_systems(Update, (saves::save_hotkeys, saves::on_game_loaded))
             .add_systems(EguiPrimaryContextPass, battle_scene::draw_battle_scene.run_if(in_state(GameState::Battle)).run_if(egui_is_ready))
+            // A mission's story speaks before the result screen answers the same button
+            .add_systems(EguiPrimaryContextPass, campaign::draw_dialogue.before(overlays::draw_game_over)
+                .run_if(in_state(GameState::Battle)).run_if(egui_is_ready))
             // Action menu registered separately
             .add_systems(EguiPrimaryContextPass,
                 draw_action_menu.run_if(in_state(GameState::Battle)).run_if(egui_is_ready)
@@ -390,9 +399,11 @@ fn update_modal_state(
     banner: Res<crate::game::TurnBanner>,
     save_menu: Res<saves::SaveMenu>,
     battle_scene: Res<crate::game::BattleScene>,
+    dialogue: Res<crate::game::Dialogue>,
 ) {
     let open = *state.get() != GameState::Battle
         || save_menu.is_open()
+        || dialogue.active()
         || battle_scene.busy()
         || setup.needs_setup
         || production.active
@@ -498,10 +509,12 @@ fn handle_ingame_menu_input(
     production: Res<ProductionState>,
     mut map_menu: ResMut<crate::game::MapMenu>,
     save_menu: Res<saves::SaveMenu>,
+    dialogue: Res<crate::game::Dialogue>,
 ) {
     // Don't handle menu during setup or victory screen, or while another menu
-    // is open (its own Esc closes it)
-    if setup_state.needs_setup || game_result.game_over || production.active || map_menu.open || save_menu.blocks_input() {
+    // or a mission's dialogue is open (its own Esc closes it)
+    if setup_state.needs_setup || game_result.game_over || production.active || map_menu.open || save_menu.blocks_input()
+        || dialogue.active() {
         return;
     }
 

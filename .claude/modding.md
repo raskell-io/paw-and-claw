@@ -39,7 +39,8 @@ assets/
 │   ├── terrain.ron        # ✅ Terrain types and properties
 │   ├── damage_tables.ron  # ✅ Attacker vs defender base damage
 │   ├── movement_costs.ron # ✅ Terrain vs unit class movement cost
-│   └── maps/              # ⏳ Map files (planned)
+│   ├── audio.ron          # ✅ Sound effects and music
+│   └── campaign.ron       # ✅ Story missions (armies, text maps, objectives, dialogue)
 ├── sprites/
 │   ├── units/
 │   │   ├── eastern/       # Per-faction unit sprites

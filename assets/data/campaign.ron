@@ -1,0 +1,435 @@
+// Paw & Claw - Campaign
+//
+// Story missions, played in order: clearing one opens the next.
+//
+// A mission has:
+//   key        - stable id (progress and saves use it; don't rename a shipped one)
+//   name, summary
+//   armies     - 2 to 4, in turn order; the first is army 1 on the map.
+//                (faction, commander, team, player: true for the one the person
+//                plays, funds: starting funds). Same team = allies.
+//   map        - Builtin(SpannIsland), or Layout(rows: [...], units: [...])
+//   objective  - Defeat (default: rout the enemy or take their HQ), or
+//                Survive(days): the player wins by lasting that many days
+//   fog        - fog of war (default false)
+//   weather    - Some(Rain | Snow | Sandstorm | Fog): holds all mission
+//   briefing   - lines spoken before day 1: (Commander, "text")
+//   days       - [(day, [lines])]: spoken as the player's turn starts that day
+//   victory, defeat - lines spoken after the battle
+//
+// Layout maps are drawn as text, one row per string, tiles separated by
+// spaces: a terrain letter, then the number of the army that owns it, if any.
+//   .  Grass       ,  Tall Grass   T  Thicket     B  Brambles    =  Trail
+//   ^  Boulder     h  Hollow       ~  Creek       w  Pond        L  Lily Pads
+//   :  Shore       H  HQ           W  Workshop    D  Dock        R  Roost
+//   O  Outpost     S  Storehouse
+// So `H1` is army 1's HQ and `O` a neutral outpost. Units are
+// (army, Unit, x, y), counting from the top-left tile, which is (0, 0).
+//
+// A mod's campaign.ron replaces missions with the same key and adds the rest
+// after the last one.
+
+(
+    name: "The Hollow Roads",
+    tagline: "Something is digging beneath the Western Frontier",
+    missions: [
+        // ------------------------------------------------------------------
+        // 1. A first battle: no buildings to worry about, just move and fight
+        // ------------------------------------------------------------------
+        (
+            key: "first_light",
+            name: "First Light",
+            summary: "Raiders have come up out of the ground beside Dusty's storehouse. Drive them off. A first battle: move, attack, and mind the terrain.",
+            armies: [
+                (faction: Western, commander: Dusty, team: 0, player: true),
+                (faction: Nether, commander: Wriggle, team: 1),
+            ],
+            map: Layout(
+                rows: [
+                    "T  T  .  .  .  ,  .  .  .  T  T  T",
+                    "T  .  .  .  ,  .  .  ^  .  .  .  T",
+                    ".  .  h  .  .  .  .  .  .  .  .  .",
+                    "=  =  =  =  =  =  =  =  =  =  =  =",
+                    ".  .  .  .  T  .  .  T  .  h  .  .",
+                    ".  S1 .  .  T  .  .  .  .  .  .  .",
+                    "T  .  .  ,  .  .  ^  .  .  .  T  .",
+                    "T  T  .  .  .  .  .  .  ,  T  T  T",
+                ],
+                units: [
+                    (1, Scout, 1, 2),
+                    (1, Scout, 2, 4),
+                    (1, Shocktrooper, 1, 4),
+                    (1, Ironclad, 2, 3),
+                    (2, Scout, 10, 2),
+                    (2, Scout, 9, 4),
+                    (2, Scout, 10, 5),
+                    (2, Recon, 10, 3),
+                ],
+            ),
+            briefing: [
+                (Shell, "Dusty! Up, lad. There's a hole in the meadow that wasn't there last night, and it's coughing up shrews."),
+                (Dusty, "Shrews? Out of a hole? ...They're heading for the storehouse. That's the whole valley's seed grain, Shell."),
+                (Wriggle, "Grain, twine, nails, whatever isn't pegged down. Step aside, tinkerer, and nobody gets nipped."),
+                (Dusty, "Not a chance. Militia, to me!"),
+                (Shell, "Easy now. Pick a unit, pick where it goes, then tell it to attack or wait. When everyone's had a go, end the day from the menu."),
+                (Shell, "And send the Charger in first. Militia bounce off an Outrider. A Charger doesn't."),
+            ],
+            days: [
+                (2, [
+                    (Shell, "Mind where you stand. A thicket or a hollow soaks up blows. The open trail soaks up nothing."),
+                    (Shell, "A hurt unit hits softer, too. Gang up, and finish what you start."),
+                ]),
+            ],
+            victory: [
+                (Wriggle, "Too many teeth for one morning! Back down, back down! The marshal can deal with you."),
+                (Dusty, "Marshal? ...Shell, that wasn't a raid. That was a scouting party."),
+                (Shell, "Aye. And scouts report to somebody. Best we see how far that tunnel goes."),
+            ],
+            defeat: [
+                (Shell, "They've cleaned us out, lad. Dust yourself off. We go again."),
+            ],
+        ),
+
+        // ------------------------------------------------------------------
+        // 2. Capturing, income and building
+        // ------------------------------------------------------------------
+        (
+            key: "taking_stock",
+            name: "Taking Stock",
+            summary: "The raiders have dug in across the valley. Capture outposts and storehouses for funds, muster troops at the workshop, and take their camp.",
+            armies: [
+                (faction: Western, commander: Dusty, team: 0, player: true, funds: 2000),
+                (faction: Nether, commander: Wriggle, team: 1),
+            ],
+            map: Layout(
+                rows: [
+                    "T  T  .  .  O  .  .  ,  .  .  .  .  T  T",
+                    "T  H1 .  .  .  .  T  T  .  .  O  .  .  T",
+                    ".  W1 .  =  =  =  =  =  =  .  .  .  .  .",
+                    ".  .  .  =  .  S  .  ^  =  .  .  T  .  .",
+                    "O1 .  .  =  .  .  ^  .  =  .  .  .  .  .",
+                    ".  .  T  =  .  ,  .  S  =  =  =  =  W2 .",
+                    ".  O  .  =  =  =  .  .  .  .  .  .  H2 .",
+                    "T  .  .  .  .  .  .  T  .  O  .  .  .  T",
+                    "T  T  .  ,  .  .  .  T  T  .  .  .  T  T",
+                ],
+                units: [
+                    (1, Scout, 2, 1),
+                    (1, Scout, 1, 3),
+                    (1, Ironclad, 2, 3),
+                    (2, Scout, 11, 6),
+                    (2, Scout, 12, 4),
+                    (2, Recon, 11, 5),
+                ],
+            ),
+            briefing: [
+                (Dusty, "They've set up a proper camp on the far side. Flag and all. They're not leaving."),
+                (Shell, "Then we out-earn them. Every outpost and storehouse flying our colours pays into the war chest each morning."),
+                (Shell, "March militia onto one and choose Capture. A healthy squad takes it in two days. Wounded squads take longer, so keep them whole."),
+                (Dusty, "And the funds?"),
+                (Shell, "Spend them at the workshop. Put the cursor on it while it's empty and pick what to build. New troops are ready the next day."),
+                (Wriggle, "You again! Fine. This time I brought a flag. You can't argue with a flag."),
+                (Dusty, "Watch me. Take their headquarters or rout the lot of them. Either will do."),
+            ],
+            days: [
+                (3, [
+                    (Shell, "A word on prices. Militia are cheap, and only foot soldiers can capture. Chargers win fights. Buy both."),
+                ]),
+            ],
+            victory: [
+                (Wriggle, "My flag! Give that back! ...Oh, the General is going to grind me into grubs."),
+                (Dusty, "A marshal, and now a general. How big is this army?"),
+                (Shell, "Big enough to have paperwork, by the sound of it. Hollis is holding the creek road east of here. Send her a bird."),
+            ],
+            defeat: [
+                (Wriggle, "Told you. Can't argue with a flag."),
+            ],
+        ),
+
+        // ------------------------------------------------------------------
+        // 3. A holdout: indirect fire, choke points and repairs
+        // ------------------------------------------------------------------
+        (
+            key: "creekside_stand",
+            name: "Creekside Stand",
+            summary: "Hollis must hold the creek crossings until help arrives. Last seven days against Dredge's horde: the two bridges are the only way across for anything on wheels.",
+            armies: [
+                (faction: Western, commander: Hollis, team: 0, player: true, funds: 3000),
+                (faction: Nether, commander: Dredge, team: 1, funds: 3000),
+            ],
+            objective: Survive(7),
+            map: Layout(
+                rows: [
+                    "T  .  .  .  ,  .  T  ~  .  .  T  .  .  .  T",
+                    ".  O1 .  .  .  .  .  ~  .  .  .  .  O2 .  .",
+                    ".  .  .  T  .  h  .  ~  ,  .  .  .  .  .  .",
+                    "=  =  =  =  =  =  =  =  =  =  =  =  =  =  =",
+                    ".  H1 .  .  .  ^  .  ~  .  .  T  .  .  H2 .",
+                    ".  W1 .  .  T  .  :  ~  :  .  .  .  .  W2 .",
+                    ".  .  .  h  .  .  .  ~  .  ^  .  .  .  .  .",
+                    "=  =  =  =  =  =  =  =  =  =  =  =  =  =  =",
+                    ".  O1 .  ,  .  T  .  ~  .  .  ,  .  O2 .  .",
+                    "T  .  .  .  .  .  T  ~  T  .  .  .  .  .  T",
+                ],
+                units: [
+                    (1, Archer, 5, 2),
+                    (1, Scout, 6, 2),
+                    (1, Ironclad, 5, 3),
+                    (1, Siege, 5, 6),
+                    (1, Shocktrooper, 6, 6),
+                    (1, Scout, 2, 4),
+                    (2, Scout, 9, 2),
+                    (2, Scout, 10, 3),
+                    (2, Ironclad, 11, 3),
+                    (2, Recon, 12, 3),
+                    (2, Scout, 11, 5),
+                    (2, Scout, 9, 6),
+                    (2, Shocktrooper, 10, 7),
+                    (2, Ironclad, 11, 7),
+                    (2, Siege, 12, 7),
+                ],
+            ),
+            briefing: [
+                (Hollis, "Dusty's bird says seven days. Seven days until the frontier musters. So for seven days, nothing crosses this creek."),
+                (Dredge, "HRAAAGH! Little bird! Dredge smells bandages! Dredge is coming over!"),
+                (Hollis, "Charming. Listen, everyone. Their Chargers and Catapults can only cross at the two bridges. Their foot soldiers can wade, slowly."),
+                (Hollis, "Catapults and Bowmen strike from two or three tiles away, but not on a day they've moved. Set them up early and let the enemy come to us."),
+                (Hollis, "Bring the wounded back to a workshop or an outpost of ours. They mend there, and under my care they mend faster."),
+                (Hollis, "We don't have to beat him. We only have to still be here."),
+            ],
+            days: [
+                (4, [
+                    (Hollis, "Halfway. Hold the line and keep the workshop busy."),
+                    (Dredge, "Dredge is NOT TIRED! Dredge could do this ALL WEEK!"),
+                    (Hollis, "He has until day seven."),
+                ]),
+                (7, [
+                    (Hollis, "Last day. Whatever you have left, keep it between them and the headquarters."),
+                ]),
+            ],
+            victory: [
+                (Dusty, "Hollis! The frontier's here. Every banner from the ridge to the river."),
+                (Dredge, "More of them?! Not fair! Dredge is telling Burrower!"),
+                (Hollis, "Seven days, as promised. Now somebody look at my wing while I look at everyone else."),
+            ],
+            defeat: [
+                (Dredge, "HA! Dredge crossed the creek! Dredge crossed it TWICE!"),
+            ],
+        ),
+
+        // ------------------------------------------------------------------
+        // 4. Fog of war
+        // ------------------------------------------------------------------
+        (
+            key: "under_the_thorns",
+            name: "Under the Thorns",
+            summary: "Bandit slips into the old wood to find where the tunnels come up. Fog of war: thickets hide whoever stands in them. Take Burrower's headquarters.",
+            armies: [
+                (faction: Western, commander: Bandit, team: 0, player: true, funds: 3000),
+                (faction: Nether, commander: Burrower, team: 1, funds: 2000),
+            ],
+            fog: true,
+            map: Layout(
+                rows: [
+                    "T  T  .  .  T  T  .  .  T  .  .  O2 .  T",
+                    "T  .  .  T  T  .  .  B  T  .  .  .  H2 .",
+                    ".  .  O  .  T  .  T  B  .  .  T  .  W2 .",
+                    ".  T  .  .  .  .  T  T  .  T  T  .  .  .",
+                    ".  T  T  .  ^  .  .  .  .  .  T  T  .  T",
+                    "T  .  .  .  ^  T  .  S  .  T  .  .  .  T",
+                    ".  .  T  .  .  T  T  .  .  T  .  O  .  .",
+                    ".  W1 .  .  T  .  .  .  B  .  .  T  .  .",
+                    ".  H1 .  O1 .  .  T  .  B  T  .  .  .  T",
+                    "T  .  .  .  T  T  .  .  .  .  T  T  T  T",
+                ],
+                units: [
+                    (1, Scout, 2, 7),
+                    (1, Scout, 3, 7),
+                    (1, Scout, 2, 8),
+                    (1, Shocktrooper, 3, 6),
+                    (1, Shocktrooper, 1, 6),
+                    (1, Archer, 0, 7),
+                    (1, Recon, 4, 8),
+                    (2, Scout, 11, 1),
+                    (2, Scout, 10, 2),
+                    (2, Scout, 12, 3),
+                    (2, Shocktrooper, 9, 3),
+                    (2, Shocktrooper, 11, 3),
+                    (2, Ironclad, 11, 2),
+                    (2, Siege, 13, 2),
+                ],
+            ),
+            briefing: [
+                (Bandit, "So this is where they pop up. Cosy. Thorns, thickets, and I can't see past my own whiskers."),
+                (Dusty, "Bandit, this is a scouting trip. Find the tunnel mouth and come home."),
+                (Bandit, "Sure, cousin. I'll find it, and then I'll plant our flag on it. Saves a second trip."),
+                (Burrower, "A raccoon in my wood. I can hear every twig you snap, you know. I chose this ground with great care."),
+                (Bandit, "In the fog you only see what your troops can see. And a unit in a thicket stays hidden until you're standing right beside it."),
+                (Bandit, "Works both ways. Outriders see furthest. Send one ahead, and keep the militia close for the capture."),
+            ],
+            days: [
+                (3, [
+                    (Burrower, "Every thicket my soldiers stand in makes them stronger. Do come closer."),
+                    (Bandit, "Hear that? He fights better from cover. So we hit him in the open, or with something that doesn't care, like Bowmen."),
+                ]),
+            ],
+            victory: [
+                (Burrower, "Hm. Careless of me. No matter. This was one door among many, and the marshal is already on the trail roads."),
+                (Bandit, "One door, he says. Dusty? You'll want to see the map on his table. The tunnels run all the way north."),
+                (Dusty, "North. Into Grimjaw's country. ...I'd better write a very polite letter."),
+            ],
+            defeat: [
+                (Burrower, "I did say I chose the ground with care."),
+            ],
+        ),
+
+        // ------------------------------------------------------------------
+        // 5. An ally: three armies, two against one
+        // ------------------------------------------------------------------
+        (
+            key: "borrowed_arrows",
+            name: "Borrowed Arrows",
+            summary: "Marshal Cinder's column holds the trail roads between the Frontier and the Northern Realm. Grimjaw's marksmen fight beside you: strike from both sides.",
+            armies: [
+                (faction: Western, commander: Dusty, team: 0, player: true, funds: 4000),
+                (faction: Nether, commander: Cinder, team: 1, funds: 4000),
+                (faction: Northern, commander: Grimjaw, team: 0, funds: 2000),
+            ],
+            map: Layout(
+                rows: [
+                    "T  H3 .  .  .  T  .  .  .  .  ,  .  .  T  T  T",
+                    ".  W3 .  O3 .  .  .  ^  .  O  .  .  .  .  .  T",
+                    ".  .  .  .  T  .  =  =  =  =  =  =  .  O2 .  .",
+                    "T  .  .  .  .  .  =  .  T  .  .  =  .  .  .  .",
+                    ".  .  ^  .  S  .  =  .  .  h  .  =  =  W2 .  .",
+                    "~  ~  ~  ~  ~  =  =  .  ^  .  .  .  =  H2 .  T",
+                    ".  .  .  .  S  .  =  .  .  .  T  .  =  W2 .  .",
+                    "T  .  .  ,  .  .  =  .  T  .  .  =  =  .  .  .",
+                    ".  .  O1 .  T  .  =  =  =  =  =  =  .  O2 .  .",
+                    ".  W1 .  .  .  .  .  ^  .  O  .  .  .  .  .  T",
+                    "T  H1 .  .  .  T  .  .  .  .  ,  .  .  T  T  T",
+                ],
+                units: [
+                    (1, Scout, 2, 9),
+                    (1, Scout, 2, 10),
+                    (1, Ironclad, 3, 9),
+                    (1, Recon, 3, 8),
+                    (1, Siege, 1, 8),
+                    (2, Recon, 10, 2),
+                    (2, Scout, 11, 3),
+                    (2, Ironclad, 11, 4),
+                    (2, Shocktrooper, 12, 4),
+                    (2, Juggernaut, 12, 5),
+                    (2, Siege, 14, 5),
+                    (2, Shocktrooper, 12, 6),
+                    (2, Scout, 11, 7),
+                    (2, Ironclad, 12, 7),
+                    (2, Recon, 10, 8),
+                    (3, Scout, 2, 0),
+                    (3, Archer, 3, 0),
+                    (3, Scout, 2, 1),
+                    (3, Ironclad, 4, 1),
+                    (3, Siege, 2, 2),
+                    (3, Siege, 3, 2),
+                ],
+            ),
+            briefing: [
+                (Grimjaw, "Raccoon. Your letter said 'at your earliest convenience'. It is not convenient. But they dug under my orchard, so here I am."),
+                (Dusty, "I'll take it. Marshal Cinder's column sits right between us, on the trail roads."),
+                (Cinder, "Two armies. Good. I was promised a war, and so far I've had a tinkerer."),
+                (Grimjaw, "My catapults will do the talking from the north bank. You keep his armour off them."),
+                (Dusty, "Grimjaw's army moves on its own, after Cinder's. We can't give it orders, but we can fight where it fights."),
+                (Dusty, "And watch the trails. Cinder's troops hit harder while they stand on one. Make them step off."),
+            ],
+            days: [
+                (3, [
+                    (Grimjaw, "A Warbeast. Hrm. Don't send militia at that, raccoon. Halberdiers, or your Chargers from two sides, or leave it to my catapults."),
+                ]),
+            ],
+            victory: [
+                (Cinder, "Outflanked. By a tinkerer and a grump. The General will hear of this, and he listens carefully."),
+                (Grimjaw, "Hmph. You held your side. I shall tell the Realm the Frontier can be worked with."),
+                (Dusty, "High praise. Cinder was marching somewhere, Grimjaw. Somewhere east."),
+                (Grimjaw, "The old quarry. It flooded years ago. They call it the Sinkhole."),
+            ],
+            defeat: [
+                (Cinder, "As I thought. A tinkerer."),
+            ],
+        ),
+
+        // ------------------------------------------------------------------
+        // 6. The first act's last stand: fliers, in the rain
+        // ------------------------------------------------------------------
+        (
+            key: "the_sinkhole",
+            name: "The Sinkhole",
+            summary: "General Carapace guards the flooded quarry where the tunnels meet. Talon leads the strike in the rain, with Hawk Riders mustering at the roost. Break his army.",
+            armies: [
+                (faction: Western, commander: Talon, team: 0, player: true, funds: 9000),
+                (faction: Nether, commander: Carapace, team: 1, funds: 5000),
+            ],
+            weather: Some(Rain),
+            map: Layout(
+                rows: [
+                    "T  T  .  .  .  .  O  .  .  ,  .  .  .  .  T  T",
+                    "T  .  .  R1 .  .  .  .  T  .  .  O2 .  .  .  T",
+                    ".  H1 .  .  .  T  =  =  =  =  .  .  .  W2 .  .",
+                    ".  W1 .  =  =  =  =  w  w  =  =  =  =  .  H2 .",
+                    ".  .  .  =  .  :  w  w  w  w  :  .  =  .  .  .",
+                    "O1 .  .  =  .  :  w  L  w  w  :  .  =  .  O2 .",
+                    ".  .  ,  =  .  :  w  w  w  w  :  .  =  W2 .  .",
+                    "T  .  O  =  =  =  =  :  :  =  =  =  =  .  .  T",
+                    "T  T  .  .  .  ^  .  S  .  .  ^  .  .  .  T  T",
+                    "T  T  T  .  .  .  .  .  .  .  .  .  T  T  T  T",
+                ],
+                units: [
+                    (1, Skywing, 4, 1),
+                    (1, Skywing, 4, 2),
+                    (1, Scout, 2, 2),
+                    (1, Scout, 2, 3),
+                    (1, Ironclad, 3, 3),
+                    (1, Ironclad, 3, 5),
+                    (1, Siege, 2, 5),
+                    (1, Shocktrooper, 2, 6),
+                    (2, Recon, 10, 3),
+                    (2, Ironclad, 11, 3),
+                    (2, Scout, 13, 3),
+                    (2, Shocktrooper, 12, 4),
+                    (2, Flak, 13, 4),
+                    (2, Siege, 14, 4),
+                    (2, Juggernaut, 12, 5),
+                    (2, Scout, 13, 5),
+                    (2, Shocktrooper, 12, 6),
+                    (2, Barrage, 14, 6),
+                    (2, Ironclad, 12, 7),
+                    (2, Flak, 13, 7),
+                ],
+            ),
+            briefing: [
+                (Talon, "There it is. One big hole in the ground and one big pangolin sitting next to it. Finally, something to dive at."),
+                (Dusty, "Talon, he's got more of everything than we do. Slow and careful."),
+                (Talon, "I don't do slow. I do first, and I do hard. That's what the roost is for."),
+                (Carapace, "Commander Talon. I have read the reports on you. Brave, direct, and predictable. I have built my line accordingly."),
+                (Talon, "Hawk Riders fly over the water and over his front line. Catapults can't touch them. But keep them clear of his Hawkbanes: one volley and it's feathers everywhere."),
+                (Talon, "So: Chargers kill the Hawkbanes, riders kill everything else. Simple."),
+                (Dusty, "The roost builds fliers the way the workshop builds everything else. Fliers burn stamina every day, so bring them home to refill."),
+            ],
+            days: [
+                (4, [
+                    (Carapace, "You are losing troops faster than I am. This is arithmetic, Commander, and arithmetic is patient."),
+                    (Talon, "He's right that he grinds. So don't trade evenly. Hit what can't hit back, and use our power when the meter's full."),
+                ]),
+            ],
+            victory: [
+                (Carapace, "...I see. I planned for the hawk. I did not plan for the hawk listening to the raccoon."),
+                (Talon, "Don't tell anyone."),
+                (Dusty, "The tunnels all meet here. And they all go down. Further than the lamps reach."),
+                (Carapace, "Of course they do. You have met her soldiers, tinkerer. You have not met the Matriarch. Enjoy your quarry."),
+                (Shell, "Well, lad. We've found the front door. I reckon the rest of it can wait until morning."),
+            ],
+            defeat: [
+                (Carapace, "Predictable."),
+            ],
+        ),
+    ],
+)

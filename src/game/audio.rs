@@ -316,6 +316,7 @@ fn choose_music(
     game_data: Res<GameData>,
     boot: Res<crate::states::BootSequence>,
     battle_config: Res<super::BattleConfig>,
+    dialogue: Res<super::Dialogue>,
     mut cue: ResMut<MusicCue>,
 ) {
     use crate::states::GameState;
@@ -337,6 +338,11 @@ fn choose_music(
                 .any(|a| !a.ai && battle_config.allied(a.faction, winner));
             if won { "victory" } else { "defeat" }.to_string()
         }),
+        // A mission's story plays under the theme of whoever speaks first
+        // (the fanfare waits for the match intro after it)
+        GameState::Battle if dialogue.active() => dialogue.lines.first()
+            .map(|line| format!("co_{}", super::commander_to_key(line.0)))
+            .filter(|theme| game_data.audio.music.contains_key(theme)),
         GameState::Battle if banner.intro && banner.elapsed < MATCH_INTRO_SECS => Some("battle_start".to_string()),
         GameState::Battle => {
             let faction = turn_state.current_faction;

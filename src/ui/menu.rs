@@ -18,21 +18,23 @@ struct MenuEntry {
 #[derive(Clone)]
 enum MenuTarget {
     State(GameState),
+    /// The campaign's mission list
+    Campaign,
     /// The load screen, on the newest save
     Continue,
     Quit,
 }
 
-fn entries(continue_detail: Option<&str>) -> Vec<MenuEntry> {
+fn entries(continue_detail: Option<&str>, campaign_detail: String) -> Vec<MenuEntry> {
     let mut entries = Vec::new();
     // Continue leads when there's a battle to go back to
     if let Some(detail) = continue_detail {
         entries.push(MenuEntry { icon: Icon::OpenBook, label: "Continue", detail: detail.to_string(), target: Some(MenuTarget::Continue) });
     }
     entries.extend([
+        MenuEntry { icon: Icon::Banner, label: "Campaign", detail: campaign_detail, target: Some(MenuTarget::Campaign) },
         MenuEntry { icon: Icon::Swords, label: "Skirmish", detail: "Pick a faction, a commander and a map".into(), target: Some(MenuTarget::State(GameState::Battle)) },
         MenuEntry { icon: Icon::Quill, label: "Map Editor", detail: "Paint your own battlefield".into(), target: Some(MenuTarget::State(GameState::Editor)) },
-        MenuEntry { icon: Icon::Banner, label: "Campaign", detail: "Coming soon".into(), target: None },
         MenuEntry { icon: Icon::Die, label: "Roguelike", detail: "Coming soon".into(), target: None },
     ]);
     // Browsers own the tab lifecycle, so only offer Quit on native
@@ -58,6 +60,9 @@ pub fn draw_main_menu(
     boot: Res<crate::states::BootSequence>,
     mut save_menu: ResMut<super::saves::SaveMenu>,
     save_index: Res<crate::game::SaveIndex>,
+    game_data: Res<crate::game::GameData>,
+    progress: Res<crate::game::CampaignProgress>,
+    mut setup: ResMut<super::BattleSetupState>,
     mut selected: Local<usize>,
     mut shown: Local<bool>,
 ) {
@@ -74,7 +79,14 @@ pub fn draw_main_menu(
     let accept_input = std::mem::replace(&mut *shown, true);
     let newest = save_index.newest();
     let continue_detail = newest.map(|(_, s)| format!("Day {} · {} · {}", s.day, s.map, crate::game::time_ago(s.saved_at)));
-    let entries = entries(continue_detail.as_deref());
+    // Where the story stands
+    let campaign = &game_data.campaign;
+    let campaign_detail = match progress.next(campaign) {
+        Some(0) => campaign.tagline.clone(),
+        Some(i) => format!("Mission {} of {} · {}", i + 1, campaign.missions.len(), campaign.missions[i].name),
+        None => "Complete · replay any mission".to_string(),
+    };
+    let entries = entries(continue_detail.as_deref(), campaign_detail);
     let enabled: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].target.is_some()).collect();
     // Keyboard/gamepad navigation skips disabled entries
     let mut pos = enabled.iter().position(|&i| i == *selected).unwrap_or(0);
@@ -136,7 +148,14 @@ pub fn draw_main_menu(
 
     if let Some(i) = activate {
         match entries[i].target.clone() {
-            Some(MenuTarget::State(state)) => next_state.set(state),
+            Some(MenuTarget::State(state)) => {
+                setup.campaign = false;
+                next_state.set(state);
+            }
+            Some(MenuTarget::Campaign) => {
+                setup.campaign = true;
+                next_state.set(GameState::Battle);
+            }
             Some(MenuTarget::Continue) => {
                 save_menu.open(super::saves::SaveMode::Load, false, newest.map(|(slot, _)| slot));
             }

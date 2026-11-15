@@ -374,6 +374,7 @@ pub fn save_hotkeys(
 pub fn on_game_loaded(mut events: MessageReader<GameLoadedEvent>, mut setup: ResMut<BattleSetupState>) {
     for event in events.read() {
         setup.needs_setup = false;
+        setup.campaign = event.mission;
         if let Some(map) = event.map_id {
             setup.selected_map = map;
         }

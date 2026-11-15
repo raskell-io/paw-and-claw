@@ -100,6 +100,7 @@ pub struct MenuInfo<'w, 's> {
     units: Query<'w, 's, (&'static Unit, &'static FactionMember, &'static GridPosition)>,
     tiles: Query<'w, 's, &'static Tile>,
     battle_map: Res<'w, crate::game::BattleMap>,
+    dialogue: Res<'w, crate::game::Dialogue>,
 }
 
 impl MenuInfo<'_, '_> {
@@ -144,7 +145,7 @@ pub fn draw_map_menu(
     if actions.saves.is_open() {
         return;
     }
-    if info.setup.needs_setup || info.game_result.game_over {
+    if info.setup.needs_setup || info.game_result.game_over || info.dialogue.active() {
         menu.open = false;
     } else if gamepads.iter().any(|pad| pad.just_pressed(GamepadButton::Start)) {
         menu.open = !menu.open;
@@ -295,6 +296,14 @@ pub fn draw_map_menu(
                     ui.set_width((200.0 + 130.0 * info.armies().len() as f32).max(460.0));
                     heading(ui, "Intel", &format!("Day {} · {} {}", info.turn_state.turn_number,
                         info.weather.current.icon(), info.weather.current.name()));
+                    // A campaign mission says what it asks of the player
+                    if let Some(mission) = info.battle_map.mission.as_deref().and_then(|key| game_data.campaign.mission(key)) {
+                        ui.horizontal(|ui| {
+                            super::icons::icon(ui, Icon::Flag, 20.0);
+                            ui.label(theme::bold(format!("Objective: {}", mission.objective.describe()), 16.0).color(theme::WOOD_DARK));
+                        });
+                        ui.add_space(4.0);
+                    }
                     intel(ui, &info, &actions.commanders);
                     hint = hint.or(hints(ui, &[("Esc", "Back")]));
                 }

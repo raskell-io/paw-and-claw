@@ -47,6 +47,9 @@ pub struct BattleConfig {
     /// Advance Wars versus rule: when this many days have passed, the side
     /// holding the most properties wins
     pub day_limit: Option<u32>,
+    /// A holdout (campaign "survive" missions): when the day limit runs out
+    /// this army's side wins outright, whatever it holds
+    pub holdout: Option<Faction>,
     /// The home perspective: the first army a person plays (or the first army
     /// when only the computer plays). Single-player screens show this side.
     pub player_faction: Faction,
@@ -69,7 +72,7 @@ impl BattleConfig {
 
     pub fn from_armies(armies: Vec<Army>) -> Self {
         let player_faction = armies.iter().find(|a| !a.ai).or(armies.first()).map_or(Faction::Eastern, |a| a.faction);
-        Self { armies, player_faction, day_limit: None }
+        Self { armies, player_faction, day_limit: None, holdout: None }
     }
 
     pub fn army(&self, faction: Faction) -> Option<&Army> {
@@ -263,9 +266,9 @@ fn start_turn_banner(
     }
 }
 
-fn tick_turn_banner(time: Res<Time>, mut banner: ResMut<TurnBanner>, hand_over: Res<HandOver>) {
-    // The banner waits behind the hot-seat cover
-    if banner.playing() && hand_over.faction.is_none() {
+fn tick_turn_banner(time: Res<Time>, mut banner: ResMut<TurnBanner>, hand_over: Res<HandOver>, dialogue: Res<super::Dialogue>) {
+    // The banner waits behind the hot-seat cover, and for a mission's story
+    if banner.playing() && hand_over.faction.is_none() && !dialogue.active() {
         banner.elapsed += time.delta_secs();
     }
 }
@@ -294,6 +297,7 @@ pub enum VictoryType {
     Elimination,   // All enemy units destroyed
     HQCapture,     // Enemy HQ (base) captured
     DayLimit,      // Held the most properties when the day limit ran out
+    Holdout,       // Still standing when a holdout's last day passed
 }
 
 /// Event fired when a faction's turn starts
@@ -429,6 +433,14 @@ fn check_victory_condition(
     // Day limit: once the last day is over, the team holding the most
     // properties wins (army value breaks a tie)
     if battle_config.day_limit.is_some_and(|limit| turn_state.turn_number > limit) {
+        // A holdout: lasting the days is the whole objective
+        if let Some(holder) = battle_config.holdout.filter(|&f| battle_config.alive().any(|a| a.faction == f)) {
+            game_result.game_over = true;
+            game_result.winner = Some(holder);
+            game_result.victory_type = VictoryType::Holdout;
+            info!("{:?} held out to the last day", holder);
+            return;
+        }
         let mut best: Option<(u8, (usize, u32), Faction)> = None;
         for army in battle_config.alive() {
             let team: Vec<Faction> = battle_config.alive().filter(|a| a.team == army.team).map(|a| a.faction).collect();

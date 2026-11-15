@@ -713,7 +713,7 @@ fn cursor_screen_fraction(
 /// A commander's portrait in a framed square, or their initial when there's no
 /// art yet, faded to `alpha` (0 = gone, 1 = solid). Portraits are drawn facing
 /// right; `facing_left` mirrors them for the second army, like its units.
-fn portrait_square(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, name: &str, texture: Option<egui::TextureId>,
+pub fn portrait_square(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, name: &str, texture: Option<egui::TextureId>,
                    alpha: f32, facing_left: bool) {
     painter.rect_filled(rect.expand(5.0), 6, theme::shade(color, 0.4).gamma_multiply(alpha));
     match texture {

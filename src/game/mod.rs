@@ -21,6 +21,7 @@ mod effects;
 mod audio;
 mod touch;
 mod diorama;
+mod campaign;
 
 pub use map::*;
 pub use maps::*;
@@ -42,6 +43,7 @@ pub use modding::*;
 pub use effects::*;
 pub use audio::*;
 pub use touch::*;
+pub use campaign::*;
 
 // Future: use crate::states::GameState;
 
@@ -67,6 +69,7 @@ impl Plugin for GamePlugin {
             .add_plugins(CommanderPlugin)
             .add_plugins(WeatherPlugin)
             .add_plugins(SpritePlugin)
-            .add_plugins(SavePlugin);
+            .add_plugins(SavePlugin)
+            .add_plugins(CampaignPlugin);
     }
 }

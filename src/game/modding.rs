@@ -56,6 +56,9 @@ const DEFAULT_MOVEMENT_COSTS_RON: &str = include_str!("../../assets/data/movemen
 /// Embedded default sound effects and music
 const DEFAULT_AUDIO_RON: &str = include_str!("../../assets/data/audio.ron");
 
+/// The campaign: story missions in order
+const DEFAULT_CAMPAIGN_RON: &str = include_str!("../../assets/data/campaign.ron");
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -280,6 +283,7 @@ pub struct GameData {
     pub damage_tables: DamageTablesRegistry,
     pub movement_costs: MovementCostsRegistry,
     pub audio: AudioRegistry,
+    pub campaign: super::CampaignData,
 }
 
 impl GameData {
@@ -299,6 +303,8 @@ impl GameData {
             .expect("Failed to parse embedded movement_costs.ron");
         let audio = ron::from_str(DEFAULT_AUDIO_RON)
             .expect("Failed to parse embedded audio.ron");
+        let campaign = ron::from_str(DEFAULT_CAMPAIGN_RON)
+            .expect("Failed to parse embedded campaign.ron");
 
         Self {
             factions,
@@ -308,6 +314,7 @@ impl GameData {
             damage_tables,
             movement_costs,
             audio,
+            campaign,
         }
     }
 
@@ -362,6 +369,8 @@ impl GameData {
                 self.audio.sfx.extend(r.sfx);
                 self.audio.music.extend(r.music);
             });
+            // Missions replace by key; new ones follow the built-in campaign
+            merge_mod_file(&path.join("campaign.ron"), |r: super::CampaignData| self.campaign.merge(r));
             merge_mod_file(&path.join("movement_costs.ron"), |r: MovementCostsRegistry| {
                 for (terrain, row) in r.costs {
                     self.movement_costs.costs.entry(terrain).or_default().extend(row);
@@ -420,6 +429,10 @@ impl GameData {
                     problems.push(format!("damage table '{}' has unknown defender '{}'", attacker, defender));
                 }
             }
+        }
+        // Lookups must work before missions can be checked against the data
+        if problems.is_empty() {
+            problems.extend(self.campaign.problems(self));
         }
         if problems.is_empty() { Ok(()) } else { Err(problems) }
     }
