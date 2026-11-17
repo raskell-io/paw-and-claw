@@ -107,6 +107,9 @@ See `modding.md` for detailed documentation.
 - `tools/sprites/brand.py MASCOT_PNG` draws the boot art in `assets/sprites/brand/` (the raskell.io
   mascot as a red stamp seal, the cartoon hand and stamp, washi paper); the mascot comes from
   www.raskell.io (`static/raskell-mascot.avif`, converted to PNG)
+- The boot screen's wordmark (`brand/wordmark_raskell.png`, `brand/wordmark_studios.png`) is the
+  raskell studios label: rendered from the brand kit in raskell-io/context (`brand/`), white, tinted in
+  `src/ui/boot.rs`; the letter cuts there come from `raskell-studios-letters.json`
 
 ---
 

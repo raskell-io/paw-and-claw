@@ -1,4 +1,4 @@
-//! The opening sequence: disclaimers, the raskell.io studio stamp, the
+//! The opening sequence: disclaimers, the raskell studios stamp, the
 //! animated intro showing every army and commander, and the title slamming in
 //! with "Press any button". Any button skips ahead; the main menu
 //! (`menu::draw_main_menu`) takes over at `BootStage::Menu`.
@@ -23,17 +23,21 @@ const INTRO_SECS: f32 = 30.0;
 /// Beats of the intro song (168 BPM)
 const BEAT: f32 = 60.0 / 168.0;
 
-/// The brand art handed to egui (tools/sprites/brand.py)
+/// The brand art handed to egui: the stamp, hand and paper from tools/sprites/brand.py; the two words
+/// of the raskell studios wordmark from the label's brand kit (see WORD_RASKELL)
 #[derive(Resource, Default)]
 pub struct BrandTextures {
     handles: Vec<Handle<Image>>,
     ink: Option<egui::TextureId>,
     hand: Option<egui::TextureId>,
     washi: Option<egui::TextureId>,
+    raskell: Option<egui::TextureId>,
+    studios: Option<egui::TextureId>,
 }
 
 pub fn load_brand_textures(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let handles = ["sprites/brand/stamp_ink.png", "sprites/brand/stamp_hand.png", "sprites/brand/washi.png"]
+    let handles = ["sprites/brand/stamp_ink.png", "sprites/brand/stamp_hand.png", "sprites/brand/washi.png",
+                   "sprites/brand/wordmark_raskell.png", "sprites/brand/wordmark_studios.png"]
         .iter()
         .map(|path| asset_server.load(*path))
         .collect();
@@ -41,7 +45,7 @@ pub fn load_brand_textures(mut commands: Commands, asset_server: Res<AssetServer
 }
 
 pub fn register_brand_textures(mut contexts: EguiContexts, mut brand: ResMut<BrandTextures>) {
-    if brand.ink.is_some() || brand.handles.len() < 3 {
+    if brand.ink.is_some() || brand.handles.len() < 5 {
         return;
     }
     let ids: Vec<_> = brand.handles.iter()
@@ -50,6 +54,8 @@ pub fn register_brand_textures(mut contexts: EguiContexts, mut brand: ResMut<Bra
     brand.ink = Some(ids[0]);
     brand.hand = Some(ids[1]);
     brand.washi = Some(ids[2]);
+    brand.raskell = Some(ids[3]);
+    brand.studios = Some(ids[4]);
 }
 
 /// Any key, mouse button, touch or gamepad button pressed this frame
@@ -172,7 +178,7 @@ fn disclaimer(painter: &egui::Painter, screen: egui::Rect, t: f32) {
     text(painter, c + egui::vec2(0.0, 92.0), "Best enjoyed with sound on.", 16.0, egui::FontFamily::Proportional, soft);
 }
 
-// --- Studio: the raskell.io stamp -------------------------------------------------
+// --- Studio: the raskell studios stamp ---------------------------------------------
 
 /// Timing of the stamp, in seconds into the studio stage
 const HAND_IN: f32 = 0.35;
@@ -181,6 +187,18 @@ const SLAM: f32 = 1.35;
 const IMPACT: f32 = 1.47;
 const LIFT: f32 = 1.95;
 const LETTERS: f32 = 2.5;
+/// "STUDIOS" fades in and its tracking opens up once "raskell" has landed
+const STUDIOS_IN: f32 = 3.25;
+
+/// The wordmark, white on transparent and tinted here. Rendered from the brand kit
+/// (raskell-io/context, brand/raskell-studios-export.py: "raskell" in Unbounded SemiBold,
+/// "STUDIOS" in Geist Light spread to the same ink width). Each word is cropped to its ink;
+/// the cuts split it into letters, as fractions of its width (raskell-studios-letters.json).
+/// Heights and the gap are in the same units as the width, which both words share.
+const WORD_WIDTH: f32 = 385.6;
+const WORD_RASKELL: (f32, [f32; 8]) = (78.6, [0.0, 0.12993, 0.32754, 0.51491, 0.69619, 0.87448, 0.941, 1.0]);
+const WORD_STUDIOS: (f32, [f32; 8]) = (19.292, [0.0, 0.09829, 0.26059, 0.42576, 0.59407, 0.72886, 0.90091, 1.0]);
+const WORD_GAP: f32 = 27.0;
 
 fn studio(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, t: f32, prev: f32, brand: &BrandTextures) {
     if crossed(prev, t, HAND_IN) {
@@ -227,7 +245,7 @@ fn studio(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, t: f
     // the text fits on a phone. The ink matches the stamp's rubber face (116 px of art).
     let art_scale = screen.height() * 0.0022;
     let seal = 116.0 * art_scale;
-    let center = egui::pos2(screen.center().x, screen.top() + screen.height() * 0.55) + shake;
+    let center = egui::pos2(screen.center().x, screen.top() + screen.height() * 0.47) + shake;
 
     // The ink, left on the paper from the impact on, with a few splats
     if t >= IMPACT {
@@ -284,16 +302,16 @@ fn studio(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, t: f
         }
     }
 
-    // "produced by" then "raskell.io" popping in letter by letter
-    if t >= LETTERS - 0.3 {
-        let fa = (((t - (LETTERS - 0.3)) / 0.3).clamp(0.0, 1.0)) * a;
-        text(painter, center + egui::vec2(0.0, seal * 0.62), "produced by", 18.0, egui::FontFamily::Proportional,
-            egui::Color32::from_rgb(90, 74, 64).gamma_multiply(fa));
-        let word = "raskell.io";
-        let size = 46.0;
-        let spacing = size * 0.52;
-        let start_x = center.x - spacing * (word.len() as f32 - 1.0) / 2.0;
-        for (i, ch) in word.chars().enumerate() {
+    // The wordmark under the seal: "raskell" popping in letter by letter, then "STUDIOS"
+    // fading in below while its letters spread out to the width of "raskell"
+    if let (Some(raskell), Some(studios)) = (brand.raskell, brand.studios) {
+        let width = (seal * 1.6).min(screen.width() * 0.84);
+        let k = width / WORD_WIDTH;
+        let left = center.x - width / 2.0;
+        let top = center.y + seal * 0.66;
+        let ink = egui::Color32::from_rgb(40, 30, 34);
+        let (h, cuts) = WORD_RASKELL;
+        for i in 0..7 {
             let at = LETTERS + i as f32 * 0.07;
             if crossed(prev, t, at) {
                 theme::queue_sound(ctx, "letter");
@@ -301,10 +319,25 @@ fn studio(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, t: f
             if t < at {
                 continue;
             }
-            let k = ease_back((t - at) / 0.22);
-            let pos = egui::pos2(start_x + i as f32 * spacing, center.y + seal * 0.62 + 44.0 - 18.0 * (1.0 - k));
-            text(painter, pos, &ch.to_string(), size * (0.4 + 0.6 * k), theme::title_family(),
-                egui::Color32::from_rgb(40, 30, 34).gamma_multiply(a));
+            let pop = ease_back((t - at) / 0.22);
+            let (u0, u1) = (cuts[i], cuts[i + 1]);
+            let mid = egui::pos2(left + (u0 + u1) / 2.0 * width, top + h * k / 2.0 + 18.0 * (1.0 - pop));
+            let size = egui::vec2((u1 - u0) * width, h * k) * (0.4 + 0.6 * pop);
+            painter.image(raskell, egui::Rect::from_center_size(mid, size),
+                egui::Rect::from_min_max(egui::pos2(u0, 0.0), egui::pos2(u1, 1.0)), ink.gamma_multiply(a));
+        }
+        if t >= STUDIOS_IN {
+            let s = ease_out((t - STUDIOS_IN) / 0.6);
+            let (sh, cuts) = WORD_STUDIOS;
+            let y = top + (h + WORD_GAP) * k;
+            for i in 0..7 {
+                let (u0, u1) = (cuts[i], cuts[i + 1]);
+                // From set close together around the middle to the full width
+                let x = center.x + ((u0 + u1) / 2.0 - 0.5) * width * (0.55 + 0.45 * s);
+                let rect = egui::Rect::from_center_size(egui::pos2(x, y + sh * k / 2.0), egui::vec2((u1 - u0) * width, sh * k));
+                painter.image(studios, rect, egui::Rect::from_min_max(egui::pos2(u0, 0.0), egui::pos2(u1, 1.0)),
+                    ink.gamma_multiply(a * s));
+            }
         }
     }
 }
